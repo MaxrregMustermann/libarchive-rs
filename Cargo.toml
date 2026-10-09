@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = ["libarchive", "jni"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/MaxrregMustermann/libarchive-rs"
+
+[workspace.dependencies]
+libarchive = { path = "libarchive" }
+# Compression codecs. Every one of these is a pure-Rust or statically-linked C implementation with
+# no runtime dependency on the platform, so the same code paths are used on the host and on Android.
+brotli = { version = "9", default-features = false, features = ["std"] }
+bzip2 = { version = "0.6", default-features = false }
+crc32fast = "1.5"
+deflate64 = "0.1"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
+lzma-rust2 = { version = "0.21", features = ["std"] }
+ppmd-rust = "1.5"
+zstd = { version = "0.14", default-features = false }
+aes = "0.9"
+aes-gcm = "0.10"
+sha1 = "0.10"
+hmac = "0.13"
+pbkdf2 = "0.13"
+# Reused wholesale for the long tail of legacy formats. See libarchive/src/lib.rs.
+unarc-rs = { version = "0.7", default-features = false }
+sevenz-rust2 = { version = "0.23", default-features = false }
+
+[profile.release]
+# Decompression is the hot path and this crate exists to make archives open fast, so the trade is
+# binary size for speed. Measured at around 13% on reading a deflate archive.
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.bench]
+inherits = "release"

@@ -1,0 +1,54 @@
+[package]
+name = "libarchive"
+description = "Streaming archive and compression reading and writing for Android file managers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "libarchive"
+# `rlib` so the JNI crate and the tests can link it; `cdylib` is built by the `jni` crate.
+crate-type = ["rlib"]
+
+[dependencies]
+brotli.workspace = true
+bzip2.workspace = true
+crc32fast.workspace = true
+deflate64.workspace = true
+flate2.workspace = true
+lz4_flex.workspace = true
+lzma-rust2.workspace = true
+ppmd-rust.workspace = true
+zstd.workspace = true
+aes.workspace = true
+aes-gcm.workspace = true
+sha1.workspace = true
+hmac.workspace = true
+pbkdf2.workspace = true
+# The 7Z container, the legacy long tail, and the codecs they carry with them.
+sevenz-rust2 = { workspace = true, features = ["util", "compress"] }
+unarc-rs.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+proptest = "1"
+rand = "0.9"
+tempfile = "3"
+
+[features]
+default = []
+# Reading the long tail: RAR, ARJ, ACE, ARC, Zoo, LZH, SQ, UCB, UC2, Ha, Hyp, Ice.
+# On by default because a file manager that silently cannot open a `.rar` is broken.
+legacy = []
+# Formats that pull in extra dependencies and are almost never met.
+exotic = []
+
+[[bench]]
+name = "zip"
+harness = false
+
+[[bench]]
+name = "listing"
+harness = false

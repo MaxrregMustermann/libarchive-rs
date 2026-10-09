@@ -1,0 +1,28 @@
+[package]
+name = "libarchive-jni"
+description = "The JNI bridge that gives the Android app access to libarchive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "rust_archive"
+# `cdylib` is what `System.loadLibrary("rust_archive")` loads. `rlib` is here so the JNI tests can
+# link the bridge and drive it without a device.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+libarchive.workspace = true
+jni = "0.21"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "jni_bridge"
+# These drive the exported `extern "system"` functions directly with a mock JNIEnv, which is the
+# only way to test the boundary without a device. The emulator run is what proves the real thing.
+harness = true
