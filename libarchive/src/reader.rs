@@ -115,7 +115,7 @@ impl OpenOptions {
 /// Opening an archive reads its entry list once. After that, entries are addressed by index and
 /// their contents are streamed, so holding this value across several reads is both allowed and
 /// much faster for formats with blocks.
-pub struct ArchiveReader<R: Read + Seek> {
+pub struct ArchiveReader<R: Read + Seek + Send + 'static> {
     entries: Vec<Entry>,
     format: Format,
     backend: Box<dyn EntrySource<R>>,
@@ -135,7 +135,7 @@ pub struct ArchiveReader<R: Read + Seek> {
 /// [`ErrorKind::Malformed`] rather than an `io::Error` for anything wrong with the bytes. The
 /// `#[deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]` lint at the crate
 /// root enforces the first two by static analysis.
-pub trait EntrySource<R: Read + Seek>: Send {
+pub trait EntrySource<R: Read + Seek + Send + 'static>: Send {
     /// The entry list, built when the archive was opened.
     fn entries(&self) -> &[Entry];
 
@@ -162,7 +162,10 @@ pub trait EntrySource<R: Read + Seek>: Send {
     }
 
     /// Gives the source back, so the caller can recover the reader it was built on.
-    fn into_source(self: Box<Self>) -> R;
+    ///
+    /// Fails when an entry stream is still open, because the source cannot be taken back while
+    /// something else holds it. Reported rather than papered over with a panic.
+    fn into_source(self: Box<Self>) -> Result<R>;
 }
 
 /// The contents of one entry, as a reader.
@@ -202,6 +205,17 @@ impl EntryStream {
     }
 }
 
+impl std::fmt::Debug for EntryStream {
+    /// Shows what has been read so far, not the decompressor's internals, which are the
+    /// implementation's business and not the caller's.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EntryStream")
+            .field("consumed", &self.consumed)
+            .field("size", &self.inner.size())
+            .finish()
+    }
+}
+
 impl Read for EntryStream {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         // An empty slice must report zero without touching the decompressor. Several codecs treat
@@ -224,7 +238,7 @@ pub trait EntryRead: Read + Send {
     fn size(&self) -> Option<u64>;
 }
 
-impl<R: Read + Seek> ArchiveReader<R> {
+impl<R: Read + Seek + Send + 'static> ArchiveReader<R> {
     /// Opens whatever `source` turns out to be.
     ///
     /// Detection reads the signature rather than trusting a name, because the bytes say what a file
@@ -313,7 +327,10 @@ impl<R: Read + Seek> ArchiveReader<R> {
     }
 
     /// Consumes the reader and gives the source back.
-    pub fn into_inner(self) -> R {
+    ///
+    /// Fails if an entry stream opened from this reader is still alive, which is the one thing
+    /// that can still be holding the source.
+    pub fn into_inner(self) -> Result<R> {
         self.backend.into_source()
     }
 }
@@ -327,14 +344,23 @@ impl<R: Read + Seek> ArchiveReader<R> {
 /// end itself.
 pub struct RawReader<R: Read + Seek> {
     source: Shared<R>,
+    offset: u64,
     remaining: Option<u64>,
+    /// Whether the seek to `offset` has happened yet.
+    ///
+    /// The seek is deferred to the first read rather than done in `new`, because `new` is called
+    /// with only a shared handle and doing it there would mean taking the lock twice on the path
+    /// where every entry is opened. It is done *somewhere*, though: a reader that ignored its own
+    /// offset would read from wherever the previous entry happened to leave the file, which is
+    /// silent data corruption rather than a failure.
+    positioned: bool,
 }
 
 impl<R: Read + Seek> RawReader<R> {
     /// A reader over `length` bytes starting at `offset`, or to the end of the archive when
     /// `length` is `None`.
     pub fn new(source: Shared<R>, offset: u64, length: Option<u64>) -> RawReader<R> {
-        RawReader { source, remaining: length }
+        RawReader { source, offset, remaining: length, positioned: false }
     }
 
     /// How many bytes are left, when the end is known.
@@ -360,6 +386,10 @@ impl<R: Read + Seek + Send> Read for RawReader<R> {
             .source
             .lock()
             .map_err(|_| io::Error::other("the archive handle was poisoned by an earlier panic"))?;
+        if !self.positioned {
+            guard.seek(io::SeekFrom::Start(self.offset))?;
+            self.positioned = true;
+        }
         let read = guard.read(&mut output[..wanted])?;
         drop(guard);
         if let Some(left) = self.remaining.as_mut() {
@@ -545,8 +575,8 @@ mod tests {
             self.reused
         }
 
-        fn into_source(self) -> Cursor<Vec<u8>> {
-            Cursor::new(Vec::new())
+        fn into_source(self: Box<Self>) -> Result<Cursor<Vec<u8>>> {
+            Ok(Cursor::new(Vec::new()))
         }
     }
 
@@ -637,7 +667,7 @@ mod tests {
     #[test]
     fn opening_an_index_that_does_not_exist_is_an_error_and_not_a_panic() {
         let mut reader = reader_with(2, 10, false);
-        let error = reader.open_entry(2).unwrap_err();
+        let error = reader.open_entry(2).expect_err("out of range");
         assert_eq!(error.kind(), ErrorKind::Malformed);
         // usize::MAX must be equally safe, since an index can come from Java as a long.
         assert!(reader.open_entry(usize::MAX).is_err());

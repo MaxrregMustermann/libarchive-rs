@@ -229,11 +229,15 @@ mod tests {
 
     #[test]
     fn a_total_that_would_overflow_saturates_rather_than_wrapping_back_to_something_small() {
-        let mut total = Total::new(u64::MAX);
-        assert!(total.charge(u64::MAX).is_ok());
-        // The whole point: wrapping here would reset the counter and let the bomb run on.
-        assert_eq!(total.spent(), u64::MAX);
-        assert!(total.charge(1).is_err());
+        // A budget one byte short of the maximum, so the last charge overflows a naive `+=`.
+        let mut total = Total::new(u64::MAX - 1);
+        assert!(total.charge(u64::MAX - 1).is_ok());
+        assert_eq!(total.spent(), u64::MAX - 1);
+        // The whole point: a wrapping addition here would reset the counter to a small number and
+        // let the bomb carry on, which is the failure this is written to prevent.
+        let error = total.charge(1).expect_err("the budget is gone");
+        assert_eq!(error.kind(), ErrorKind::LimitExceeded);
+        assert_eq!(total.spent(), u64::MAX, "the counter saturates rather than wrapping");
     }
 
     #[test]

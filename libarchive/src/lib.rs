@@ -113,7 +113,15 @@ mod tests {
             ErrorKind::Unimplemented,
             ErrorKind::Io,
         ];
-        assert!(all.contains(&ErrorKind::Malformed));
-        assert!(!all.contains(&ErrorKind::Io) || ErrorKind::Io.is_worth_retrying());
+        // Which of them is worth a second opinion. Only the two that mean "these bytes are not an
+        // archive of any format we know" or "this archive is damaged"; everything else is a
+        // decision the caller can act on without trying again.
+        for kind in all {
+            let expected = matches!(kind, ErrorKind::NotAnArchive | ErrorKind::Malformed);
+            assert_eq!(kind.is_worth_retrying(), expected, "{kind:?}");
+        }
+        // And the sort order is what the Kotlin side switches on, so a new variant has to be
+        // added to that match rather than silently falling through.
+        assert!(ErrorKind::Password.is_worth_retrying() == false);
     }
 }

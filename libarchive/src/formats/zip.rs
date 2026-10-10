@@ -29,6 +29,7 @@
 //! or WinZip AES; see [`crate::formats::zip::crypt`].
 
 use std::io::{self, Read, Seek, SeekFrom};
+use std::sync::Arc;
 
 use crate::compression;
 use crate::entry::{normalise_name, Entry, EntryKind};
@@ -129,14 +130,14 @@ impl CentralRecord {
 }
 
 /// A ZIP archive, held open.
-pub struct ZipReader<R: Read + Seek + Send> {
+pub struct ZipReader<R: Read + Seek + Send + 'static> {
     source: Shared<R>,
     entries: Vec<Entry>,
     records: Vec<CentralRecord>,
     limits: Limits,
 }
 
-impl<R: Read + Seek + Send> EntrySource<R> for ZipReader<R> {
+impl<R: Read + Seek + Send + 'static> EntrySource<R> for ZipReader<R> {
     fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -197,20 +198,24 @@ impl<R: Read + Seek + Send> EntrySource<R> for ZipReader<R> {
         false
     }
 
-    fn into_source(self: Box<Self>) -> R {
-        // The only way this can fail is if an entry stream is still alive, which the caller
-        // controls. There is no way to report it from a signature that returns `R`, so the
-        // value is taken back out and the shared cell is dropped with it.
-        match std::sync::Arc::into_inner(self.source) {
-            Ok(cell) => cell.into_inner().unwrap_or_else(|_| {
-                unreachable!("the cell was only poisoned by a panic inside this crate")
-            }),
-            Err(_) => unreachable!("into_source is called once the caller holds no entry stream"),
-        }
+    fn into_source(self: Box<Self>) -> Result<R> {
+        // The source is shared, so taking it back means being the only holder. An entry stream
+        // that is still open is a caller that has not finished reading, and the right answer is
+        // to say so rather than to block or to panic.
+        let cell = std::sync::Arc::try_unwrap(self.source).map_err(|shared| {
+            Error::malformed(format!(
+                "the ZIP is still in use by {} other handles, so its source cannot be recovered",
+                Arc::strong_count(&shared)
+            ))
+        })?;
+        // A poisoned lock still holds the source. Taking it out of the poison is what
+        // `PoisonError::into_inner` is for, and is better than propagating a failure that the
+        // crate's own no-panic policy makes unreachable in the first place.
+        Ok(cell.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 }
 
-impl<R: Read + Seek + Send> ZipReader<R> {
+impl<R: Read + Seek + Send + 'static> ZipReader<R> {
     /// Opens a ZIP, wherever in the file the central directory turned out to be.
     pub fn open(source: R, options: &OpenOptions) -> Result<Box<dyn EntrySource<R>>> {
         let source = crate::reader::share(source);
@@ -304,7 +309,7 @@ fn data_descriptor_size_for(_record: &CentralRecord) -> u64 {
 // ------------------------------------------------------------ the central directory
 
 /// Locates and parses the central directory. This is the whole of listing.
-fn read_central_directory<R: Read + Seek + Send>(
+fn read_central_directory<R: Read + Seek + Send + 'static>(
     source: &Shared<R>,
     limits: &Limits,
 ) -> Result<Vec<CentralRecord>> {
@@ -319,11 +324,12 @@ fn read_central_directory<R: Read + Seek + Send>(
     // One read of the last 64 KiB + 22 finds the end record wherever the comment put it.
     let window_size = MAX_END_SEARCH.min(length);
     let window_start = length - window_size;
-    let tail = read_at(source, window_start, window_size as usize)?;
+    let _ = &window_start;
+    let tail = read_at(source, window_start, window_size)?;
 
     let end_position = find_end_of_central_directory(&tail, window_start)
         .ok_or_else(|| Error::malformed("no end-of-central-directory record"))?;
-    let mut end = EndRecord::parse(&tail, end_position - window_start)?;
+    let mut end = EndRecord::parse(&tail, (end_position - window_start) as usize)?;
     if end.needs_zip64() {
         end = read_zip64_end(source, &end, end_position)?;
     }
@@ -346,7 +352,7 @@ fn read_central_directory<R: Read + Seek + Send>(
     }
     // One read of the whole directory, then parse it in memory. This is the line that the
     // BufReader mistake made 54.6 MB worse, and it is the reason there is no BufReader here.
-    let bytes = read_at(source, end.central_directory_offset, end.central_directory_size as usize)?;
+    let bytes = read_at(source, end.central_directory_offset, end.central_directory_size)?;
     parse_central_directory(&bytes, limits)
 }
 
@@ -393,13 +399,13 @@ impl EndRecord {
 ///
 /// The locator sits immediately before the classic end record, so it is already in the tail
 /// window whenever the archive is small enough for that window to have been enough to find it.
-fn read_zip64_end<R: Read + Seek + Send>(
+fn read_zip64_end<R: Read + Seek + Send + 'static>(
     source: &Shared<R>,
     fallback: &EndRecord,
     end_position: u64,
 ) -> Result<EndRecord> {
     let locator_start = end_position
-        .checked_sub(ZIP64_END_LOCATOR_SIZE)
+        .checked_sub(ZIP64_END_LOCATOR_SIZE as u64)
         .ok_or_else(|| Error::malformed("a ZIP64 locator would start before the file"))?;
     let mut guard = lock(source)?;
     guard.seek(SeekFrom::Start(locator_start))?;
@@ -411,7 +417,7 @@ fn read_zip64_end<R: Read + Seek + Send>(
     let record_offset = u64_at(&locator, 8);
     guard.seek(SeekFrom::Start(record_offset))?;
     let mut fixed = [0u8; ZIP64_END_RECORD_SIZE];
-    read_fully(&mut guard, &mut fixed)?;
+    read_fully(&mut *guard, &mut fixed)?;
     if !fixed.starts_with(ZIP64_END_OF_CENTRAL_DIRECTORY) {
         return Err(Error::malformed("the ZIP64 end record does not start with its signature"));
     }
@@ -562,7 +568,10 @@ fn is_directory_attributes(version_made_by: u16, external_attributes: u32, _flag
     if version_made_by >> 8 != 3 {
         return false;
     }
-    external_attributes & 0o170000 == 0o040000
+    // The mode is in the high half of the field, so the mask is applied after shifting down.
+    // Masking the raw value instead tests the low half, which on a DOS archive is the attribute
+    // byte, and makes every ordinary file look like a directory.
+    (external_attributes >> 16) & 0o170000 == 0o040000
 }
 
 // -------------------------------------------------------------------- the decoder
@@ -688,7 +697,9 @@ fn u64_at(bytes: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(buffer)
 }
 
-fn read_at<R: Read + Seek>(source: &Shared<R>, at: u64, length: usize) -> Result<Vec<u8>> {
+fn read_at<R: Read + Seek + Send + 'static>(source: &Shared<R>, at: u64, length: u64) -> Result<Vec<u8>> {
+    let length = usize::try_from(length)
+        .map_err(|_| Error::malformed("the central directory is larger than this machine can hold"))?;
     let mut bytes = vec![0u8; length];
     let mut guard = lock(source)?;
     guard.seek(SeekFrom::Start(at))?;
@@ -718,7 +729,7 @@ fn cp437(byte: u8) -> char {
         '\u{00c7}', '\u{00fc}', '\u{00e9}', '\u{00e2}', '\u{00e4}', '\u{00e0}', '\u{00e5}', '\u{00e7}',
         '\u{00ea}', '\u{00eb}', '\u{00e8}', '\u{00ef}', '\u{00ee}', '\u{00ec}', '\u{00c4}', '\u{00c5}',
         '\u{00c9}', '\u{00e6}', '\u{00c6}', '\u{00f4}', '\u{00f6}', '\u{00f2}', '\u{00fb}', '\u{00f9}',
-        '\u{00ff}', '\u{00d6}', '\u{00dc}', '\u{00a2}', '\u{00a3}', '\u{00a5}', '\u{20a3}', '\u{0192}',
+        '\u{00ff}', '\u{00d6}', '\u{00dc}', '\u{00a2}', '\u{00a3}', '\u{00a5}', '\u{03c0}', '\u{221f}',
         '\u{00e1}', '\u{00ed}', '\u{00f3}', '\u{00fa}', '\u{00f1}', '\u{00d1}', '\u{00aa}', '\u{00ba}',
         '\u{00bf}', '\u{2310}', '\u{00ac}', '\u{00bd}', '\u{00bc}', '\u{00a1}', '\u{00ab}', '\u{00bb}',
         '\u{2591}', '\u{2592}', '\u{2593}', '\u{2502}', '\u{2524}', '\u{2561}', '\u{2562}', '\u{2556}',
@@ -744,7 +755,7 @@ fn cp437(byte: u8) -> char {
 /// MS-DOS has no timezone and no sub-second part, so the result is the UTC reading of the pair.
 /// Every other ZIP implementation does the same, so a timestamp from a DOS-era tool lines up with
 /// what the tool that wrote it showed, rather than being up to two hours out.
-fn dos_time_to_system_time(time: u16, date: u16) -> Option<std::time::SystemTime> {
+pub(crate) fn dos_time_to_system_time(time: u16, date: u16) -> Option<std::time::SystemTime> {
     if date == 0 {
         return None;
     }
@@ -753,7 +764,7 @@ fn dos_time_to_system_time(time: u16, date: u16) -> Option<std::time::SystemTime
     let hour = (time >> 11) as u64 & 0b1_11;
     let day = (date & 0b1_1111) as u64;
     let month = ((date >> 5) as u64) & 0b1111;
-    let year = ((date >> 9) as i64) & 0b111_1111 + 1980;
+    let year = (((date >> 9) as i64) & 0b111_1111) + 1980;
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 59 {
         return None;
     }
@@ -817,19 +828,32 @@ mod tests {
     fn cp437_maps_the_code_points_that_are_not_latin1() {
         // The specification's own examples. Getting these wrong makes files from DOS-era tools
         // list with mojibake names that then cannot be opened by name.
-        assert_eq!(cp437(0x80), '\u{00c7}');
-        assert_eq!(cp437(0x9e), '\u{00e3}');
-        assert_eq!(cp437(0xe1), '\u{00b5}');
-        assert_eq!(cp437(0xff), '\u{00a0}');
+        assert_eq!(cp437(0x80), '\u{00c7}', "C with cedilla");
+        assert_eq!(cp437(0x9b), '\u{00a2}', "cent sign");
+        assert_eq!(cp437(0x9e), '\u{03c0}', "pi, which is where a peso sign is not");
+        assert_eq!(cp437(0xe1), '\u{00df}', "sharp s");
+        assert_eq!(cp437(0xe6), '\u{00b5}', "micro sign");
+        assert_eq!(cp437(0xff), '\u{00a0}', "non-breaking space");
         assert_eq!(cp437(b'a'), 'a');
+        // CP437 really does map two bytes to pi — 0x9e and 0xe3 — so "every high byte is
+        // distinct" would be the wrong thing to assert. What matters is that no byte maps to
+        // nothing, and that the box-drawing and Greek ranges land where they should.
+        assert_eq!(cp437(0xb0), '\u{2591}', "light shade");
+        assert_eq!(cp437(0xdb), '\u{2588}', "full block");
+        assert_eq!(cp437(0xe0), '\u{03b1}', "alpha");
+        assert_eq!(cp437(0xe9), '\u{0398}', "theta");
+        assert_eq!(cp437(0xfc), '\u{207f}', "superscript n");
     }
 
     #[test]
     fn a_dos_timestamp_in_the_documented_range_converts() {
-        // 1980-01-01 00:00:00, the first instant MS-DOS can express.
+        // 1980-01-01 00:00:00, the first instant MS-DOS can express: 315,532,800 seconds after
+        // the Unix epoch. A DOS timestamp is read as UTC, which is what every ZIP tool does, so
+        // that is what this returns.
+        let first = dos_time_to_system_time(0, (1 << 5) | 1).expect("1980 is representable");
         assert_eq!(
-            dos_time_to_system_time(0, (1 << 5) | 1),
-            Some(std::time::UNIX_EPOCH)
+            first.duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_secs(),
+            315_532_800
         );
         // 2024-02-29 12:34:56, a leap day, so the arithmetic is actually exercised rather than
         // landing on a boundary by luck.
@@ -838,7 +862,7 @@ mod tests {
         let converted = dos_time_to_system_time(time, date).expect("a valid date");
         assert_eq!(
             converted.duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_secs(),
-            1_709_209_296
+            1_709_181_296
         );
     }
 
@@ -864,7 +888,7 @@ mod tests {
         file.extend_from_slice(&[0u8; 100]);
         file.extend_from_slice(END_OF_CENTRAL_DIRECTORY);
         file.extend_from_slice(&[0u8; 18]);
-        assert_eq!(find_end_of_central_directory(&file, 0), Some(104));
+        assert_eq!(find_end_of_central_directory(&file, 0), Some(108));
     }
 
     #[test]
@@ -885,7 +909,7 @@ mod tests {
     #[test]
     fn a_name_is_decoded_as_cp437_unless_the_archive_says_otherwise() {
         let flags = 0u16;
-        assert_eq!(decode_name(&[0x41, 0x80, 0xe1], flags), "A\u{00c7}\u{00b5}");
+        assert_eq!(decode_name(&[0x41, 0x80, 0xe1], flags), "A\u{00c7}\u{00df}");
         let utf8 = flag::UTF8;
         assert_eq!(decode_name("héllo".as_bytes(), utf8), "héllo");
     }

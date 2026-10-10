@@ -7,7 +7,7 @@
 use std::io::{Read, Seek, Write};
 
 use crate::error::{Error, Result};
-use crate::format::{Compression, Format};
+use crate::format::Format;
 use crate::reader::{EntrySource, OpenOptions};
 use crate::writer::{EntryWriter, WriteOptions};
 
@@ -17,7 +17,7 @@ pub mod tar;
 pub mod zip;
 
 /// Opens a source as `format`, building its entry list.
-pub fn open<R: Read + Seek>(
+pub fn open<R: Read + Seek + Send + 'static>(
     format: Format,
     source: R,
     options: &OpenOptions,
@@ -33,20 +33,26 @@ pub fn open<R: Read + Seek>(
 }
 
 /// Creates a sink as `format`.
-pub fn create<W: Write + Seek>(
+pub fn create<W: Write + Seek + 'static>(
     format: Format,
     sink: W,
     options: &WriteOptions,
 ) -> Result<Box<dyn EntryWriter<W>>> {
     match format {
-        Format::Zip => zip::ZipWriter::create(sink, options),
-        Format::SevenZ => sevenz::SevenZWriter::create(sink, options),
-        Format::Tar => tar::TarWriter::create(sink, options),
+        Format::Zip => crate::writer::zip::ZipWriter::<W>::create(sink, options),
+        Format::SevenZ => crate::writer::sevenz::SevenZWriter::<W>::create(sink, options),
+        Format::Tar => crate::writer::tar::TarWriter::<W>::create(sink, options),
         Format::CompressedTar(compression) => {
-            tar::CompressedTarWriter::create(sink, compression, options)
+            crate::writer::tar::CompressedTarWriter::create(sink, &WriteOptions {
+                compression,
+                ..options.clone()
+            })
         }
         Format::SingleStream(compression) => {
-            single::SingleStreamWriter::create(sink, compression, options)
+            crate::writer::single::SingleStreamWriter::<W>::create(sink, &WriteOptions {
+                compression,
+                ..options.clone()
+            })
         }
         other => Err(Error::unsupported(format!("{other} cannot be created"))),
     }
@@ -86,7 +92,7 @@ pub mod legacy {
         AVAILABLE.contains(&format)
     }
 
-    pub fn open<R: Read + Seek>(
+    pub fn open<R: Read + Seek + Send + 'static>(
         format: Format,
         _source: R,
         _options: &OpenOptions,
@@ -119,12 +125,10 @@ mod tests {
     #[test]
     fn a_format_with_no_reader_says_so_rather_than_pretending() {
         let options = OpenOptions::default();
-        let error = legacy::open(
-            Format::Ucb,
-            Cursor::new(Vec::new()),
-            &options,
-        )
-        .unwrap_err();
+        let error = match legacy::open(Format::Ucb, Cursor::new(Vec::new()), &options) {
+            Ok(_) => panic!("a format this build does not have must not open"),
+            Err(error) => error,
+        };
         assert_eq!(error.kind(), crate::error::ErrorKind::Unsupported);
         assert!(error.message().contains("not supported"));
     }

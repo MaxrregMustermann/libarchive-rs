@@ -135,9 +135,21 @@ impl NewEntry {
 ///
 /// Kept separate from [`ArchiveWriter`] so the generic plumbing is written once. The trait is
 /// object-safe, so the public writer is one type no matter how many formats exist.
-pub trait EntryWriter<W: Write + Seek>: Send {
+///
+/// # Why the entry borrows the writer
+///
+/// [`EntryWriter::begin`] hands back something that has to keep writing into the archive while it
+/// is open, and an archive writer cannot be used twice at once anyway — the caller holds a `&mut`
+/// on it for the whole of `write_entry`. Borrowing says exactly that, and it costs nothing. An
+/// owning version would have to put the sink behind a lock or an `Arc`, and would pay for either
+/// on every write to work around a lifetime the borrow checker already solved.
+pub trait EntryWriter<W: Write + Seek> {
     /// Begins an entry. Returns something the contents are written into.
-    fn begin(&mut self, entry: &NewEntry, options: &WriteOptions) -> Result<Box<dyn EntryWrite>>;
+    ///
+    /// The returned value borrows this writer, so it must be dropped before the next entry or
+    /// before [`EntryWriter::finish`]. [`ArchiveWriter::write_entry_with`] does that for a caller.
+    fn begin<'a>(&'a mut self, entry: &NewEntry, options: &WriteOptions)
+        -> Result<Box<dyn EntryWrite + 'a>>;
 
     /// Finishes the archive, writing whatever directory or trailer the format needs.
     ///
@@ -149,9 +161,17 @@ pub trait EntryWriter<W: Write + Seek>: Send {
 }
 
 /// The contents of one entry being written.
-pub trait EntryWrite: Write + Send {
+///
+/// Closing an entry is not a method on this trait because how it closes is the format's business,
+/// not the plumbing's: a ZIP has a data descriptor to write, a TAR has padding to add, and a 7Z
+/// has nothing to do until the whole archive is finished. The writer calls [`EntryWrite::finish`]
+/// when the caller is done.
+pub trait EntryWrite: Write {
     /// How many uncompressed bytes have gone in so far.
     fn written(&self) -> u64;
+
+    /// Closes the entry, writing whatever trailer the format needs.
+    fn finish(&mut self) -> Result<()>;
 }
 
 /// A writable archive.
@@ -163,7 +183,7 @@ pub struct ArchiveWriter<W: Write + Seek> {
     format: Format,
 }
 
-impl<W: Write + Seek> ArchiveWriter<W> {
+impl<W: Write + Seek + 'static> ArchiveWriter<W> {
     /// Creates an archive of `format` on `sink`.
     ///
     /// Nothing is written until the first entry or until [`ArchiveWriter::finish`], so a caller
@@ -207,9 +227,14 @@ impl<W: Write + Seek> ArchiveWriter<W> {
             options.limits.check_entry_size(Some(size))?;
         }
         let mut sink = self.backend.begin(&normalised, options)?;
-        let written = io::copy(contents, &mut sink)?;
+        // `copy_blocks` rather than `io::copy`: the caller's reader may return short reads, and
+        // turning each of those into a write to the sink is what makes a many-entry archive slow.
+        let written = copy_blocks(contents, &mut *sink)?;
         // A caller that declared a size and then supplied a different one has a bug, and one that
         // is not caught here shows up much later as a corrupt archive.
+        // Closed before the sizes are checked, so that an error here still leaves the archive in
+        // a state `finish` can close cleanly rather than one it cannot.
+        sink.finish()?;
         if let Some(declared) = normalised.size {
             if declared != written && normalised.kind == crate::entry::EntryKind::File {
                 return Err(Error::malformed(format!(
@@ -297,8 +322,10 @@ mod tests {
     #[test]
     fn a_format_that_cannot_be_created_is_refused_rather_than_producing_a_broken_file() {
         let options = WriteOptions::default();
-        let error = ArchiveWriter::create(Cursor::new(Vec::new()), Format::Rar, &options)
-            .unwrap_err();
+        let error = match ArchiveWriter::create(Cursor::new(Vec::new()), Format::Rar, &options) {
+            Ok(_) => panic!("RAR cannot be written"),
+            Err(error) => error,
+        };
         assert_eq!(error.kind(), crate::error::ErrorKind::Unsupported);
     }
 
@@ -308,11 +335,11 @@ mod tests {
         // tries to open it later.
         struct Recorder;
         impl<W: Write + Seek> EntryWriter<W> for Recorder {
-            fn begin(
-                &mut self,
+            fn begin<'a>(
+                &'a mut self,
                 _entry: &NewEntry,
                 _options: &WriteOptions,
-            ) -> Result<Box<dyn EntryWrite>> {
+            ) -> Result<Box<dyn EntryWrite + 'a>> {
                 Ok(Box::new(Sink))
             }
             fn finish(&mut self) -> Result<()> {
@@ -335,13 +362,17 @@ mod tests {
             fn written(&self) -> u64 {
                 0
             }
+            fn finish(&mut self) -> Result<()> {
+                Ok(())
+            }
         }
         let mut writer: ArchiveWriter<Cursor<Vec<u8>>> =
             ArchiveWriter { backend: Box::new(Recorder), format: Format::Zip };
         let entry = NewEntry::file("a.txt").with_size(100);
-        let error = writer
-            .write_entry(&entry, &mut &b"only ten.."[..])
-            .unwrap_err();
+        let error = match writer.write_entry(&entry, &mut &b"only ten.."[..]) {
+            Ok(()) => panic!("writing fewer bytes than declared must be refused"),
+            Err(error) => error,
+        };
         assert_eq!(error.kind(), crate::error::ErrorKind::Malformed);
         assert!(error.message().contains("declared 100"));
     }

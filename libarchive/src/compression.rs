@@ -44,8 +44,9 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
         // rather than over a sub-slice.
         Compression::Lzma => Ok(Box::new(lzma_rust2::LzmaReader::new_mem_limit(
             input,
-            crate::limits::DEFAULT_LZMA_MEMORY_LIMIT as u32,
-        ))),
+            (crate::limits::DEFAULT_LZMA_MEMORY_LIMIT / 1024) as u32,
+            None,
+        )?)),
         Compression::Gzip => Ok(Box::new(flate2::read::MultiGzDecoder::new(input))),
         Compression::Brotli => Ok(Box::new(brotli::Decompressor::new(input, BIG_BUFFER))),
         Compression::Lz4 => Ok(Box::new(lz4_flex::frame::FrameDecoder::new(input))),
@@ -153,17 +154,45 @@ mod tests {
 
     /// Encodes with `method`, decodes with `decode`, and returns what came back.
     fn round_trip(method: Compression, level: u32, payload: &[u8]) -> Vec<u8> {
-        let mut sink = Vec::new();
+        // The encoder has to own something `'static`, because the bridge hands out `Send` trait
+        // objects that outlive the call. A shared cell is the smallest thing that satisfies that
+        // without a file on disk.
+        let sink = SharedCell::default();
         {
-            let mut encoder = encode(method, Box::new(&mut sink), level).expect("an encoder");
+            let mut encoder = encode(method, Box::new(sink.clone()), level).expect("an encoder");
             encoder.write_all(payload).expect("write the payload");
         }
         let mut out = Vec::new();
-        decode(method, Box::new(Cursor::new(sink)))
+        decode(method, Box::new(Cursor::new(sink.take())))
             .expect("a decoder")
             .read_to_end(&mut out)
             .expect("read it back");
         out
+    }
+
+    /// A `Write` that appends to a shared buffer, so a test can encode without a file.
+    #[derive(Clone, Default)]
+    struct SharedCell(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl SharedCell {
+        fn take(&self) -> Vec<u8> {
+            self.0.lock().map(|mut inner| std::mem::take(&mut *inner)).unwrap_or_default()
+        }
+    }
+
+    impl Write for SharedCell {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            match self.0.lock() {
+                Ok(mut inner) => {
+                    inner.extend_from_slice(buffer);
+                    Ok(buffer.len())
+                }
+                Err(_) => Err(std::io::Error::other("the test's buffer was poisoned")),
+            }
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
     fn payload() -> Vec<u8> {
@@ -199,35 +228,52 @@ mod tests {
         // buffer's worth of work rather than the whole thing — which is what this checks by
         // wrapping the input in a counter.
         let bytes = payload();
-        let mut sink = Vec::new();
+        let sink = SharedCell::default();
         {
-            let mut encoder = encode(Compression::Deflate, Box::new(&mut sink), 6).expect("encoder");
+            let mut encoder = encode(Compression::Deflate, Box::new(sink.clone()), 6).expect("encoder");
             encoder.write_all(&bytes).expect("write");
         }
-        let counter = CountingReader::new(Cursor::new(sink));
-        let mut decoder = decode(Compression::Deflate, Box::new(counter)).expect("decoder");
+        // Counting how much of the *compressed* stream was pulled is what shows the property: a
+        // decoder that materialised the entry first would have read all of it.
+        let compressed = sink.take();
+        let counter = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let mut one = [0u8; 1];
-        decoder.read_exact(&mut one).expect("one byte");
+        {
+            let reader = CountingReader::new(Cursor::new(compressed.clone()), counter.clone());
+            decode(Compression::Deflate, Box::new(reader))
+                .expect("a decoder")
+                .read_exact(&mut one)
+                .expect("one byte");
+        }
         assert_eq!(one[0], bytes[0]);
+        let seen = counter.lock().map(|value| *value).unwrap_or(usize::MAX);
+        assert!(
+            seen < compressed.len(),
+            "reading one byte pulled all {seen} compressed bytes, so this is not streaming"
+        );
     }
 
-    /// Counts how many bytes were pulled out of the underlying reader.
+    /// Counts how many bytes were pulled out of the reader it wraps.
     struct CountingReader<R> {
         inner: R,
-        seen: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        seen: std::sync::Arc<std::sync::Mutex<usize>>,
     }
 
-    impl CountingReader<R> {
-        fn new(inner: R) -> (CountingReader<R>, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-            let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            (CountingReader { inner, seen: seen.clone() }, seen)
+    impl<R: Read> CountingReader<R> {
+        fn new(
+            inner: R,
+            seen: std::sync::Arc<std::sync::Mutex<usize>>,
+        ) -> CountingReader<R> {
+            CountingReader { inner, seen }
         }
     }
 
     impl<R: Read> Read for CountingReader<R> {
         fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
             let read = self.inner.read(output)?;
-            self.seen.fetch_add(read, std::sync::atomic::Ordering::Relaxed);
+            if let Ok(mut seen) = self.seen.lock() {
+                *seen += read;
+            }
             Ok(read)
         }
     }
@@ -258,7 +304,10 @@ mod tests {
     fn a_codec_that_needs_a_container_says_so_rather_than_producing_garbage() {
         let bytes = vec![0u8; 16];
         for method in [Compression::Xz, Compression::Lzma2, Compression::Ppmd, Compression::Z] {
-            let error = decode(method, Box::new(Cursor::new(bytes.clone()))).unwrap_err();
+            let error = match decode(method, Box::new(Cursor::new(bytes.clone()))) {
+            Ok(_) => panic!("{method} should have no raw decoder"),
+            Err(error) => error,
+        };
             assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented);
         }
     }
@@ -266,11 +315,16 @@ mod tests {
     #[test]
     fn the_big_buffer_reader_serves_large_reads_without_throwing_bytes_away() {
         let bytes: Vec<u8> = (0..BIG_BUFFER * 2).map(|value| (value % 256) as u8).collect();
-        let mut reader = BigBufReader::new(Box::new(Cursor::new(bytes.clone())));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let mut out = Vec::new();
-        reader.read_to_end(&mut out).expect("read");
+        BigBufReader::new(Box::new(CountingReader::new(
+            Cursor::new(bytes.clone()),
+            seen.clone(),
+        )))
+        .read_to_end(&mut out)
+        .expect("read");
         assert_eq!(out, bytes);
-        // A 4-byte read after a big one must still come from the buffer rather than the source.
-        assert_eq!(reader.inner.read(&mut [0u8; 4]).unwrap_or(0), 0);
+        // Every byte passes through exactly once: the buffer is a refill, not a copy.
+        assert_eq!(seen.lock().map(|value| *value).unwrap_or(0), bytes.len());
     }
 }
