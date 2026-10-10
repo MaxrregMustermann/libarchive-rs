@@ -61,11 +61,8 @@ def save_registry(registry: dict) -> None:
     tmp.replace(REGISTRY)
 
 
-def next_id(registry: dict, kind: str) -> str:
-    return f"{kind}-{registry.setdefault('_counters', {})get(kind, 0) + 1:04d}"
-
-
 def bump(registry: dict, kind: str) -> int:
+    """Counts up and returns the new value, for the message and job id sequences."""
     counters = registry.setdefault("_counters", {})
     counters[kind] = counters.get(kind, 0) + 1
     return counters[kind]
@@ -373,9 +370,20 @@ def cmd_run(args: argparse.Namespace) -> None:
     run_id = f"R-{registry['_counters']['run']:04d}"
     save_registry(registry)
     log = COORD / "runs" / f"{run_id}-{args.agent}.log"
-    prompt = Path(args.prompt_file).read_text() if args.prompt_file else args.prompt
+    briefing = (COORD / "BRIEFING.md").read_text()
+    job = ""
+    if args.job:
+        data = registry.get("jobs", {}).get(args.job)
+        if data is None:
+            die(f"no such job: {args.job}")
+        job = (
+            f"\n\n# Your job {args.job}\n\n{data['title']}\n\n"
+            f"Acceptance criteria:\n{data.get('acceptance') or '(none written — write some first)'}\n"
+        )
+    task = Path(args.prompt_file).read_text() if args.prompt_file else args.prompt
+    prompt = f"{briefing}{job}\n\n# What to do right now\n\n{task}"
     if args.note:
-        prompt = f"{prompt}\n\nOrchestrator note: {args.note}"
+        prompt += f"\n\nOrchestrator note: {args.note}"
     command = [
         "opencode",
         "run",
@@ -562,6 +570,7 @@ def main() -> None:
     run.add_argument("agent")
     run.add_argument("--prompt", default=None)
     run.add_argument("--prompt-file", default=None)
+    run.add_argument("--job", default=None)
     run.add_argument("--note", default="")
     run.add_argument("--opencode-agent", default="build")
     run.set_defaults(func=cmd_run)

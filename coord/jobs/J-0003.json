@@ -1,0 +1,10 @@
+{
+  "acceptance": "coord/notes/testing-plan.md specifies a corpus of real archive files per format, how each one is obtained or generated, what the differential harness compares libarchive-rs against, and the command to run it. It must cover malformed input, encrypted input, and the Android ABI matrix.",
+  "assignee": "tess",
+  "notes": [],
+  "opened": "2026-10-10T01:49:10",
+  "opened_by": "orchestrator",
+  "state": "assigned",
+  "team": "qa",
+  "title": "Design the test corpus and the differential harness"
+}

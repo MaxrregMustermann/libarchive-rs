@@ -1,0 +1,225 @@
+{
+  "_counters": {
+    "job": 6,
+    "mail": 1,
+    "run": 6
+  },
+  "agents": {
+    "ada": {
+      "branch": "agent/ada",
+      "joined": "2026-10-10T01:48:40",
+      "model": "opencode/nemotron-3-ultra-free",
+      "role": "leader",
+      "team": "core",
+      "worktree": "/home/user/wt/ada"
+    },
+    "dev": {
+      "branch": "agent/dev",
+      "joined": "2026-10-10T01:48:42",
+      "model": "opencode/step-5-preview-free",
+      "role": "member",
+      "team": "qa",
+      "worktree": "/home/user/wt/dev"
+    },
+    "grace": {
+      "branch": "agent/grace",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/longcat-2.5-preview-free",
+      "role": "leader",
+      "team": "container",
+      "worktree": "/home/user/wt/grace"
+    },
+    "hank": {
+      "branch": "agent/hank",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/exo-free",
+      "role": "member",
+      "team": "bridge",
+      "worktree": "/home/user/wt/hank"
+    },
+    "ken": {
+      "branch": "agent/ken",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/muse-spark-1.3-contributor-free",
+      "role": "leader",
+      "team": "codecs",
+      "worktree": "/home/user/wt/ken"
+    },
+    "mira": {
+      "branch": "agent/mira",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/nemotron-3.5-lightning-free",
+      "role": "leader",
+      "team": "legacy",
+      "worktree": "/home/user/wt/mira"
+    },
+    "nina": {
+      "branch": "agent/nina",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/ling-3.0-flash-fin-free",
+      "role": "member",
+      "team": "legacy",
+      "worktree": "/home/user/wt/nina"
+    },
+    "otis": {
+      "branch": "agent/otis",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/ling-3.1-flash-free",
+      "role": "member",
+      "team": "codecs",
+      "worktree": "/home/user/wt/otis"
+    },
+    "pip": {
+      "branch": "agent/pip",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/ling-3.1-flash-free",
+      "role": "member",
+      "team": "qa",
+      "worktree": "/home/user/wt/pip"
+    },
+    "ralph": {
+      "branch": "agent/ralph",
+      "joined": "2026-10-10T01:48:40",
+      "model": "opencode/step-5-preview-free",
+      "role": "member",
+      "team": "core",
+      "worktree": "/home/user/wt/ralph"
+    },
+    "tess": {
+      "branch": "agent/tess",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/mimo-v2.6-flash-free",
+      "role": "leader",
+      "team": "qa",
+      "worktree": "/home/user/wt/tess"
+    },
+    "vic": {
+      "branch": "agent/vic",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/space-bunny-free",
+      "role": "leader",
+      "team": "bridge",
+      "worktree": "/home/user/wt/vic"
+    },
+    "zara": {
+      "branch": "agent/zara",
+      "joined": "2026-10-10T01:48:41",
+      "model": "opencode/big-pickle",
+      "role": "member",
+      "team": "container",
+      "worktree": "/home/user/wt/zara"
+    }
+  },
+  "jobs": {
+    "J-0001": {
+      "acceptance": "coord/notes/oxiarc-perf-fixes.md names each of the three fixes, cites the file and function in /home/user/oxiarc-prior that implements it, explains in one paragraph why it is faster, and says in one sentence what has to change in libarchive-rs to carry it across. The three fixes are: deflater reuse across entries, coalescing header writes into one sink write, and streaming an entry through add_stream instead of buffering it.",
+      "assignee": "ada",
+      "notes": [],
+      "opened": "2026-10-10T01:49:10",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "core",
+      "title": "Spec the three oxiarc streaming-writer performance fixes"
+    },
+    "J-0002": {
+      "acceptance": "coord/notes/sevenz-patch-plan.md states the minimum patch to sevenz-rust2 0.23.0 needed to build a block decode stack from outside the crate, with the real diff, and shows by reading the source that the resulting design decodes a 400-entry solid block once instead of 400 times. It must also show that a caller can stop mid-block and resume, which is what streaming requires.",
+      "assignee": "grace",
+      "notes": [],
+      "opened": "2026-10-10T01:49:10",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "container",
+      "title": "Work out exactly how to make solid 7Z reads linear and streaming"
+    },
+    "J-0003": {
+      "acceptance": "coord/notes/testing-plan.md specifies a corpus of real archive files per format, how each one is obtained or generated, what the differential harness compares libarchive-rs against, and the command to run it. It must cover malformed input, encrypted input, and the Android ABI matrix.",
+      "assignee": "tess",
+      "notes": [],
+      "opened": "2026-10-10T01:49:10",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "qa",
+      "title": "Design the test corpus and the differential harness"
+    },
+    "J-0004": {
+      "acceptance": "coord/notes/unarc-map.md lists every format unarc-rs 0.7.2 reads, the type that reads it, whether its reader is streaming or whole-entry, and the public API a caller can reach. For each format it states whether we must reimplement it or can carry the parser across unchanged, with the reason.",
+      "assignee": "mira",
+      "notes": [],
+      "opened": "2026-10-10T01:49:10",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "legacy",
+      "title": "Map unarc-rs: which formats, which readers, what streaming would take"
+    },
+    "J-0005": {
+      "acceptance": "coord/notes/bridge-contract.md lists every extern system function the app currently calls with its exact signature, every field of every Kotlin data class that crosses the boundary, how errors are mapped, and precisely what has to change on the Kotlin side so an archive can be held open across per-file reads instead of reopened per file.",
+      "assignee": "vic",
+      "notes": [],
+      "opened": "2026-10-10T01:49:10",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "bridge",
+      "title": "Write down the JNI and Kotlin contract we have to satisfy"
+    },
+    "J-0006": {
+      "acceptance": "coord/notes/codecs.md lists every compression method the library must read and write, the crate that provides it, whether that crate already builds for all four Android ABIs with no runtime dependency, and which of them are unused by the app today.",
+      "assignee": "ken",
+      "notes": [],
+      "opened": "2026-10-10T01:49:11",
+      "opened_by": "orchestrator",
+      "state": "assigned",
+      "team": "codecs",
+      "title": "Inventory the compression codecs and their crate versions"
+    }
+  },
+  "teams": {
+    "bridge": {
+      "charter": "The JNI boundary and the Kotlin side: the extern system functions, error mapping, the archive handle cache in ArchiveFileSystemProvider, and emulator verification on API 24 for all four ABIs.",
+      "formed": "2026-10-10T01:48:37",
+      "leader": "vic",
+      "members": [
+        "vic"
+      ]
+    },
+    "codecs": {
+      "charter": "The single-stream compressors: GZ, BZ2, XZ, Z, LZ4, Zstd, Brotli, plus the deflate/deflate64 primitives every other format uses.",
+      "formed": "2026-10-10T01:48:37",
+      "leader": "ken",
+      "members": [
+        "ken"
+      ]
+    },
+    "container": {
+      "charter": "The multi-entry container formats: ZIP, TAR, 7Z, and the composed formats TAR.XZ and JAR. Owns libarchive/src/formats/{zip,tar,sevenz}.rs and the vendored sevenz-rust2 patch.",
+      "formed": "2026-10-10T01:48:37",
+      "leader": "grace",
+      "members": [
+        "grace"
+      ]
+    },
+    "core": {
+      "charter": "The public API, error model, format detection, limits, and the reader/writer plumbing every format plugs into. Owns libarchive/src/{error,limits,detect,format,entry,reader,writer}.rs and nothing inside formats/.",
+      "formed": "2026-10-10T01:48:36",
+      "leader": "ada",
+      "members": [
+        "ada"
+      ]
+    },
+    "legacy": {
+      "charter": "The long tail from unarc-rs: RAR, ARJ, ACE, ARC, Zoo, SQ, UCB, UC2, Ha, Hyp, Ice, PackIce. Read-only. Differential-tested against unarc-rs itself.",
+      "formed": "2026-10-10T01:48:37",
+      "leader": "mira",
+      "members": [
+        "mira"
+      ]
+    },
+    "qa": {
+      "charter": "Everything that decides whether it works: the differential test harness against unarc-rs, the format corpus, the fuzz targets, and the benchmarks that hold the performance numbers.",
+      "formed": "2026-10-10T01:48:37",
+      "leader": "tess",
+      "members": [
+        "tess"
+      ]
+    }
+  }
+}

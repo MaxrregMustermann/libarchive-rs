@@ -1,0 +1,10 @@
+{
+  "acceptance": "coord/notes/unarc-map.md lists every format unarc-rs 0.7.2 reads, the type that reads it, whether its reader is streaming or whole-entry, and the public API a caller can reach. For each format it states whether we must reimplement it or can carry the parser across unchanged, with the reason.",
+  "assignee": "mira",
+  "notes": [],
+  "opened": "2026-10-10T01:49:10",
+  "opened_by": "orchestrator",
+  "state": "assigned",
+  "team": "legacy",
+  "title": "Map unarc-rs: which formats, which readers, what streaming would take"
+}

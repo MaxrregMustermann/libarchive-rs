@@ -1,0 +1,10 @@
+{
+  "acceptance": "coord/notes/sevenz-patch-plan.md states the minimum patch to sevenz-rust2 0.23.0 needed to build a block decode stack from outside the crate, with the real diff, and shows by reading the source that the resulting design decodes a 400-entry solid block once instead of 400 times. It must also show that a caller can stop mid-block and resume, which is what streaming requires.",
+  "assignee": "grace",
+  "notes": [],
+  "opened": "2026-10-10T01:49:10",
+  "opened_by": "orchestrator",
+  "state": "assigned",
+  "team": "container",
+  "title": "Work out exactly how to make solid 7Z reads linear and streaming"
+}
