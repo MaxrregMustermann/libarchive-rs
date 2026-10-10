@@ -1,7 +1,7 @@
 //! UC2 (UltraCrypt 2) archive format adapter.
 //! Wraps unarc-rs to provide EntrySource for .uc2 archives.
 
-use std::io::{Read, Cursor};
+use std::io::{Cursor, Read, Seek};
 
 use crate::error::{Error, Result};
 use crate::entry::{Entry, EntryKind, normalise_name};
