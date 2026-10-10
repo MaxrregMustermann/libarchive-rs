@@ -130,6 +130,48 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Every `unarc-rs` error becomes one of this crate's kinds.
+///
+/// This lives here rather than in each legacy format module because all twelve formats need it and
+/// the mapping has to be the *same* for all of them: the app decides whether to retry with
+/// `libarchive` by switching on [`ErrorKind::is_worth_retrying`], so a RAR that reports
+/// corruption as `Io` and an ARC that reports it as `Malformed` would send the user down two
+/// different paths for the same kind of damage.
+///
+/// The mapping is deliberately conservative. Where `unarc-rs` wraps an external library
+/// (`rars` for RAR, `delharc` for LZH, `sevenz-rust2` for 7Z) and only reports a string, there is
+/// nothing to classify on, so those become [`ErrorKind::Malformed`]: an archive a third-party
+/// decoder gave up on is far more often damaged than merely unfamiliar.
+impl From<unarc_rs::error::ArchiveError> for Error {
+    fn from(error: unarc_rs::error::ArchiveError) -> Error {
+        use unarc_rs::error::ArchiveError as Source;
+        let message = error.to_string();
+        match error {
+            // Already ours: keep the kind, and keep the cause, rather than flattening it.
+            Source::Io(io) => Error::io(io),
+            Source::UnsupportedFormat(_) | Source::UnsupportedMethod { .. } => {
+                Error::unsupported(message)
+            }
+            Source::InvalidHeader { .. }
+            | Source::IndexMismatch(_)
+            | Source::CrcMismatch { .. }
+            | Source::DecompressionFailed { .. }
+            | Source::ExternalLibrary { .. } => Error::malformed(message),
+            Source::CorruptedEntry { .. } => Error::malformed(message),
+            Source::PasswordRequired { .. }
+            | Source::EncryptionRequired { .. }
+            | Source::InvalidPassword { .. } => Error::password(message),
+            // A size limit is a limit whichever crate raised it, and it is not worth retrying
+            // with another implementation: the same limit will be hit again.
+            Source::SizeLimitExceeded { .. } => Error::limit(message),
+            // `unarc-rs` is not `#[non_exhaustive]`, so this arm is unreachable today. It exists
+            // so that adding a variant there is a compile error here rather than a silent
+            // misclassification at runtime.
+            other => Error::malformed(other.to_string()),
+        }
+    }
+}
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]
@@ -155,5 +197,80 @@ mod tests {
         let error = Error::malformed("bad magic").context("central directory");
         assert_eq!(error.kind(), ErrorKind::Malformed);
         assert_eq!(error.message(), "central directory: bad magic");
+    }
+
+    /// Every `unarc-rs` variant has to land on the kind this crate means by it.
+    ///
+    /// The app switches on `is_worth_retrying` to decide whether to fall back to `libarchive`, so
+    /// a misclassified variant sends the user down the wrong path for the same kind of damage.
+    /// Twelve formats share this mapping, which is exactly why it is pinned here rather than
+    /// tested once per format.
+    #[test]
+    fn unarc_errors_map_to_the_kind_the_app_expects() {
+        use unarc_rs::error::ArchiveError as Source;
+
+        let cases: Vec<(Source, ErrorKind)> = vec![
+            (
+                Source::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short")),
+                ErrorKind::Malformed,
+            ),
+            (Source::UnsupportedFormat("weird".into()), ErrorKind::Unsupported),
+            (
+                Source::UnsupportedMethod { format: "ARC".into(), method: "9".into() },
+                ErrorKind::Unsupported,
+            ),
+            (Source::InvalidHeader { format: "ARJ".into() }, ErrorKind::Malformed),
+            (Source::IndexMismatch("nope".into()), ErrorKind::Malformed),
+            (
+                Source::CrcMismatch { entry: "a".into(), expected: 1, actual: 2 },
+                ErrorKind::Malformed,
+            ),
+            (
+                Source::DecompressionFailed { entry: "a".into(), reason: "bad".into() },
+                ErrorKind::Malformed,
+            ),
+            (
+                Source::CorruptedEntry {
+                    format: "ACE".into(),
+                    entry_name: "a".into(),
+                    reason: "bad".into(),
+                },
+                ErrorKind::Malformed,
+            ),
+            (
+                Source::ExternalLibrary { library: "rars".into(), message: "no".into() },
+                ErrorKind::Malformed,
+            ),
+            (Source::PasswordRequired { path: "/tmp/a.rar".into() }, ErrorKind::Password),
+            (
+                Source::EncryptionRequired { entry: "a".into(), format: "ACE".into() },
+                ErrorKind::Password,
+            ),
+            (
+                Source::InvalidPassword { entry: "a".into(), format: "ACE".into() },
+                ErrorKind::Password,
+            ),
+            (
+                Source::SizeLimitExceeded { entry: "a".into(), limit: 10 },
+                ErrorKind::LimitExceeded,
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let error = Error::from(source);
+            assert_eq!(error.kind(), expected, "{error}");
+            assert!(!error.message().is_empty(), "a mapped error must still say what went wrong");
+        }
+    }
+
+    /// An `Io` error keeps its cause, so the app's own channel failure is still visible.
+    #[test]
+    fn an_unarc_io_error_keeps_the_original_cause() {
+        let io = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "the channel went away");
+        let error = Error::from(unarc_rs::error::ArchiveError::Io(io));
+        assert!(
+            std::error::Error::source(&error).is_some(),
+            "the original error must not be discarded"
+        );
     }
 }
