@@ -972,4 +972,95 @@ mod tests {
         );
         assert!(result.is_err(), "a folder that does not exist must not open");
     }
+
+    /// A BCJ2 folder decodes to the same bytes `read_file` produces for it.
+    ///
+    /// The fixture is upstream's own `7za433_7zip_lzma2_bcj2.7z`, which is a branched coder graph:
+    /// four input streams, one BCJ2 coder, three coders feeding its inputs. Until the graph walk
+    /// existed this file was reported as unsupported, so this test fails on any version that
+    /// reverts it.
+    ///
+    /// The comparison is against `read_file` rather than a golden file because the claim is "this
+    /// crate decodes BCJ2 the way the reference decoder does", and only the reference decoder can
+    /// check that.
+    #[test]
+    fn a_bcj2_folder_decodes_to_the_same_bytes_as_read_file() {
+        const BCJ2: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/resources/7za433_7zip_lzma2_bcj2.7z"
+        );
+        let Ok(bytes) = std::fs::read(BCJ2) else {
+            // No fixture, no claim. Refusing is better than a test that passes on nothing.
+            return;
+        };
+        let mut source = Cursor::new(bytes.clone());
+        let archive = Archive::read(&mut source, &Password::empty()).expect("parse the archive");
+
+        let branched: Vec<usize> = (0..archive.blocks.len())
+            .filter(|index| {
+                archive.blocks[*index].total_input_streams
+                    > archive.blocks[*index].total_output_streams
+            })
+            .collect();
+        assert!(
+            !branched.is_empty(),
+            "the fixture is meant to hold a branched coder graph; if it does not, this test is \
+             testing nothing"
+        );
+
+        let mut reader =
+            crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
+                .expect("an archive reader");
+        let expected: Vec<(String, Vec<u8>)> = archive
+            .files
+            .iter()
+            .filter(|file| file.has_stream())
+            .map(|file| {
+                (
+                    file.name().to_owned(),
+                    reader
+                        .read_file(file.name())
+                        .expect("read_file reads every streamed entry"),
+                )
+            })
+            .collect();
+        assert!(
+            !expected.is_empty(),
+            "the fixture is meant to hold entries with contents"
+        );
+
+        for block_index in branched {
+            let start = archive.stream_map.block_first_file_index[block_index];
+            let count = archive.blocks[block_index].num_sub_streams();
+            let mut cursor = BlockCursor::open(
+                &archive,
+                Arc::new(Mutex::new(Cursor::new(bytes.clone()))),
+                &Password::empty(),
+                block_index,
+                1,
+            )
+            .expect("a cursor over a BCJ2 folder");
+            let mut offset = 0u64;
+            for file_index in start..(start + count) {
+                let file = &archive.files[file_index];
+                if !file.has_stream() {
+                    continue;
+                }
+                let data = cursor
+                    .read_entry(offset, file.size)
+                    .expect("read an entry of a BCJ2 folder");
+                let wanted = expected
+                    .iter()
+                    .find(|(name, _)| name == file.name())
+                    .map(|(_, contents)| contents)
+                    .expect("read_file produced this entry too");
+                assert_eq!(
+                    &data, wanted,
+                    "{} of BCJ2 folder {block_index} differs from read_file",
+                    file.name()
+                );
+                offset += file.size;
+            }
+        }
+    }
 }
