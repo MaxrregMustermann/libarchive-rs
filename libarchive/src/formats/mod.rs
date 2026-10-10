@@ -14,6 +14,7 @@ use crate::writer::{EntryWriter, WriteOptions};
 pub mod single;
 pub mod sevenz;
 pub mod tar;
+pub mod uc2;
 pub mod zip;
 
 /// Opens a source as `format`, building its entry list.
@@ -28,6 +29,7 @@ pub fn open<R: Read + Seek + Send + 'static>(
         Format::Tar => tar::TarReader::open(source, options),
         Format::CompressedTar(compression) => tar::CompressedTarReader::open(source, compression, options),
         Format::SingleStream(compression) => single::SingleStreamReader::open(source, compression, options),
+        Format::Uc2 => uc2::Uc2Reader::open(source, options),
         other => legacy::open(other, source, options),
     }
 }

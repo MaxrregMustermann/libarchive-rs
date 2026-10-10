@@ -157,7 +157,7 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for SingleStreamReader<R> {
 }
 
 /// The one entry of a single-stream file, decompressed.
-struct SingleEntry {
+pub struct SingleEntry {
     inner: Box<dyn Read + Send>,
     expected: Option<u64>,
     produced: u64,
