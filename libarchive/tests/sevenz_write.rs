@@ -15,19 +15,24 @@ use std::process::Command;
 use libarchive::{ArchiveReader, ArchiveWriter, Format, NewEntry, OpenOptions, WriteOptions};
 
 /// Whether the `7z` binary is here to check our work.
-fn seven_z() -> Option<Command> {
-    let command = Command::new("7z");
-    if std::process::Command::new("7z")
+fn seven_z() -> bool {
+    std::process::Command::new("7z")
         .arg("--help")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok()
-    {
-        Some(command)
-    } else {
-        None
-    }
+}
+
+/// Where the fixtures for the `7z` half go.
+///
+/// `CARGO_TARGET_TMPDIR` is per-test-run and under the build directory, which is what the project
+/// requires of scratch space; `/tmp` is a small tmpfs on this machine and is not to be used.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let base = std::env::var_os("CARGO_TARGET_TMPDIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join(name)
 }
 
 /// Writes `entries` into a 7Z and returns the archive's bytes.
@@ -50,12 +55,22 @@ fn read_back(bytes: Vec<u8>) -> Vec<(String, Vec<u8>)> {
     let mut entries = Vec::new();
     for index in 0..reader.len() {
         let name = reader.entry(index).expect("entry").name.clone();
+        let declared = reader.entry(index).expect("entry").size;
         let mut contents = Vec::new();
         reader
             .open_entry(index)
             .expect("open an entry")
             .read_to_end(&mut contents)
             .expect("read an entry");
+        // The size the directory recorded against the size that came out. A writer that got this
+        // wrong would still read back here, because the reader stops at the entry's declared size,
+        // so the two are compared rather than assumed.
+        assert_eq!(
+            declared,
+            Some(contents.len() as u64),
+            "{name} is listed with size {declared:?} and produced {} bytes",
+            contents.len()
+        );
         entries.push((name, contents));
     }
     entries
@@ -180,13 +195,13 @@ fn a_solid_seven_z_round_trips_through_this_crate() {
 /// The `7z` binary reads what this crate wrote, non-solid.
 #[test]
 fn seven_z_can_read_a_non_solid_archive_this_crate_wrote() {
-    if seven_z().is_none() {
+    if !seven_z() {
         eprintln!("skipping: 7z is not installed");
         return;
     }
     let bytes = write(&corpus(), &WriteOptions::default());
-    let archive = std::env::temp_dir().join("libarchive-nonsolid.7z");
-    let target = std::env::temp_dir().join("libarchive-nonsolid-out");
+    let archive = scratch("libarchive-nonsolid.7z");
+    let target = scratch("libarchive-nonsolid-out");
     std::fs::write(&archive, &bytes).expect("write the fixture");
     let _ = std::fs::remove_dir_all(&target);
     let from_tool = by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
@@ -213,14 +228,14 @@ fn seven_z_can_read_a_non_solid_archive_this_crate_wrote() {
 /// The `7z` binary reads what this crate wrote, solid.
 #[test]
 fn seven_z_can_read_a_solid_archive_this_crate_wrote() {
-    if seven_z().is_none() {
+    if !seven_z() {
         eprintln!("skipping: 7z is not installed");
         return;
     }
     let options = WriteOptions::default().with_solid(true);
     let bytes = write(&corpus(), &options);
-    let archive = std::env::temp_dir().join("libarchive-solid.7z");
-    let target = std::env::temp_dir().join("libarchive-solid-out");
+    let archive = scratch("libarchive-solid.7z");
+    let target = scratch("libarchive-solid-out");
     std::fs::write(&archive, &bytes).expect("write the fixture");
     let _ = std::fs::remove_dir_all(&target);
     let from_tool = by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
@@ -240,8 +255,6 @@ fn seven_z_can_read_a_solid_archive_this_crate_wrote() {
             "the solid archive came out as {folders} folders, so this test measured a non-solid one"
         );
     }
-    let _ = std::fs::remove_file(&archive);
-    let _ = std::fs::remove_dir_all(&target);
 }
 
 /// An archive with no entries at all is still a valid, empty 7Z.
