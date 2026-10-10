@@ -24,7 +24,7 @@
 //! because a footer is never larger than that and because a 7 GiB file's tail is still 64 KiB.
 //! Reading the whole file to find a 4-byte length would defeat the point of streaming.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 
 use crate::compression;
 use crate::entry::{normalise_name, Entry, EntryKind};
@@ -256,7 +256,7 @@ fn read_tail<R: Read + Seek>(source: &Shared<R>, length: u64) -> Result<Vec<u8>>
 mod tests {
     use super::*;
     use crate::reader::ArchiveReader;
-    use std::io::Cursor;
+    use std::io::{Cursor, Write};
 
     #[test]
     fn the_signatures_are_the_ones_each_format_defines() {

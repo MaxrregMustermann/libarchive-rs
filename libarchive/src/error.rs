@@ -164,10 +164,6 @@ impl From<unarc_rs::error::ArchiveError> for Error {
             // A size limit is a limit whichever crate raised it, and it is not worth retrying
             // with another implementation: the same limit will be hit again.
             Source::SizeLimitExceeded { .. } => Error::limit(message),
-            // `unarc-rs` is not `#[non_exhaustive]`, so this arm is unreachable today. It exists
-            // so that adding a variant there is a compile error here rather than a silent
-            // misclassification at runtime.
-            other => Error::malformed(other.to_string()),
         }
     }
 }

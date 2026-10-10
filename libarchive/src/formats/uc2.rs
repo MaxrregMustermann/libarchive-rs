@@ -33,7 +33,6 @@ use std::io::{Cursor, Read, Seek};
 
 use crate::error::{Error, Result};
 use crate::entry::{Entry, EntryKind, normalise_name};
-use crate::format::Format;
 use crate::reader::{OpenOptions, EntryRead, EntrySource, EntryStream, Shared};
 use unarc_rs::unified::{ArchiveEntry, ArchiveFormat};
 

@@ -6,13 +6,19 @@ wasting the whole run.
 2. Build here: `export PATH="$HOME/.cargo/bin:$PATH"` and
    `export CARGO_TARGET_DIR={TARGET}`. That directory is yours alone and is already warm; another
    agent is building in a different one. If you build anywhere else you will slow down every agent
-   on the machine.
+   on the machine. Set `TMPDIR=/home/user/tmp-$USER` too — `/tmp` is shared and is sometimes full.
 3. `cargo test --workspace --offline` takes about two minutes and everything must pass before you
    change anything. If it does not pass on a clean checkout, that is a finding worth more than your
    job — stop and mail it.
 
 Then do the job. The acceptance criteria above are the contract; the orchestrator checks them
 rather than your account of them, so an unmet one is worth telling them about.
+
+**Commit early and often.** Your run will be cut off when it runs long, and everything uncommitted
+dies with it. Seven agents have now finished with their whole contribution stranded in a worktree
+because they were saving it for last. Commit the moment you have something that compiles or
+something that runs, even if the job is half done — a commit that is incomplete is recoverable and
+an uncommitted tree is not.
 
 When you finish:
 

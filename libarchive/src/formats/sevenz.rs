@@ -47,7 +47,6 @@ use sevenz_rust2::{Archive, Password};
 
 use crate::entry::{normalise_name, BlockPlacement, Entry, EntryKind};
 use crate::error::{Error, Result};
-use crate::format::Format;
 use crate::limits::Limits;
 use crate::reader::{EntryRead, EntrySource, EntryStream, OpenOptions, Shared};
 
@@ -341,7 +340,10 @@ struct EmptyEntry {
 }
 
 impl Read for EmptyEntry {
-    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+    fn read(&mut self, _output: &mut [u8]) -> std::io::Result<usize> {
+        // An empty file still has to be a `Read` that ends, rather than an error: a directory
+        // entry inside a folder is recorded with a size of zero and no stream of its own, and
+        // the caller opens it like any other entry.
         Ok(0)
     }
 }
