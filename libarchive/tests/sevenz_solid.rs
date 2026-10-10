@@ -151,3 +151,106 @@ fn the_crate_being_replaced_is_the_slow_one() {
         read_file_time.as_secs_f64() / cursor_time.as_secs_f64().max(1e-9)
     );
 }
+
+/// The same assertion, over BCJ2.
+///
+/// BCJ2 is the one folder shape that is decoded as a graph rather than a chain: four input streams,
+/// one branched coder. It was refused outright until the graph walk was added to the vendored
+/// `BlockCursor`, so this test is the measurement that the walk earns its cost on the shape it
+/// exists for. Without the walk there is nothing to time, which is the point.
+#[test]
+#[ignore = "times two archives; run with --ignored --nocapture"]
+fn bcj2_is_not_quadratic_either() {
+    let (solid, non_solid) = match (
+        corpus("bcj2solid400big.7z"),
+        corpus("bcj2nonsolid400big.7z"),
+    ) {
+        (Some(solid), Some(non_solid)) => (solid, non_solid),
+        _ => {
+            eprintln!(
+                "skipping: set LIBARCHIVE_BENCH_CORPUS to a directory holding bcj2solid400big.7z \
+                 and bcj2nonsolid400big.7z (tools/make-corpus.sh makes them)"
+            );
+            return;
+        }
+    };
+
+    // That the fixture really is the branched shape, rather than an ordinary chain whose name
+    // mentions BCJ2. A test that measured a chain here would prove nothing about the graph walk.
+    let solid_listing = std::process::Command::new("7z")
+        .arg("l")
+        .arg("-slt")
+        .arg(&solid)
+        .output()
+        .expect("7z lists the solid fixture");
+    assert!(
+        String::from_utf8_lossy(&solid_listing.stdout).contains("Method = LZMA2:384k BCJ2"),
+        "the solid BCJ2 fixture is not a BCJ2 archive, so the ratio below measures nothing"
+    );
+
+    let start = Instant::now();
+    let (entries, bytes) = read_all_in_order(&solid).expect("reads the solid BCJ2 archive");
+    let solid_time = start.elapsed();
+
+    let start = Instant::now();
+    let (control_entries, control_bytes) =
+        read_all_in_order(&non_solid).expect("reads the non-solid BCJ2 archive");
+    let non_solid_time = start.elapsed();
+
+    assert_eq!(entries, control_entries, "the two archives hold different entries");
+    assert_eq!(bytes, control_bytes, "the two archives hold different bytes");
+
+    println!("bcj2solid400big.7z   {entries} entries, {bytes} bytes in {solid_time:?}");
+    println!(
+        "bcj2nonsolid400big.7z {control_entries} entries, {control_bytes} bytes in {non_solid_time:?}"
+    );
+    println!(
+        "ratio {:.1}x",
+        solid_time.as_secs_f64() / non_solid_time.as_secs_f64().max(1e-9)
+    );
+
+    let ratio = solid_time.as_secs_f64() / non_solid_time.as_secs_f64().max(1e-9);
+    assert!(
+        ratio < 4.0,
+        "reading a solid BCJ2 archive took {ratio:.1}x the non-solid equivalent, which is the \
+         quadratic signature: one decode per entry instead of one per folder"
+    );
+
+    // And against the way the app reads it today: one `read_file` per entry, which rebuilds the
+    // whole coder graph for each. For BCJ2 that graph is four decoders and four pack streams, so
+    // rebuilding it 400 times is expensive in a way a linear chain is not.
+    let start = Instant::now();
+    let mut read_file_total = 0u64;
+    {
+        use sevenz_rust2::{ArchiveReader as SevenZReader, Password};
+        let file = std::fs::File::open(&solid).expect("opens");
+        let mut archive = SevenZReader::new(file, Password::empty()).expect("parses");
+        let names: Vec<String> = archive
+            .archive()
+            .files
+            .iter()
+            .filter(|file| file.has_stream())
+            .map(|file| file.name().to_owned())
+            .collect();
+        assert!(!names.is_empty(), "the BCJ2 fixture holds no streamed entries");
+        for name in &names {
+            let bytes = archive.read_file(name).expect("reads");
+            read_file_total += bytes.len() as u64;
+        }
+    }
+    let read_file_time = start.elapsed();
+
+    assert_eq!(
+        read_file_total, bytes,
+        "read_file returned different bytes, so the two timings are not comparable"
+    );
+    println!("bcj2 read_file, one call per entry: {read_file_time:?}");
+    assert!(
+        solid_time < read_file_time,
+        "one graph walk took {solid_time:?} where read_file took {read_file_time:?}"
+    );
+    println!(
+        "bcj2 speedup {:.1}x",
+        read_file_time.as_secs_f64() / solid_time.as_secs_f64().max(1e-9)
+    );
+}
