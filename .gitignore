@@ -2,3 +2,4 @@
 Cargo.lock.orig
 *.swp
 # Vendored upstream test corpus is large; regenerate from the crate.
+__pycache__/
