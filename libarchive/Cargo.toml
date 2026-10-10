@@ -28,14 +28,19 @@ sha1.workspace = true
 hmac.workspace = true
 pbkdf2.workspace = true
 # The 7Z container. Vendored and patched: `vendor/sevenz-rust2/PATCHES.md` records every
-# difference from upstream 0.23.0, which is one new file and two lines. The file is a resumable
-# folder cursor, without which a solid archive costs one decode per entry instead of one per
-# archive.
-sevenz-rust2 = { workspace = true, features = ["util", "compress"] }
+# difference from upstream 0.23.0, which is one new file and three accessors. The file is a
+# resumable folder cursor, without which a solid archive costs one decode per entry instead of one
+# per archive.
+#
+# The feature set is the app's, deliberately and in full: `aes256` because an encrypted 7Z is
+# ordinary, `bzip2` and `ppmd` because both appear in real archives. Turning any of them off would
+# make this crate read fewer archives than the one it replaces, which is a regression dressed up as
+# a saving.
+sevenz-rust2 = { workspace = true, features = ["aes256", "bzip2", "compress", "ppmd", "util"] }
 unarc-rs.workspace = true
 
 [dev-dependencies]
-sevenz-rust2 = { workspace = true, features = ["util", "compress"] }
+sevenz-rust2 = { workspace = true, features = ["aes256", "bzip2", "compress", "ppmd", "util"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
 rand = "0.9"

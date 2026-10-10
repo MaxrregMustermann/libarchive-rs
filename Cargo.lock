@@ -1385,7 +1385,9 @@ dependencies = [
  "lz4_flex",
  "lzma-rust2 0.21.0",
  "ppmd-rust",
+ "rand",
  "sha2",
+ "tempfile",
  "zstd",
 ]
 

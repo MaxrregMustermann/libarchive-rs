@@ -51,10 +51,20 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
         Compression::Brotli => Ok(Box::new(brotli::Decompressor::new(input, BIG_BUFFER))),
         Compression::Lz4 => Ok(Box::new(lz4_flex::frame::FrameDecoder::new(input))),
         Compression::Zstd => Ok(Box::new(zstd::stream::read::Decoder::new(input)?)),
-        // XZ and LZMA2 are containers with their own index and integrity checks rather than raw
-        // codecs, so they are decoded by the module that owns the container.
-        Compression::Xz | Compression::Lzma2 => Err(Error::unimplemented(format!(
-            "{method} is a container, not a raw codec; see formats::single"
+        // XZ is a container: LZMA2 inside a stream with its own index, checks and padding rules.
+        // `lzma-rust2` provides the whole container, so this is one call rather than a hand-rolled
+        // index parser. `allow_multiple_streams` is false because a file that claims to be one XZ
+        // stream and then carries another is either damaged or an attack, and concatenating them
+        // would hand the caller bytes the archive never described.
+        Compression::Xz => Ok(Box::new(lzma_rust2::XzReader::new_mem_limit(
+            input,
+            false,
+            (crate::limits::DEFAULT_LZMA_MEMORY_LIMIT / 1024) as u32,
+        ))),
+        // LZMA2 on its own is a raw chunked codec with no container; it appears inside XZ and
+        // inside 7Z's coder chains, both of which drive it themselves.
+        Compression::Lzma2 => Err(Error::unimplemented(format!(
+            "{method} is a bare chunked codec with no container; see the 7Z and XZ readers"
         ))),
         // PPMd's 7Z variant is driven by the 7Z coder chain, which needs the model properties as
         // well as the data. `compress` is LZW with a twist and has no crate here.
@@ -255,6 +265,7 @@ pub fn can_decode(method: Compression) -> bool {
             | Compression::Brotli
             | Compression::Lz4
             | Compression::Zstd
+            | Compression::Xz
     )
 }
 
@@ -403,6 +414,7 @@ mod tests {
             Compression::Brotli,
             Compression::Lz4,
             Compression::Zstd,
+            Compression::Xz,
         ] {
             assert!(can_decode(method), "{method} should be decodable");
         }
@@ -412,9 +424,9 @@ mod tests {
     }
 
     #[test]
-    fn a_codec_that_needs_a_container_says_so_rather_than_producing_garbage() {
+    fn a_codec_with_no_container_says_so_rather_than_producing_garbage() {
         let bytes = vec![0u8; 16];
-        for method in [Compression::Xz, Compression::Lzma2, Compression::Ppmd, Compression::Z] {
+        for method in [Compression::Lzma2, Compression::Ppmd, Compression::Z] {
             let error = match decode(method, Box::new(Cursor::new(bytes.clone()))) {
             Ok(_) => panic!("{method} should have no raw decoder"),
             Err(error) => error,

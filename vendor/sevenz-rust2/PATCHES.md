@@ -4,8 +4,8 @@
 every difference from the upstream 0.23.0 release, so that the vendor can be re-derived or
 audited without reading the whole crate.
 
-The vendored source is upstream 0.23.0 verbatim except for the four changes below. Every parser,
-every codec and every header field is untouched.
+The vendored source is upstream 0.23.0 verbatim except for the changes below. Every parser, every
+codec and every header field is untouched.
 
 ## Why a vendored copy at all
 
@@ -36,61 +36,69 @@ Nothing else in the crate was changed to make this work. `BlockCursor` uses only
 items that already existed: `add_decoder`, `Block::ordered_coder_iter`, `StreamMap`'s accessors
 and the crate-private fields.
 
-### 2. `src/time.rs` and `src/block.rs` — two accessors
+### 2. `src/block.rs` and `src/time.rs` — two accessors
 
 ```rust
-// time.rs
-pub fn to_u64(self) -> u64 { self.0 }
 // block.rs
 pub fn num_sub_streams(&self) -> usize { self.num_unpack_sub_streams }
+// time.rs
+pub fn to_u64(self) -> u64 { self.0 }
 ```
 
 Both fields are crate-private upstream. `libarchive-rs` needs the folder's entry count in order
 to map entries to folders — which is what lets a solid archive be read in order — and the raw
 timestamp in order to convert it without adding a date dependency to a crate that goes into every
-archive operation the app does. Both are getters and nothing else.
+archive operation the app does. Both are getters and nothing else, and nothing upstream depends on
+them.
 
-### 3. `src/block.rs` — one accessor
-
-```rust
-pub fn num_sub_streams(&self) -> usize { self.num_unpack_sub_streams }
-```
-
-The field is crate-private upstream. `libarchive-rs` needs to know how many of an archive's files
-belong to each folder in order to map entries to folders, which is what lets a solid archive be
-read in order. It is a getter and nothing else.
-
-### 3. `src/lib.rs` — two lines
+### 3. `src/lib.rs` — one line
 
 ```diff
--pub(crate) mod decoder;
-+pub mod decoder;
-+pub mod block_cursor;
+ pub mod block_cursor;
 ```
 
-`decoder` becomes public so the crate's own documentation for the patch is reachable; nothing
-outside uses it. `block_cursor` is declared.
+`block_cursor` is declared. (`decoder` is *not* made public; an earlier draft of this file claimed
+it was, and it is not.)
 
-### 4. `Cargo.toml` — optional, dev and wasm dependencies removed
+### 4. `Cargo.toml` — examples, wasm and unused dependencies removed; dev-dependencies restored
 
 ```diff
--nt-time = ["dep:nt-time"]
--[dependencies.nt-time]
--[dev-dependencies.rand]
--[dev-dependencies.tempfile]
+-[[example]]                       # x6: the examples are not vendored, and a declared
+-                                  #     example that does not exist fails the whole build
 -[target.'cfg(target_arch = "wasm32")'.dependencies.js-sys]
 -[target.'cfg(target_arch = "wasm32")'.dependencies.wasm-bindgen]
++[dev-dependencies.rand]           # the crate's own test suite is kept and run
++[dev-dependencies.tempfile]       # (see below)
 ```
 
-None of these is compiled into the library this project builds: `nt-time` is behind a feature
-that is never enabled, the dev-dependencies belong to the crate's own test suite (which is kept
-on disk under `tests/` and can be run by building this crate standalone), and the wasm target
-dependencies are for a target this project does not build for. They are removed only because
-resolving them offline fails on a machine whose registry cache does not contain them.
+The wasm target dependencies are for a target this project does not build for. The examples were
+never vendored, and Cargo fails the whole workspace when a declared example is missing.
+
+The dev-dependencies were removed on the grounds that the registry cache could not resolve them,
+which turned out to be wrong — this workspace already depends on both crates, so they resolve
+fine. They are back because upstream's own test suite is the best evidence available that the
+vendored copy is not quietly broken, and it is run as part of `cargo test --workspace`.
+
+The `nt-time` dependency and the `nt-time` feature entry were also removed; neither is compiled
+into the library this project builds.
 
 ### 5. `Cargo.lock` removed
 
 The upstream lockfile is not meaningful for a path dependency inside a workspace.
+
+## Verifying this file
+
+    diff -r ~/.cargo/registry/src/*/sevenz-rust2-0.23.0/src vendor/sevenz-rust2/src
+
+should report exactly three things, and nothing else:
+
+    Only in vendor/.../src: block_cursor.rs
+    block.rs differs      # the num_sub_streams getter
+    lib.rs differs        # one line, `pub mod block_cursor;`
+    time.rs differs       # the to_u64 getter
+
+Anything else in that diff is an unrecorded change and must be either reverted or added here with
+a reason. `tools/check-vendor.sh` runs exactly this check and fails the build if it drifts.
 
 ## What was *not* patched, and why it matters
 
@@ -105,10 +113,3 @@ getter above. In particular:
 - No header parser, no CRC check and no bounds check was altered. The panic-freedom and
   fuzz-hardening already in upstream 0.23.0 are all still there, and this project adds its own
   tests on top rather than relying on that alone.
-
-## Verifying this file
-
-    diff -r ~/.cargo/registry/src/*/sevenz-rust2-0.23.0/src vendor/sevenz-rust2/src
-
-should report exactly two things: `Only in vendor/.../src: block_cursor.rs`, and `lib.rs`
-differing. Anything else is an unrecorded change.

@@ -722,22 +722,13 @@ fn new_decoder<R: Read + Seek + Send + 'static>(
     }
     let input: Box<dyn Read + Send> =
         Box::new(RawReader::new(source.clone(), 0, None));
-    match compression {
-        Compression::Gzip | Compression::Bzip2 | Compression::Zstd | Compression::Lz4 => {
-            crate::compression::decode(compression, input)
-        }
-        // XZ is a container with its own index and integrity checks rather than a raw codec, so
-        // `compression::decode` refuses it and the container reader is built here, where the
-        // whole-stream shape it needs is known.
-        Compression::Xz => Ok(Box::new(lzma_rust2::XzReader::new_mem_limit(
-            input,
-            false,
-            (crate::limits::DEFAULT_LZMA_MEMORY_LIMIT / 1024) as u32,
-        ))),
-        _ => Err(Error::unimplemented(format!(
+    // Every codec this crate can decode goes through one function, so adding a codec does not
+    // mean finding the places that special-case the old ones.
+    crate::compression::decode(compression, input).map_err(|_| {
+        Error::unimplemented(format!(
             "a TAR compressed with {compression} cannot be read by this build"
-        ))),
-    }
+        ))
+    })
 }
 
 /// Walks every header in the decompressed stream, building the entry list.

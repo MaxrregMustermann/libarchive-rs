@@ -77,36 +77,6 @@ crate-type = [
 ]
 path = "src/lib.rs"
 
-[[example]]
-name = "advance"
-path = "examples/advance.rs"
-required-features = ["default"]
-
-[[example]]
-name = "block_decompress"
-path = "examples/block_decompress.rs"
-required-features = ["default"]
-
-[[example]]
-name = "compress"
-path = "examples/compress.rs"
-required-features = ["default"]
-
-[[example]]
-name = "decompress"
-path = "examples/decompress.rs"
-required-features = ["default"]
-
-[[example]]
-name = "decompress_progress"
-path = "examples/decompress_progress.rs"
-required-features = ["default"]
-
-[[example]]
-name = "mt_decompress"
-path = "examples/mt_decompress.rs"
-required-features = ["default"]
-
 [[test]]
 name = "compress_tests"
 path = "tests/compress_tests.rs"
@@ -184,4 +154,14 @@ optional = true
 [dependencies.zstd]
 version = "0.14"
 optional = true
+
+# PATCH (see PATCHES.md): the crate's own test suite is kept and run, so it needs its dev-deps.
+# They were removed on the grounds that the registry cache could not resolve them; that turned out
+# to be wrong, since this workspace already depends on both crates. Upstream's tests are the best
+# evidence there is that the vendored copy is not quietly broken, so they are worth their two lines.
+[dev-dependencies.rand]
+version = "0.9"
+
+[dev-dependencies.tempfile]
+version = "3"
 
