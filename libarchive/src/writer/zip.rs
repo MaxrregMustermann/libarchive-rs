@@ -702,7 +702,7 @@ mod tests {
     fn an_msdos_timestamp_round_trips_through_the_reader() {
         // The writer and the reader are two independent implementations of the same encoding, so
         // a disagreement between them shows up as every entry looking like 1980.
-        let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_709_209_296);
+        let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_709_181_296);
         let (time, date) = dos_time_from(Some(when));
         let back = crate::formats::zip::dos_time_to_system_time(time, date).expect("a valid date");
         let seconds = back.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;

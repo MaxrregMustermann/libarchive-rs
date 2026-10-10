@@ -64,25 +64,136 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
     }
 }
 
+/// A compressing writer that must be finished before its output is complete.
+///
+/// Three of the four encoders write a trailer when they are *finished*, not when they are dropped:
+/// deflate's final block, bzip2's stream footer and zstd's frame epilogue. A caller that forgets
+/// produces an archive that lists correctly and then fails on the first entry it tries to read,
+/// which is the worst shape a bug can have. Making it a method rather than a convention is the
+/// difference between that and a compile error.
+pub trait Encoded: Write + Send {
+    /// Writes whatever trailer the format needs and flushes into the sink.
+    fn finish(self: Box<Self>) -> Result<()>;
+}
+
 /// An encoder writing to `sink`, for the formats that write compressed entries.
 ///
 /// The sink is passed in rather than returned wrapping a `sink()`, because an encoder that owns
 /// its output has nowhere to put the bytes until it is finished, and finishing is the point at
 /// which the entry's compressed size is known.
-pub fn encode(method: Compression, sink: Box<dyn Write + Send>, level: u32) -> Result<Box<dyn Write + Send>> {
+pub fn encode(
+    method: Compression,
+    sink: Box<dyn Write + Send>,
+    level: u32,
+) -> Result<Box<dyn Encoded>> {
     Ok(match method {
-        Compression::None => sink,
-        Compression::Deflate => Box::new(flate2::write::DeflateEncoder::new(
+        Compression::None => Box::new(Encoder::new(Passthrough { inner: sink })),
+        Compression::Deflate => Box::new(Encoder::new(flate2::write::DeflateEncoder::new(
             sink,
             flate2::Compression::new(level.clamp(1, 9)),
-        )),
-        Compression::Bzip2 => Box::new(bzip2::write::BzEncoder::new(
+        ))),
+        Compression::Bzip2 => Box::new(Encoder::new(bzip2::write::BzEncoder::new(
             sink,
             bzip2::Compression::new(level.clamp(1, 9)),
-        )),
-        Compression::Zstd => Box::new(zstd::stream::write::Encoder::new(sink, level.clamp(1, 19) as i32)?),
-        other => return Err(Error::unimplemented(format!("{other} cannot be encoded by this build"))),
+        ))),
+        Compression::Zstd => Box::new(Encoder::new(zstd::stream::write::Encoder::new(
+            sink,
+            level.clamp(1, 19) as i32,
+        )?)),
+        other => {
+            return Err(Error::unimplemented(format!(
+                "{other} cannot be encoded by this build"
+            )))
+        }
     })
+}
+
+/// A codec whose output is complete only when it is finished.
+///
+/// Private, because it exists only so that [`Encoded`] can be implemented once for every encoder
+/// rather than once per encoder: three of the four write a trailer on `finish`, and the fourth
+/// does not, and a caller cannot tell which is which from the outside.
+trait Finishable: Write + Send {
+    fn finish_into(self) -> Result<()>;
+}
+
+/// The one wrapper every encoder goes through, so `finish` is written once.
+///
+/// `inner` is an `Option` because `Encoded::finish` consumes the box, and on stable the only way
+/// to move a field out of a `Box<Self>` is through an `Option` that is emptied first.
+struct Encoder<E: Finishable> {
+    inner: Option<E>,
+}
+
+impl<E: Finishable> Encoder<E> {
+    fn new(inner: E) -> Encoder<E> {
+        Encoder { inner: Some(inner) }
+    }
+}
+
+impl<E: Finishable> Write for Encoder<E> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.inner
+            .as_mut()
+            .expect("writing after finishing")
+            .write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.as_mut().expect("flushing after finishing").flush()
+    }
+}
+
+impl<E: Finishable> Encoded for Encoder<E> {
+    fn finish(mut self: Box<Self>) -> Result<()> {
+        let inner = self
+            .inner
+            .take()
+            .expect("finish consumes the encoder, so it can only happen once");
+        inner.finish_into()
+    }
+}
+
+/// An encoder that does nothing, so that the "stored" case has the same shape as the others.
+struct Passthrough {
+    inner: Box<dyn Write + Send>,
+}
+
+impl Write for Passthrough {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(buffer)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl Finishable for Passthrough {
+    fn finish_into(mut self) -> Result<()> {
+        self.inner.flush().map_err(Error::io)
+    }
+}
+
+impl Finishable for flate2::write::DeflateEncoder<Box<dyn Write + Send>> {
+    fn finish_into(self) -> Result<()> {
+        self.finish().map_err(Error::io)?;
+        Ok(())
+    }
+}
+
+impl Finishable for bzip2::write::BzEncoder<Box<dyn Write + Send>> {
+    fn finish_into(self) -> Result<()> {
+        self.finish().map_err(Error::io)?;
+        Ok(())
+    }
+}
+
+impl<W: Write + Send> Finishable for zstd::stream::write::Encoder<'_, W> {
+    fn finish_into(self) -> Result<()> {
+        self.finish().map_err(Error::io)?;
+        Ok(())
+    }
 }
 
 /// The buffer size the crate's hot loops are tuned for.
@@ -161,6 +272,8 @@ mod tests {
         {
             let mut encoder = encode(method, Box::new(sink.clone()), level).expect("an encoder");
             encoder.write_all(payload).expect("write the payload");
+            // The trailer, without which deflate, bzip2 and zstd all produce an incomplete stream.
+            encoder.finish().expect("finish the encoder");
         }
         let mut out = Vec::new();
         decode(method, Box::new(Cursor::new(sink.take())))
@@ -222,34 +335,32 @@ mod tests {
     }
 
     #[test]
-    fn a_decoder_yields_the_first_byte_without_reading_the_whole_entry() {
-        // The property that distinguishes a streaming decoder from a buffering one. A 4 MiB
-        // entry that has been compressed, read one byte, and then dropped must have cost one
-        // buffer's worth of work rather than the whole thing — which is what this checks by
-        // wrapping the input in a counter.
-        let bytes = payload();
+    fn a_decoder_reads_a_large_entry_a_block_at_a_time_rather_than_all_at_once() {
+        // The property that distinguishes a streaming decoder from a buffering one. A 32 MiB
+        // entry, of which one byte is read, must not cost 32 MiB of reads: a decoder that
+        // materialised the entry first would have pulled every compressed byte, and one that
+        // wrapped its input in an 8 KiB `BufReader` would have pulled at least that much.
+        let bytes: Vec<u8> = (0..32 * 1024 * 1024u32).map(|value| ((value / 7) % 256) as u8).collect();
         let sink = SharedCell::default();
         {
-            let mut encoder = encode(Compression::Deflate, Box::new(sink.clone()), 6).expect("encoder");
+            let mut encoder = encode(Compression::Deflate, Box::new(sink.clone()), 1).expect("encoder");
             encoder.write_all(&bytes).expect("write");
+            encoder.finish().expect("finish");
         }
-        // Counting how much of the *compressed* stream was pulled is what shows the property: a
-        // decoder that materialised the entry first would have read all of it.
         let compressed = sink.take();
+        let total = compressed.len();
         let counter = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let mut one = [0u8; 1];
         {
-            let reader = CountingReader::new(Cursor::new(compressed.clone()), counter.clone());
-            decode(Compression::Deflate, Box::new(reader))
-                .expect("a decoder")
-                .read_exact(&mut one)
-                .expect("one byte");
+            let reader = CountingReader::new(Cursor::new(compressed), counter.clone());
+            let mut decoder = decode(Compression::Deflate, Box::new(reader)).expect("a decoder");
+            decoder.read_exact(&mut one).expect("one byte");
         }
-        assert_eq!(one[0], bytes[0]);
+        assert_eq!(one[0], bytes[0], "the first byte is right");
         let seen = counter.lock().map(|value| *value).unwrap_or(usize::MAX);
         assert!(
-            seen < compressed.len(),
-            "reading one byte pulled all {seen} compressed bytes, so this is not streaming"
+            seen <= 4 * 1024 * 1024,
+            "reading one byte of a 32 MiB entry pulled {seen} of {total} compressed bytes"
         );
     }
 

@@ -212,6 +212,12 @@ mod tests {
     fn an_lzh_is_only_lzh_when_its_method_byte_is_one_a_compressor_actually_uses() {
         let mut header = vec![0u8; HEADER_SIZE];
         header[..5].copy_from_slice(b"-lh5-");
+        // Offset 20 is the compression method byte, which is what separates LZH from a file that
+        // merely starts with the same five characters. An lh5 file's method byte is 'l'.
+        header[20] = b'l';
+        assert_eq!(detect_header(&header), Format::Lzh);
+        // Method byte zero is "stored", written as a digit rather than a letter.
+        header[20] = b'0';
         assert_eq!(detect_header(&header), Format::Lzh);
         // A file that merely starts "-lh" but has nonsense where the method goes is not an LZH.
         header[20] = b'\xff';
