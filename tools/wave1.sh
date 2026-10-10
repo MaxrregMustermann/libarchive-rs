@@ -1,62 +1,103 @@
-#!/usr/bin/env bash
-# Wave 1: every job produces a document, not code. The point is to find out what
-# we are dealing with before anyone writes a line that has to be maintained.
-set -euo pipefail
-cd /home/user/libarchive-rs
+#!/bin/sh
+# Wave 1: the six jobs that unblock everything else.
+#
+#     sh tools/wave1.sh
+#
+# Each job carries its acceptance criteria into the agent's prompt, so the agent
+# checks itself against something written down rather than against its own memory
+# of what it meant to do.
+
+set -eu
+cd "$(dirname "$0")/.."
 C="python3 tools/collective.py"
 
-$C job new --team core --title "Spec the three oxiarc streaming-writer performance fixes" \
-  --acceptance "coord/notes/oxiarc-perf-fixes.md names each of the three fixes, cites the file and function in /home/user/oxiarc-prior that implements it, explains in one paragraph why it is faster, and says in one sentence what has to change in libarchive-rs to carry it across. The three fixes are: deflater reuse across entries, coalescing header writes into one sink write, and streaming an entry through add_stream instead of buffering it."
+new() { $C job new --team "$1" --opened-by orchestrator --title "$2" --acceptance "$3"; }
 
-$C job new --team container --title "Work out exactly how to make solid 7Z reads linear and streaming" \
-  --acceptance "coord/notes/sevenz-patch-plan.md states the minimum patch to sevenz-rust2 0.23.0 needed to build a block decode stack from outside the crate, with the real diff, and shows by reading the source that the resulting design decodes a 400-entry solid block once instead of 400 times. It must also show that a caller can stop mid-block and resume, which is what streaming requires."
+# ---------------------------------------------------------------- legacy ----
+J_LEGACY=$(new legacy \
+"Turn the long tail from Unsupported into twelve working formats" \
+"Each of RAR, LZH, ACE, ARC, Zoo, ARJ, SQ, UCB, UC2, Ha, Hyp and Ice either opens
+through formats::legacy::open and lists its entries, or is explicitly named in mail
+as not achievable with a reason. The adapter streams: reading one entry of a 64 MiB
+archive must not allocate 64 MiB, which a test asserts by counting allocations or by
+showing the first byte arrives before the last. A differential test exists per format
+that compares entry names, sizes and CRCs against unarc-rs 0.7.2 on the same bytes, and
+the comparison runs in CI, not once by hand. Formats that need a whole archive in
+memory say so in SPEC.md rather than pretending. If a format cannot be streamed, the
+error says which and why.")
 
-$C job new --team qa --title "Design the test corpus and the differential harness" \
-  --acceptance "coord/notes/testing-plan.md specifies a corpus of real archive files per format, how each one is obtained or generated, what the differential harness compares libarchive-rs against, and the command to run it. It must cover malformed input, encrypted input, and the Android ABI matrix."
+# ---------------------------------------------------------------- bridge ----
+J_BRIDGE=$(new bridge \
+"Implement the nine JNI exports so the app can actually call this library" \
+"jni/src/lib.rs defines all nine extern \"system\" functions that RustArchive.kt
+declares, with the exact signatures in coord/notes/bridge-contract.md section 1. The
+return-value conventions hold: 0 from nativeOpen/nativeCreate is failure, null from
+nativeNextEntry is end-of-archive and never failure, null from nativeReadData is
+end-of-entry and never failure. A panic anywhere in the crate aborts the process rather
+than reaching Java, so a test drives every export with a corrupt, truncated and
+empty input and asserts an IOException comes back rather than a crash. The cdylib
+builds for all four ABIs. No unwrap, expect or panic outside tests.")
 
-$C job new --team legacy --title "Map unarc-rs: which formats, which readers, what streaming would take" \
-  --acceptance "coord/notes/unarc-map.md lists every format unarc-rs 0.7.2 reads, the type that reads it, whether its reader is streaming or whole-entry, and the public API a caller can reach. For each format it states whether we must reimplement it or can carry the parser across unchanged, with the reason."
+# ------------------------------------------------------------------- zip ----
+J_ZIP=$(new zip \
+"Close the ZIP write gap: 169 ms to 109.2 ms for 5,000 entries" \
+"The benchmark reports under 109.2 ms for 5,000 entries of 512 bytes, or a mail
+explains why that bar is unreachable on this machine with the number that is. The
+allocation count is measured and reported against the 43.9 MB bar; it is currently
+unmeasured, which is not the same as passing. Sink writes per entry stay at or under
+6. Every optimisation is justified by a measurement taken before and after, and the
+measurement is in the benchmark file rather than in a transcript. A change that makes
+a number worse without a stated reason is reverted.")
 
-$C job new --team bridge --title "Write down the JNI and Kotlin contract we have to satisfy" \
-  --acceptance "coord/notes/bridge-contract.md lists every extern system function the app currently calls with its exact signature, every field of every Kotlin data class that crosses the boundary, how errors are mapped, and precisely what has to change on the Kotlin side so an archive can be held open across per-file reads instead of reopened per file."
+# -------------------------------------------------------------------- qa ----
+J_QA=$(new qa \
+"Build the corpus and the differential harness every other team needs" \
+"A corpus generator produces archives per format under libarchive/tests/corpus/ with
+a manifest naming each file and how it was made, and it is reproducible from the
+repository. The differential harness reads an archive with libarchive and with the
+crate that replaces it (oxiarc at 93b17af, unarc-rs 0.7.2, sevenz-rust2 0.23.0) and
+compares entry names, sizes, CRCs and contents. It runs as part of cargo test, not
+as a script somebody runs. A malformed corpus exists for every format: truncated,
+wrong-magic, oversized-header and path-traversal cases, each of which must produce an
+Err rather than a panic. If the real tools (7z, zip, unrar) are not installed, say so
+in mail rather than generating fixtures that only this crate can read.")
 
-$C job new --team codecs --title "Inventory the compression codecs and their crate versions" \
-  --acceptance "coord/notes/codecs.md lists every compression method the library must read and write, the crate that provides it, whether that crate already builds for all four Android ABIs with no runtime dependency, and which of them are unused by the app today."
+# --------------------------------------------------------------- android ----
+J_ANDROID=$(new android \
+"Prove the bridge on the API 24 emulator, on all four ABIs" \
+"cargo build produces the cdylib for arm64-v8a, armeabi-v7a, x86 and x86_64. The
+Gradle task assemblesDebug succeeds with the app pointing at libarchive-rs rather than
+oxiarc and unarc-rs. The app installs and starts on the Android_7 emulator (API 24,
+-gpu angle_indirect, /dev/kvm). An instrumented or on-device test opens a real archive
+and reads an entry through the JNI boundary, and the log shows the bytes arriving. A
+host-side cargo test does not count for this job: the whole point is that the bridge
+is where panics and signature mistakes live. If the emulator cannot boot, say so in
+mail with the error rather than reporting the job done.")
 
-$C mail send --from orchestrator --to ada,grace,ken,mira,vic,tess \
-  --subject "Wave 1 is research only. Write documents, do not write code." \
-  --body "$(cat <<'EOF'
-Your job is open. Two rules for this wave.
+# ------------------------------------------------------------------ core ----
+J_CORE=$(new core \
+"Write the four documents the code already references, and review the public API" \
+"README.md, SPEC.md, PERFORMANCE.md and NOTICE.md exist, because lib.rs links to three
+of them and two do not exist. PERFORMANCE.md states each bar, the number measured for
+the code being replaced, and the number measured here, with the command that produces
+it; where a bar is not met it says so rather than omitting the row. SPEC.md lists
+every format and, for each, what it does and does not do - streaming or whole-entry,
+encrypted or not, and which long-tail formats are refused. NOTICE.md carries the
+Apache-2.0 attribution for unarc-rs, sevenz-rust2 and oxiarc. Separately: read the
+public API in libarchive/src/reader.rs and writer/mod.rs and report anything that will
+be expensive to change later, in mail, before team bridge and team legacy build on it.")
 
-1. Produce a document. Not code. A document I can read in ten minutes and act on,
-   or tell you it is wrong. Commit it to your own branch and mail the team leader
-   the path and a two-line summary. A wrong document costs one read; a wrong
-   implementation costs a day.
+python3 - "$J_LEGACY" "$J_BRIDGE" "$J_ZIP" "$J_QA" "$J_ANDROID" "$J_CORE" <<'PY'
+import subprocess, sys
+jobs = dict(zip(
+    ["legacy", "bridge", "zip", "qa", "android", "core"],
+    sys.argv[1:7],
+))
+assign = {"legacy": "ken", "bridge": "tess", "zip": "grace",
+          "qa": "vic", "android": "pip", "core": "ada"}
+for team, job in jobs.items():
+    subprocess.run(["python3", "tools/collective.py", "job", "assign", job, assign[team]], check=True)
+PY
 
-2. Cite. Every claim about what the code we replace actually does needs a file
-   path and a line number. If you are reasoning from memory of how a format
-   works rather than from the source in front of you, say so in the document.
-   I would much rather read "I believe X but could not confirm it" than a
-   confident paragraph built on a guess.
-
-What I most need from wave 1, in priority order:
-
-  a. sevenz-rust2 0.23.0's block decode stack is private. Without it, a solid
-     7Z block costs one decode per entry and 400 entries took 15.5 seconds. Tell
-     me the minimum patch that exposes it, and tell me whether the result can
-     stop mid-block and resume, because streaming needs that. This is the single
-     highest-value thing anyone does this wave.
-  b. The three unmerged performance fixes on the oxiarc fork at 93b17af. They are
-     prior art from the maintainer's own repo and we must carry them forward
-     rather than rediscover them. Name the files and say what changes in our
-     code to carry each across.
-  c. What the app's Kotlin actually needs from the boundary, and what has to
-     change there so an archive can be held open across per-file reads.
-
-I am writing the core reader and writer myself while you do this. If you find
-something that changes what I am about to build, mail me and everyone at once
-rather than waiting for the end of your run.
-EOF
-)"
-
-echo "--- wave 1 dispatched ---"
+echo
+python3 tools/collective.py status

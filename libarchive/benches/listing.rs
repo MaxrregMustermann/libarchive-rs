@@ -4,7 +4,7 @@
 //! 54.6 MB of a 76 MiB archive is slower than one that reads 411 KB, and the difference is a
 //! `BufReader` whose 8 KiB refill is thrown away fifteen times out of sixteen.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::Criterion;
 
 /// A source that counts the bytes read out of it.
 ///
@@ -73,6 +73,16 @@ fn build(entries: usize) -> Vec<u8> {
     writer.finish_into().expect("finish").into_inner()
 }
 
+/// How long a listing takes, and how much of the archive it touched.
+///
+/// Both halves matter and they fail independently. 3.4 ms on a 76 MiB archive is the time bar;
+/// 411 KB is the byte bar, because every byte here is a crossing into Java in the app. A change
+/// that halves the time by reading twice as much of the archive has made the app slower.
+///
+/// The source handed to the reader is the one whose bytes are counted. The first version of this
+/// benchmark built a `CountingSource`, measured it, and then passed a *different* source to
+/// `ArchiveReader::open` — so the byte count it reported was always zero and the assertion below
+/// was checking a number that could not fail.
 fn listing_reads_little(criterion: &mut Criterion) {
     let bytes = build(3_355);
     let size = bytes.len();
@@ -81,44 +91,49 @@ fn listing_reads_little(criterion: &mut Criterion) {
     group.bench_function("bytes-touched", |bencher| {
         bencher.iter(|| {
             let source = libarchive::reader::share(CountingSource::new(bytes.clone()));
-            let reader = libarchive::ArchiveReader::open(
-                libarchive::reader::share(CountingSource::new(bytes.clone())),
-                &libarchive::OpenOptions::default(),
-            )
-            .expect("opens");
+            let reader =
+                libarchive::ArchiveReader::open(source.clone(), &libarchive::OpenOptions::default())
+                    .expect("opens");
             std::hint::black_box((reader.len(), read_so_far(&source)))
         })
     });
     group.finish();
 }
 
-/// The assertion, which is the part that matters.
+/// The bar, asserted rather than reported.
 ///
-/// A listing that reads a large fraction of the archive is the `BufReader` bug, and a benchmark
-/// that only reports a time does not catch it.
-fn listing_stays_small(criterion: &mut Criterion) {
-    criterion.bench_function("listing-reads-at-most-1MiB", |bencher| {
-        bencher.iter(|| {
-            let bytes = build(3_355);
-            let source = libarchive::reader::share(CountingSource::new(bytes.clone()));
-            let reader = libarchive::ArchiveReader::open(
-                source.clone(),
-                &libarchive::OpenOptions::default(),
-            )
+/// The previous version of this built a 3,355-entry archive *inside* `bencher.iter`, so it was
+/// timing archive construction and reporting 671 ms as a listing time. The archive is built once
+/// here, outside anything criterion measures, and the assertion is a plain statement that runs at
+/// startup: if listing ever starts reading a large fraction of the archive again — the `BufReader`
+/// bug, which read 54.6 MB where 411 KB was enough — this fails before any number is printed.
+fn listing_stays_small() {
+    let bytes = build(3_355);
+    let size = bytes.len();
+    let source = libarchive::reader::share(CountingSource::new(bytes.clone()));
+    let reader =
+        libarchive::ArchiveReader::open(source.clone(), &libarchive::OpenOptions::default())
             .expect("opens");
-            assert_eq!(reader.len(), 3_355);
-            let read = read_so_far(&source);
-            assert!(
-                read <= 1024 * 1024,
-                "listing {} entries read {} bytes of a {} byte archive",
-                reader.len(),
-                read,
-                bytes.len()
-            );
-            read
-        })
-    });
+    assert_eq!(reader.len(), 3_355);
+    let read = read_so_far(&source);
+    assert!(
+        read <= 1024 * 1024,
+        "listing {} entries read {} bytes of a {} byte archive",
+        reader.len(),
+        read,
+        size
+    );
+    println!(
+        "listing 3,355 entries of a {} byte archive touched {} bytes ({:.2}%)",
+        size,
+        read,
+        read as f64 * 100.0 / size as f64
+    );
 }
 
-criterion_group!(benches, listing_reads_little, listing_stays_small);
-criterion_main!(benches);
+fn main() {
+    listing_stays_small();
+    let mut criterion = Criterion::default().configure_from_args();
+    listing_reads_little(&mut criterion);
+    criterion.final_summary();
+}

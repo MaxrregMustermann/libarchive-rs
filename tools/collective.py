@@ -421,6 +421,95 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"{run_id} {args.agent} pid={process.pid} log={log}")
 
 
+# How an agent's run ended. An agent that died of a dead model and an agent that
+# finished are not distinguishable by exit status, so the log's own text decides.
+FAILURE_MARKERS = (
+    "model has been deprecated",
+    "Model is unavailable",
+    "Endpoint is unavailable",
+    "Upstream request failed",
+    "Streaming response failed",
+    "idle timeout",
+    "Rate limit",
+    "error sending request",
+    "context length exceeded",
+)
+
+
+def classify(log: Path) -> str:
+    """`ok`, `failed` or `unknown`, read off the tail of a run's log."""
+    try:
+        text = log.read_text(errors="replace")
+    except OSError:
+        return "unknown"
+    tail = text[-4000:]
+    for marker in FAILURE_MARKERS:
+        if marker.lower() in tail.lower():
+            return "failed"
+    return "ok" if len(text) > 400 else "unknown"
+
+
+def cmd_watch(args: argparse.Namespace) -> None:
+    """The orchestrator's view: which runs are live, and which died and why.
+
+    An agent launched on a deprecated model produces a log that ends in an error
+    three seconds after it starts and looks, from `ps`, exactly like an agent that
+    is thinking. Without this, a wave of four agents can quietly be zero.
+    """
+    runs = sorted((COORD / "runs").glob("*.log"))
+    live = dead = ok = 0
+    rows = []
+    for log in runs:
+        pidfile = log.with_suffix(".pid")
+        try:
+            pid = int(pidfile.read_text().strip())
+        except (OSError, ValueError):
+            pid = None
+        alive = pid is not None and os.path.exists(f"/proc/{pid}")
+        if alive:
+            state = "running"
+            live += 1
+        else:
+            state = classify(log)
+            if state == "failed":
+                dead += 1
+            elif state == "ok":
+                ok += 1
+        age = int(time.time() - log.stat().st_mtime)
+        rows.append((log.stem, state, age, log))
+    for stem, state, age, log in rows[-args.last :]:
+        mark = {"running": "....", "ok": " ok ", "failed": "FAIL", "unknown": " ?  "}[state]
+        print(f"{mark} {stem:26} {state:8} {age:>6}s ago")
+    print(f"\n{live} running, {ok} finished, {dead} failed")
+    failed = [(stem, log) for stem, state, _, log in rows if state == "failed"]
+    if failed and args.why:
+        print("\n== why ==")
+        for stem, log in failed[-args.why :]:
+            text = log.read_text(errors="replace")
+            for line in reversed(text.splitlines()):
+                if "Error" in line or "error" in line:
+                    print(f"{stem}: {line.strip()[:200]}")
+                    break
+    sys.exit(1 if args.strict and dead else 0)
+
+
+def cmd_team_new_by_agent(args: argparse.Namespace) -> None:
+    """Lets an agent form its own team, which is the same thing the orchestrator does."""
+    registry = load_registry()
+    if args.name in registry.get("teams", {}):
+        die(f"team {args.name} already exists")
+    check_name(args.name)
+    team_args = argparse.Namespace(
+        name=args.name, leader=args.leader, charter=args.charter
+    )
+    cmd_team_add(team_args)
+    if args.leader and args.leader != args.agent:
+        cmd_team_join(argparse.Namespace(agent=args.leader, team=args.name))
+    cmd_team_join(argparse.Namespace(agent=args.agent, team=args.name))
+    print(f"{args.agent} formed team {args.name} and joined it")
+
+
+
 def cmd_status(args: argparse.Namespace) -> None:
     registry = load_registry()
     print("== teams ==")
@@ -601,6 +690,12 @@ def main() -> None:
     team_join.add_argument("agent")
     team_join.add_argument("team")
     team_join.set_defaults(func=cmd_team_join)
+    team_form = team.add_parser("form")
+    team_form.add_argument("--agent", required=True, help="the agent forming the team")
+    team_form.add_argument("name")
+    team_form.add_argument("--leader", default="")
+    team_form.add_argument("--charter")
+    team_form.set_defaults(func=cmd_team_new_by_agent)
 
     agent = sub.add_parser("agent").add_subparsers(dest="agent_command", required=True)
     agent_add = agent.add_parser("add")
@@ -665,6 +760,12 @@ def main() -> None:
     run.add_argument("--note", default="")
     run.add_argument("--opencode-agent", default="build")
     run.set_defaults(func=cmd_run)
+
+    watch = sub.add_parser("watch")
+    watch.add_argument("--last", type=int, default=30)
+    watch.add_argument("--why", type=int, default=0, help="also print why the failed runs failed")
+    watch.add_argument("--strict", action="store_true", help="exit 1 if any run failed")
+    watch.set_defaults(func=cmd_watch)
 
     sub.add_parser("status").set_defaults(func=cmd_status)
 
