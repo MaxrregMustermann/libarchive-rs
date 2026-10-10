@@ -27,11 +27,12 @@
 
 use std::io::{Read, Seek, SeekFrom};
 
+use crate::compression::BIG_BUFFER;
 use crate::entry::{normalise_name, Entry, EntryKind, EntrySpecial};
 use crate::error::{Error, Result};
 use crate::format::Compression;
-use crate::limits::Limits;
-use crate::reader::{EntryRead, EntrySource, EntryStream, OpenOptions, Shared};
+use crate::limits::{Limits, Total};
+use crate::reader::{EntryRead, EntrySource, EntryStream, OpenOptions, RawReader, Shared};
 
 /// A TAR block. Every header is this size and every entry's contents are padded to a multiple of it.
 pub const BLOCK_SIZE: usize = 512;
@@ -473,18 +474,494 @@ fn read_octal(field: &[u8]) -> Result<u64> {
 /// The compression goes on the *outside*, so the TAR's headers are only visible after the whole
 /// stream has been decompressed from the start. That makes the walk sequential and unavoidable,
 /// which is a property of the format and not of this reader.
-pub struct CompressedTarReader<R> {
-    _source: std::marker::PhantomData<R>,
+///
+/// # How entries are read without buffering the archive
+///
+/// The decompressed stream is not seekable, so entries cannot be read by seeking to an offset the
+/// way [`TarReader`] does. Instead this reader keeps one live decoder over the compressed source
+/// and hands out byte ranges within the *decompressed* stream:
+///
+/// * Listing walks the decoder once, recording each entry's decompressed offset and size.
+/// * Opening an entry moves the live decoder forward to the entry's offset, discarding the bytes
+///   in between through a single reused 128 KiB scratch buffer. Reading entries in order therefore
+///   costs one decode in total.
+/// * Opening an entry *behind* the decoder recreates the decoder at the start of the compressed
+///   source and decodes forward again. Out-of-order reads return correct data and cost a restart,
+///   which is the same contract a solid block has: documented in the crate root, not specific to
+///   this format.
+///
+/// Nothing here holds the decompressed TAR or an entry's contents. Working memory per open or
+/// read is the scratch buffer plus whatever window the codec itself keeps. An entry stream that
+/// is read after another entry has moved the decoder reports an error rather than the wrong
+/// bytes: the alternative is silent data corruption, and an error tells the caller to reopen.
+pub struct CompressedTarReader<R: Read + Seek + Send + 'static> {
+    source: Shared<R>,
+    compression: Compression,
+    entries: Vec<Entry>,
+    records: Vec<StreamRecord>,
+    limits: Limits,
+    /// The live decoder and where it stands in the decompressed stream, shared with every entry
+    /// stream this reader has handed out.
+    decoder: Shared<LiveDecoder>,
+    /// One discard buffer for moving the decoder forward, reused across every open and skip so
+    /// that seeking within the decompressed stream never allocates.
+    scratch: Vec<u8>,
+}
+
+/// Where one entry's bytes are in the decompressed stream, and what the entry is.
+struct StreamRecord {
+    entry: Entry,
+    /// The entry's contents, as an offset into the decompressed stream.
+    data_offset: u64,
+    /// How many bytes the contents are, padding excluded.
+    size: u64,
+}
+
+/// The decoder this reader keeps alive between entries, and where it stands.
+struct LiveDecoder {
+    inner: Box<dyn Read + Send>,
+    /// How many decompressed bytes have been produced so far.
+    pos: u64,
+    /// Bumped every time the decoder is recreated, so a stream opened before a restart can tell
+    /// it is stale instead of reading another entry's bytes.
+    epoch: u64,
 }
 
 impl<R: Read + Seek + Send + 'static> CompressedTarReader<R> {
+    /// Opens a compressed TAR by walking its decompressed stream once.
     pub fn open(
-        _source: R,
-        _compression: Compression,
-        _options: &OpenOptions,
+        source: R,
+        compression: Compression,
+        options: &OpenOptions,
     ) -> Result<Box<dyn EntrySource<R>>> {
-        Err(Error::unimplemented("compressed TAR reading is Team container's work in progress"))
+        let source = crate::reader::share(source);
+        // The walk consumes its decoder to the end, so the live one starts fresh at zero.
+        let records = {
+            let mut walk_decoder = new_decoder(&source, compression)?;
+            walk_stream(&mut *walk_decoder, &options.limits)?
+        };
+        let entries = records.iter().map(|record| record.entry.clone()).collect();
+        let live = LiveDecoder {
+            inner: new_decoder(&source, compression)?,
+            pos: 0,
+            epoch: 0,
+        };
+        Ok(Box::new(CompressedTarReader {
+            source,
+            compression,
+            entries,
+            records,
+            limits: options.limits.clone(),
+            decoder: crate::reader::share(live),
+            scratch: vec![0u8; BIG_BUFFER],
+        }))
     }
+
+    /// Moves the live decoder to `target` in the decompressed stream.
+    ///
+    /// Forward movement decodes and discards through the reused scratch buffer. Backward movement
+    /// recreates the decoder at the start of the compressed source first. Either way the decoder
+    /// stands exactly at `target` afterwards.
+    fn position(&mut self, target: u64) -> Result<()> {
+        // Disjoint field borrows, so the decoder state and the discard buffer are usable together.
+        let decoder = &self.decoder;
+        let scratch = &mut self.scratch;
+        let source = &self.source;
+        let compression = self.compression;
+        // The guard is bound in its own block so the lock is released before anything below takes
+        // it again. A guard held across the re-lock would deadlock the thread on its own mutex.
+        let restart = {
+            let state = decoder.lock()?;
+            target < state.pos
+        };
+        if restart {
+            let fresh = new_decoder(source, compression)?;
+            let mut state = decoder.lock()?;
+            state.inner = fresh;
+            state.pos = 0;
+            state.epoch = state.epoch.wrapping_add(1);
+        }
+        {
+            let mut state = decoder.lock()?;
+            while state.pos < target {
+                // `want` is at most the scratch size, so the narrowing cast is exact.
+                let want = (target - state.pos).min(scratch.len() as u64) as usize;
+                let read = state.inner.read(&mut scratch[..want]).map_err(Error::io)?;
+                if read == 0 {
+                    return Err(Error::malformed(
+                        "a compressed TAR ends before its entries do",
+                    ));
+                }
+                // Saturating: a short stream at the end of a truncated archive ends the entry
+                // rather than wrapping the counter and reading on into the next one.
+                state.pos = state.pos.saturating_add(read as u64);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<R: Read + Seek + Send + 'static> EntrySource<R> for CompressedTarReader<R> {
+    fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    fn open(&mut self, index: usize) -> Result<EntryStream> {
+        let (offset, size) = match self.records.get(index) {
+            Some(record) => (record.data_offset, record.size),
+            None => return Err(Error::malformed(format!("no TAR entry {index}"))),
+        };
+        self.limits.check_entry_size(Some(size))?;
+        self.position(offset)?;
+        // `position` guarantees the decoder stands at the entry, so the stream below starts
+        // exactly where the entry does.
+        let epoch = self.decoder.lock()?.epoch;
+        Ok(EntryStream::new(Box::new(StreamRead {
+            decoder: self.decoder.clone(),
+            epoch,
+            offset,
+            remaining: size,
+            size,
+        })))
+    }
+
+    fn skip(&mut self, index: usize) -> Result<u64> {
+        let (data_offset, size) = match self.records.get(index) {
+            Some(record) => (record.data_offset, record.size),
+            None => return Err(Error::malformed(format!("no TAR entry {index}"))),
+        };
+        // Step over the contents. The padding after them is skipped implicitly: every record
+        // carries an absolute offset, so the next positioning discards whatever gap remains.
+        let end = data_offset
+            .checked_add(size)
+            .ok_or_else(|| Error::malformed("a TAR entry runs past the end of the archive"))?;
+        self.position(end)?;
+        Ok(size)
+    }
+
+    fn reuses_blocks(&self) -> bool {
+        // Reading entries in order reuses the live decoder and costs one decode; out-of-order
+        // reads restart it. Reporting that lets the caller sort its reads.
+        true
+    }
+
+    fn into_source(self: Box<Self>) -> Result<R> {
+        let CompressedTarReader { source, decoder, .. } = *self;
+        // The live decoder holds a handle on the source through its own input reader, so it has
+        // to be unwrapped first. Failing here means an entry stream is still alive, which is the
+        // one case the source cannot be taken back in.
+        let live = decoder.into_inner()?;
+        drop(live);
+        source.into_inner()
+    }
+}
+
+/// One entry's contents, pulled from the shared live decoder a buffer at a time.
+struct StreamRead {
+    decoder: Shared<LiveDecoder>,
+    /// The decoder's epoch when this stream was opened. A mismatch means another entry moved or
+    /// recreated the decoder since, and this stream is stale.
+    epoch: u64,
+    /// The absolute decompressed offset of the next byte this stream will produce.
+    offset: u64,
+    remaining: u64,
+    size: u64,
+}
+
+impl Read for StreamRead {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        // An exhausted stream reports zero without touching the decoder, so reading a finished
+        // entry after opening another one stays a no-op rather than an error.
+        if output.is_empty() || self.remaining == 0 {
+            return Ok(0);
+        }
+        let mut state = self
+            .decoder
+            .lock()
+            .map_err(|error| std::io::Error::other(error.message().to_owned()))?;
+        if state.epoch != self.epoch || state.pos != self.offset {
+            return Err(std::io::Error::other(
+                "this entry's decoder was advanced by another entry; reopen the entry to read it",
+            ));
+        }
+        let want = output.len().min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let read = state.inner.read(&mut output[..want])?;
+        self.offset = self.offset.saturating_add(read as u64);
+        state.pos = state.pos.saturating_add(read as u64);
+        self.remaining = self.remaining.saturating_sub(read as u64);
+        Ok(read)
+    }
+}
+
+impl EntryRead for StreamRead {
+    fn size(&self) -> Option<u64> {
+        Some(self.size)
+    }
+}
+
+/// Whether this build can decode a whole TAR compressed with `method`.
+fn supported(compression: Compression) -> bool {
+    matches!(
+        compression,
+        Compression::Gzip | Compression::Bzip2 | Compression::Xz | Compression::Zstd | Compression::Lz4
+    )
+}
+
+/// A decoder over the whole compressed source, positioned at its start on first read.
+///
+/// The input is unbounded: the compressed stream *is* the archive, so the codec finds the end
+/// itself rather than being told where it is.
+fn new_decoder<R: Read + Seek + Send + 'static>(
+    source: &Shared<R>,
+    compression: Compression,
+) -> Result<Box<dyn Read + Send>> {
+    if !supported(compression) {
+        return Err(Error::unimplemented(format!(
+            "a TAR compressed with {compression} cannot be read by this build"
+        )));
+    }
+    let input: Box<dyn Read + Send> =
+        Box::new(RawReader::new(source.clone(), 0, None));
+    match compression {
+        Compression::Gzip | Compression::Bzip2 | Compression::Zstd | Compression::Lz4 => {
+            crate::compression::decode(compression, input)
+        }
+        // XZ is a container with its own index and integrity checks rather than a raw codec, so
+        // `compression::decode` refuses it and the container reader is built here, where the
+        // whole-stream shape it needs is known.
+        Compression::Xz => Ok(Box::new(lzma_rust2::XzReader::new_mem_limit(
+            input,
+            false,
+            (crate::limits::DEFAULT_LZMA_MEMORY_LIMIT / 1024) as u32,
+        ))),
+        _ => Err(Error::unimplemented(format!(
+            "a TAR compressed with {compression} cannot be read by this build"
+        ))),
+    }
+}
+
+/// Walks every header in the decompressed stream, building the entry list.
+///
+/// The sequential twin of [`walk`]: same headers, same record-building, but the input is a
+/// decoder that can only move forward, so offsets are counted rather than sought to and padding
+/// is discarded rather than stepped over. The walk decodes the whole stream once, which is
+/// unavoidable — the headers are only visible after decompressing from the start — and charges
+/// every byte against the entry-count and total-size ceilings as it goes.
+fn walk_stream(input: &mut dyn Read, limits: &Limits) -> Result<Vec<StreamRecord>> {
+    let mut total = Total::new(limits.max_total_size);
+    let mut scratch = crate::reader::Scratch::new();
+    let mut records: Vec<StreamRecord> = Vec::new();
+    // The decompressed offset of the next byte, counted as the decoder produces it.
+    let mut offset = 0u64;
+    let mut block = [0u8; BLOCK_SIZE];
+    // State carried between headers: the name and link target a long-name header supplied, and
+    // the PAX attributes that override what the ustar fields say.
+    let mut pending_name: Option<String> = None;
+    let mut pending_link: Option<String> = None;
+    let mut pax: Vec<(String, String)> = Vec::new();
+    let mut zero_blocks = 0usize;
+
+    loop {
+        limits.check_entry_count(records.len() + 1)?;
+        // A header read that finds nothing is the clean end of the archive: writers pad with
+        // trailing zeroes and a truncated final block is handled below as malformed instead.
+        let header_present = read_block_stream(input, &mut block, &mut total)?;
+        if !header_present {
+            break;
+        }
+        offset = offset
+            .checked_add(BLOCK_SIZE as u64)
+            .ok_or_else(|| Error::malformed("a TAR entry runs past the end of the archive"))?;
+
+        if block == [0u8; BLOCK_SIZE] {
+            // The end of the archive. The format says one zero block; every writer writes two, and
+            // a truncated archive's padding looks the same, so both are accepted as the end.
+            zero_blocks += 1;
+            if zero_blocks >= END_OF_ARCHIVE_BLOCKS {
+                break;
+            }
+            continue;
+        }
+        zero_blocks = 0;
+
+        let header = Header::parse(&block)?;
+        let flag = header.type_flag;
+        let size = header.size;
+
+        match flag {
+            // A GNU long-name header: its contents are the next entry's name.
+            type_flag::GNU_LONG_NAME => {
+                let value = read_sized_stream(input, size, 64 * 1024, &mut total)?;
+                pending_name = Some(value);
+                // The contents are consumed; only their padding to the block boundary remains.
+                let pad = padded_length(size).saturating_sub(size);
+                discard_stream(input, pad, scratch.buffer(), &mut total)?;
+                offset = offset.checked_add(padded_length(size)).ok_or_else(|| {
+                    Error::malformed("a TAR entry runs past the end of the archive")
+                })?;
+                continue;
+            }
+            type_flag::GNU_LONG_LINK => {
+                let value = read_sized_stream(input, size, 64 * 1024, &mut total)?;
+                pending_link = Some(value);
+                let pad = padded_length(size).saturating_sub(size);
+                discard_stream(input, pad, scratch.buffer(), &mut total)?;
+                offset = offset.checked_add(padded_length(size)).ok_or_else(|| {
+                    Error::malformed("a TAR entry runs past the end of the archive")
+                })?;
+                continue;
+            }
+            // A PAX extended header for the next entry.
+            type_flag::PAX_EXTENDED => {
+                pax = read_pax_stream(input, size, &mut total)?;
+                let pad = padded_length(size).saturating_sub(size);
+                discard_stream(input, pad, scratch.buffer(), &mut total)?;
+                offset = offset.checked_add(padded_length(size)).ok_or_else(|| {
+                    Error::malformed("a TAR entry runs past the end of the archive")
+                })?;
+                continue;
+            }
+            // A PAX global header applies to the whole archive and to no particular entry.
+            type_flag::PAX_GLOBAL => {
+                discard_stream(input, padded_length(size), scratch.buffer(), &mut total)?;
+                offset = offset.checked_add(padded_length(size)).ok_or_else(|| {
+                    Error::malformed("a TAR entry runs past the end of the archive")
+                })?;
+                continue;
+            }
+            _ => {}
+        }
+
+        let name = pending_name
+            .take()
+            .or_else(|| pax_attribute(&pax, "path"))
+            .unwrap_or_else(|| header.name.clone());
+        let link = pending_link
+            .take()
+            .or_else(|| pax_attribute(&pax, "linkpath"))
+            .unwrap_or_else(|| header.link_name.clone());
+        pax.clear();
+
+        let kind = header.kind();
+        let size = if matches!(kind, EntryKind::Directory | EntryKind::Symlink | EntryKind::HardLink) {
+            0
+        } else {
+            size
+        };
+        let data_offset = offset;
+        let data_end = data_offset.checked_add(padded_length(size)).ok_or_else(|| {
+            Error::malformed("a TAR entry runs past the end of the archive")
+        })?;
+
+        let entry = Entry {
+            name: normalise_name(&name),
+            kind,
+            size: if matches!(kind, EntryKind::Directory) { None } else { Some(size) },
+            compressed_size: Some(size),
+            last_modified: if size == 0 && header.mtime == 0 {
+                None
+            } else {
+                unix_epoch_plus(header.mtime)
+            },
+            mode: Some(header.mode),
+            symlink_target: match kind {
+                EntryKind::Symlink | EntryKind::HardLink if !link.is_empty() => Some(link),
+                _ => None,
+            },
+            is_encrypted: false,
+            block: None,
+        };
+        records.push(StreamRecord { entry, data_offset, size });
+        discard_stream(input, padded_length(size), scratch.buffer(), &mut total)?;
+        offset = data_end;
+    }
+    Ok(records)
+}
+
+/// Reads one 512-byte header from the stream: `Ok(true)` with the block filled, or `Ok(false)`
+/// on a clean end where the stream stopped exactly at a header boundary.
+///
+/// A stream that stops *inside* a header is truncated, not finished, and is refused rather than
+/// silently dropping the partial entry.
+fn read_block_stream(
+    input: &mut dyn Read,
+    block: &mut [u8; BLOCK_SIZE],
+    total: &mut Total,
+) -> Result<bool> {
+    let mut filled = 0;
+    while filled < BLOCK_SIZE {
+        match input.read(&mut block[filled..]) {
+            Ok(0) => {
+                if filled == 0 {
+                    return Ok(false);
+                }
+                return Err(Error::malformed("a TAR header is cut short by the end of the archive"));
+            }
+            Ok(read) => {
+                filled += read;
+                total.charge(read as u64)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(Error::io(error)),
+        }
+    }
+    Ok(true)
+}
+
+/// Reads a header extension's contents (a GNU long name or link) as text, bounded like [`walk`].
+fn read_sized_stream(
+    input: &mut dyn Read,
+    size: u64,
+    cap: u64,
+    total: &mut Total,
+) -> Result<String> {
+    if size > cap {
+        return Err(Error::malformed("a GNU long-name header is implausibly long"));
+    }
+    let length =
+        usize::try_from(size).map_err(|_| Error::malformed("a header field is larger than memory"))?;
+    let mut bytes = vec![0u8; length];
+    input.read_exact(&mut bytes).map_err(Error::io)?;
+    total.charge(size)?;
+    Ok(String::from_utf8_lossy(trim_nul(&bytes)).into_owned())
+}
+
+/// Reads a PAX extended header's contents, bounded like [`walk`].
+fn read_pax_stream(input: &mut dyn Read, size: u64, total: &mut Total) -> Result<Vec<(String, String)>> {
+    if size > 1024 * 1024 {
+        return Err(Error::malformed("a PAX header is implausibly long"));
+    }
+    let length =
+        usize::try_from(size).map_err(|_| Error::malformed("a header field is larger than memory"))?;
+    let mut bytes = vec![0u8; length];
+    input.read_exact(&mut bytes).map_err(Error::io)?;
+    total.charge(size)?;
+    Ok(parse_pax(&bytes))
+}
+
+/// Discards `length` decompressed bytes, charging them against the running total.
+///
+/// A stream that ends first is truncated, not finished: stopping there would silently drop the
+/// rest of the archive.
+fn discard_stream(input: &mut dyn Read, length: u64, scratch: &mut [u8], total: &mut Total) -> Result<()> {
+    let mut remaining = length;
+    while remaining > 0 {
+        let want = (scratch.len() as u64).min(remaining) as usize;
+        match input.read(&mut scratch[..want]) {
+            Ok(0) => {
+                return Err(Error::malformed(
+                    "a TAR entry's contents run past the end of the archive",
+                ));
+            }
+            Ok(read) => {
+                remaining -= read as u64;
+                total.charge(read as u64)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(Error::io(error)),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -617,5 +1094,286 @@ mod tests {
             reader.entry(2).expect("entry 2").symlink_target.as_deref(),
             Some("hello.txt")
         );
+    }
+
+    /// One TAR exercising every shape the compressed reader has to carry through: a small file,
+    /// a 1 MiB binary file that spans many blocks, an empty file, a directory, a symlink, a name
+    /// at the writer's 100-byte limit, and a timestamp with permission bits.
+    fn sample_tar() -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
+        use crate::writer::{ArchiveWriter, NewEntry, WriteOptions};
+        let binary: Vec<u8> = (0..1_048_576u32).map(|value| ((value / 97) % 256) as u8).collect();
+        let contents: Vec<(String, Vec<u8>)> = vec![
+            ("hello.txt".to_owned(), b"hello world".to_vec()),
+            ("data/blob.bin".to_owned(), binary),
+            ("empty.dat".to_owned(), Vec::new()),
+            ("n".repeat(100), b"at the name limit".to_vec()),
+        ];
+        let bytes = {
+            let options = WriteOptions::default();
+            let sink = Cursor::new(Vec::new());
+            let mut writer =
+                ArchiveWriter::create(sink, crate::format::Format::Tar, &options).expect("a writer");
+            for (name, payload) in &contents {
+                let mut entry = NewEntry::file(name).with_size(payload.len() as u64);
+                entry.mode = Some(0o640);
+                entry.last_modified =
+                    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000));
+                writer.write_entry(&entry, &mut &payload[..]).expect("write a file");
+            }
+            let entry = NewEntry::directory("dir").with_size(0);
+            writer.write_entry(&entry, &mut std::io::empty()).expect("write a directory");
+            let entry = NewEntry::symlink("link", "hello.txt").with_size(0);
+            writer.write_entry(&entry, &mut std::io::empty()).expect("write a symlink");
+            writer.finish_into().expect("finish").into_inner()
+        };
+        (bytes, contents)
+    }
+
+    fn gzip_bytes(raw: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder =
+            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(raw).expect("compress");
+        encoder.finish().expect("finish the gzip stream")
+    }
+
+    fn bzip2_bytes(raw: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::new(6));
+        encoder.write_all(raw).expect("compress");
+        encoder.finish().expect("finish the bzip2 stream")
+    }
+
+    fn xz_bytes(raw: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let options = lzma_rust2::XzOptions::with_preset(6);
+        let mut encoder = lzma_rust2::XzWriter::new(Vec::new(), options).expect("an xz writer");
+        encoder.write_all(raw).expect("compress");
+        encoder.finish().expect("finish the xz stream")
+    }
+
+    fn zstd_bytes(raw: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut encoder = zstd::stream::write::Encoder::new(Vec::new(), 3).expect("a zstd writer");
+        encoder.write_all(raw).expect("compress");
+        encoder.finish().expect("finish the zstd frame")
+    }
+
+    /// Opens `compressed` as `compression` and checks every entry against the TAR it came from.
+    fn check_round_trip(compression: crate::format::Compression, compress: fn(&[u8]) -> Vec<u8>) {
+        use crate::reader::OpenOptions;
+        let (raw, contents) = sample_tar();
+        let compressed = compress(&raw);
+        let format = crate::format::Format::CompressedTar(compression);
+        let mut reader =
+            ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default())
+                .expect("a compressed TAR this crate wrote must open");
+        assert_eq!(reader.format(), format);
+        assert_eq!(reader.len(), contents.len() + 2, "files plus a directory and a symlink");
+        assert!(reader.reuses_blocks(), "in-order reads must reuse the live decoder");
+        for (index, (name, payload)) in contents.iter().enumerate() {
+            let entry = reader.entry(index).expect("listed entry");
+            assert_eq!(&entry.name, name);
+            assert_eq!(entry.size, Some(payload.len() as u64));
+            let mut got = Vec::new();
+            std::io::Read::read_to_end(
+                &mut reader.open_entry(index).expect("open an entry"),
+                &mut got,
+            )
+            .expect("read an entry");
+            assert_eq!(&got, payload, "entry {name} must read back intact");
+        }
+        let dir = reader.entry(contents.len()).expect("the directory");
+        assert!(dir.is_directory());
+        let link = reader.entry(contents.len() + 1).expect("the symlink");
+        assert_eq!(link.kind, EntryKind::Symlink);
+        assert_eq!(link.symlink_target.as_deref(), Some("hello.txt"));
+        // Metadata rides along untouched by the compression outside.
+        assert_eq!(reader.entry(0).expect("entry 0").mode, Some(0o640));
+        assert!(reader.entry(0).expect("entry 0").last_modified.is_some());
+    }
+
+    #[test]
+    fn a_tar_gzipped_after_writing_reads_back_with_every_entry_intact() {
+        check_round_trip(crate::format::Compression::Gzip, gzip_bytes);
+    }
+
+    #[test]
+    fn a_tar_bzipped_after_writing_reads_back_with_every_entry_intact() {
+        check_round_trip(crate::format::Compression::Bzip2, bzip2_bytes);
+    }
+
+    #[test]
+    fn a_tar_xzipped_after_writing_reads_back_with_every_entry_intact() {
+        check_round_trip(crate::format::Compression::Xz, xz_bytes);
+    }
+
+    #[test]
+    fn a_tar_zstd_after_writing_reads_back_with_every_entry_intact() {
+        check_round_trip(crate::format::Compression::Zstd, zstd_bytes);
+    }
+
+    #[test]
+    fn entries_read_out_of_order_come_back_correct_after_a_decoder_restart() {
+        use crate::reader::OpenOptions;
+        let (raw, contents) = sample_tar();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(gzip_bytes(&raw)),
+            format,
+            &OpenOptions::default(),
+        )
+        .expect("open");
+        // Last first, then first: every backward step recreates the decoder from the start.
+        for index in [contents.len() - 1, 0, 2, 1, 0] {
+            let mut got = Vec::new();
+            std::io::Read::read_to_end(
+                &mut reader.open_entry(index).expect("open out of order"),
+                &mut got,
+            )
+            .expect("read out of order");
+            assert_eq!(got, contents[index].1, "entry {index} must survive a restart");
+        }
+    }
+
+    #[test]
+    fn an_entry_read_three_bytes_at_a_time_streams_without_materialising() {
+        // Pulls the 1 MiB entry through a tiny buffer to the end. A reader that materialised the
+        // entry would still pass, but one that cannot serve partial reads would not.
+        use crate::reader::OpenOptions;
+        let (raw, contents) = sample_tar();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(gzip_bytes(&raw)),
+            format,
+            &OpenOptions::default(),
+        )
+        .expect("open");
+        let mut stream = reader.open_entry(1).expect("open the binary entry");
+        let mut got = Vec::new();
+        let mut chunk = [0u8; 3];
+        loop {
+            let read = std::io::Read::read(&mut stream, &mut chunk).expect("a chunk");
+            if read == 0 {
+                break;
+            }
+            got.extend_from_slice(&chunk[..read]);
+        }
+        assert_eq!(got, contents[1].1);
+        assert_eq!(stream.consumed(), contents[1].1.len() as u64);
+    }
+
+    #[test]
+    fn skipping_an_entry_then_reading_the_next_reuses_the_decoder() {
+        use crate::reader::OpenOptions;
+        let (raw, contents) = sample_tar();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Bzip2);
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(bzip2_bytes(&raw)),
+            format,
+            &OpenOptions::default(),
+        )
+        .expect("open");
+        assert_eq!(
+            reader.skip_entry(0).expect("skip"),
+            contents[0].1.len() as u64
+        );
+        let mut got = Vec::new();
+        std::io::Read::read_to_end(
+            &mut reader.open_entry(1).expect("open after a skip"),
+            &mut got,
+        )
+        .expect("read after a skip");
+        assert_eq!(got, contents[1].1);
+    }
+
+    #[test]
+    fn a_stream_read_after_another_entry_moved_the_decoder_is_an_error_not_wrong_bytes() {
+        // Two entries open at once share the decoder. Reading the first after the second moved
+        // it must fail loudly rather than hand back the second entry's bytes.
+        use crate::reader::OpenOptions;
+        let (raw, _) = sample_tar();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(gzip_bytes(&raw)),
+            format,
+            &OpenOptions::default(),
+        )
+        .expect("open");
+        let mut first = reader.open_entry(0).expect("open the first entry");
+        let mut probe = [0u8; 5];
+        assert_eq!(std::io::Read::read(&mut first, &mut probe).expect("read"), 5);
+        let _second = reader.open_entry(1).expect("open the second entry");
+        let error = std::io::Read::read(&mut first, &mut probe).expect_err("a stale stream must fail");
+        assert!(error.to_string().contains("reopen"), "unexpected message: {error}");
+    }
+
+    #[test]
+    fn an_empty_tar_lists_no_entries_rather_than_failing() {
+        use crate::reader::OpenOptions;
+        use crate::writer::{ArchiveWriter, WriteOptions};
+        let options = WriteOptions::default();
+        let sink = Cursor::new(Vec::new());
+        let writer = ArchiveWriter::create(sink, crate::format::Format::Tar, &options).expect("a writer");
+        let raw = writer.finish_into().expect("finish").into_inner();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        let reader =
+            ArchiveReader::open_as(Cursor::new(gzip_bytes(&raw)), format, &OpenOptions::default())
+                .expect("an empty compressed TAR must open");
+        assert!(reader.is_empty());
+    }
+
+    #[test]
+    fn a_truncated_gzip_is_an_error_and_not_a_panic() {
+        use crate::reader::OpenOptions;
+        let (raw, _) = sample_tar();
+        let mut compressed = gzip_bytes(&raw);
+        compressed.truncate(compressed.len() / 2);
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        assert!(ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default()).is_err());
+    }
+
+    #[test]
+    fn compressed_garbage_is_malformed_rather_than_read_as_entries() {
+        use crate::reader::OpenOptions;
+        let garbage = gzip_bytes(&vec![b'x'; 4096]);
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
+        let error = match ArchiveReader::open_as(Cursor::new(garbage), format, &OpenOptions::default()) {
+            Ok(_) => panic!("garbage must not list"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), crate::error::ErrorKind::Malformed);
+    }
+
+    #[test]
+    fn a_compression_this_build_cannot_decode_says_so_rather_than_producing_garbage() {
+        use crate::reader::OpenOptions;
+        let (raw, _) = sample_tar();
+        for compression in [crate::format::Compression::Ppmd, crate::format::Compression::Z] {
+            let format = crate::format::Format::CompressedTar(compression);
+            let error = match ArchiveReader::open_as(
+                Cursor::new(gzip_bytes(&raw)),
+                format,
+                &OpenOptions::default(),
+            ) {
+                Ok(_) => panic!("an undecodable compression must not open"),
+                Err(error) => error,
+            };
+            assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented, "{compression}");
+        }
+    }
+
+    #[test]
+    fn the_source_comes_back_once_every_stream_is_dropped() {
+        use crate::reader::OpenOptions;
+        let (raw, _) = sample_tar();
+        let format = crate::format::Format::CompressedTar(crate::format::Compression::Xz);
+        let mut reader =
+            ArchiveReader::open_as(Cursor::new(xz_bytes(&raw)), format, &OpenOptions::default())
+                .expect("open");
+        // Drain one entry so the live decoder has moved, then hand everything back.
+        let mut sink = std::io::sink();
+        std::io::copy(&mut reader.open_entry(0).expect("open"), &mut sink).expect("drain");
+        reader.into_inner().expect("the source comes back when nothing holds it");
     }
 }
