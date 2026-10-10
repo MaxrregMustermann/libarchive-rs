@@ -15,8 +15,10 @@
 //! ## Entries are addressed by index, and the archive stays open
 //!
 //! ```no_run
-//! # use std::fs::File;
-//! # use libarchive::{ArchiveReader, OpenOptions};
+//! use std::fs::File;
+//! use std::io::Read;
+//! use libarchive::{ArchiveReader, OpenOptions};
+//!
 //! # fn main() -> libarchive::Result<()> {
 //! let file = File::open("archive.7z")?;
 //! // The archive is opened once and held for every read.
@@ -24,7 +26,8 @@
 //! for index in 0..reader.len() {
 //!     let mut entry = reader.open_entry(index)?;
 //!     let mut block = [0u8; 128 * 1024];
-//!     while let Ok(read) = entry.read(&mut block) {
+//!     loop {
+//!         let read = entry.read(&mut block)?;
 //!         if read == 0 { break }
 //!         // ...
 //!     }
