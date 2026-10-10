@@ -27,14 +27,24 @@ fuzzed parser than adding one file that does the job inside the crate.
 A `BlockCursor<R>` that builds a folder's decode stack once and hands the folder's entries out in
 order as byte ranges over that one decode. Reading a folder front to back costs one decode.
 
-It builds the **single-stream** coder chain — LZMA, LZMA2, BZip2, Deflate, PPMd, Zstd, Copy and
-BCJ filters layered on any of them, which is every folder a file manager meets. A BCJ2 folder
-(four input streams, branched coder graph) is reported as unsupported rather than read wrongly;
-that matches what upstream's own solid path supports, so nothing that used to open now fails.
+It builds both folder shapes. A folder whose coders form a **chain** — one input and one output
+stream per coder — is walked in coder order; that is LZMA, LZMA2, BZip2, Deflate, PPMd, Zstd, Copy
+and BCJ filters layered on any of them, which is every folder a file manager meets. A **BCJ2
+folder** has four input streams and a branched coder graph, so it cannot be walked in coder order
+and is walked backwards instead: one reader per pack stream, then a resolution from the coder whose
+output stream no bind pair consumes, each coder being built over whatever feeds it.
+
+That second walk is the one `ArchiveReader::build_decode_stack2`/`get_in_stream2` makes for the
+same folder, and it is here because a solid BCJ2 folder is exactly the case this cursor exists for:
+`read_file` decodes the folder from its start for every entry, and a file manager opens one entry
+at a time. The two walks share their refusal set — a cyclic bind-pair graph, a multi-input coder
+that is not BCJ2, a BCJ2 coder that does not declare exactly four inputs, a folder whose pack
+streams are missing — so anything unresolvable is an error rather than a partial read.
 
 Nothing else in the crate was changed to make this work. `BlockCursor` uses only crate-visible
-items that already existed: `add_decoder`, `Block::ordered_coder_iter`, `StreamMap`'s accessors
-and the crate-private fields.
+items that already existed: `add_decoder`, `Block::ordered_coder_iter`, `Block::find_bind_pair_for_in_stream`,
+`StreamMap`'s accessors, the crate-private fields, and `lzma_rust2`'s `Bcj2Reader`, which
+`reader.rs` already uses.
 
 ### 2. `src/block.rs` and `src/time.rs` — two accessors
 
@@ -109,7 +119,9 @@ getter above. In particular:
 - `ArchiveReader::read_file` is untouched and still quadratic. This project does not call it; it
   uses `BlockCursor` instead. Leaving it alone is deliberate: it is the function the app calls
   today, so keeping its behaviour means a vendored-copy mistake cannot silently change what the
-  unreplaced code path does.
+  unreplaced code path does. Note that it *does* decode BCJ2, via `build_decode_stack2`; that path
+  is upstream's and is left exactly as upstream wrote it, including the one places where it indexes
+  a vector directly rather than returning an error.
 - No header parser, no CRC check and no bounds check was altered. The panic-freedom and
   fuzz-hardening already in upstream 0.23.0 are all still there, and this project adds its own
   tests on top rather than relying on that alone.

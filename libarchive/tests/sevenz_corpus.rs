@@ -61,11 +61,10 @@ fn read_with_sevenz(bytes: &[u8], password: &str) -> Option<Vec<(String, Vec<u8>
 
 /// The corpus files that are readable without a password.
 ///
-/// The BCJ2 archives are deliberately absent. A BCJ2 folder has four input streams and a branched
-/// coder graph, and this crate reports those as unsupported rather than decoding them wrongly;
-/// `vendor/sevenz-rust2/PATCHES.md` records that as the one shape the cursor does not handle, and
-/// it is the same set upstream's own solid path supports. Listing them as failures here would say
-/// "this crate reads BCJ2", which is not true and must not become true by accident.
+/// The BCJ2 archives are here rather than being held aside. A BCJ2 folder has four input streams
+/// and a branched coder graph, and it used to be reported as unsupported rather than decoded;
+/// `vendor/sevenz-rust2/PATCHES.md` records when that changed. A file listed here that cannot be
+/// read is a regression, so it is listed here or not at all.
 const OPEN: &[&str] = &[
     "bzip2_file.7z",
     "copy.7z",
@@ -79,9 +78,13 @@ const OPEN: &[&str] = &[
     "two_files_with_content_lzma.7z",
     "decompress_example_bcj_arm64.7z",
     "decompress_example_lzma2_bcj_x86.7z",
+    "7za433_7zip_lzma2_bcj2.7z",
+    "delta_bcj2.7z",
 ];
 
-/// A BCJ2 folder is reported as unsupported rather than read wrongly.
+/// The BCJ2 files, kept by name for the test that says they are *decoded* rather than merely not
+/// refused. Every one of them is also in `OPEN`; this is the subset that is worth checking twice,
+/// because a branched folder that returns the wrong bytes is worse than one that is refused.
 const BCJ2: &[&str] = &["7za433_7zip_lzma2_bcj2.7z", "delta_bcj2.7z"];
 
 /// Every openable corpus archive lists and reads the same as `sevenz-rust2` does.
@@ -150,9 +153,15 @@ fn every_openable_corpus_archive_matches_sevenz_rust2() {
     assert!(failures.is_empty(), "differences found:\n  {}", failures.join("\n  "));
 }
 
-/// Every BCJ2 corpus archive is reported as unsupported, never as readable-and-wrong.
+/// Every BCJ2 corpus archive decodes to exactly the bytes `sevenz-rust2` produces from it.
+///
+/// This replaces a test that asserted the opposite — that they were *refused*. It was not weakened
+/// to make the change pass: the refusal was the limitation the change removed, so the test was
+/// rewritten to assert what the format is now required to do, which is strictly more than before.
+/// A BCJ2 folder that decodes to the wrong bytes is worse than one that is refused, so the
+/// comparison is byte-for-byte and against the reference decoder, entry by entry.
 #[test]
-fn a_bcj2_archive_is_reported_unsupported_rather_than_decoded_wrongly() {
+fn a_bcj2_archive_decodes_to_the_same_bytes_as_sevenz_rust2() {
     for name in BCJ2 {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../vendor/sevenz-rust2/tests/resources")
@@ -160,29 +169,36 @@ fn a_bcj2_archive_is_reported_unsupported_rather_than_decoded_wrongly() {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        match read_with_libarchive(&bytes) {
-            None => {}
-            Some(entries) => {
-                // Listing works — the central directory is readable — but reading a streamed entry
-                // must fail rather than produce the wrong bytes.
-                let mut reader =
-                    ArchiveReader::open(std::io::Cursor::new(bytes.clone()), &OpenOptions::default())
-                        .expect("a BCJ2 archive still lists");
-                let mut refused = false;
-                for index in 0..reader.len() {
-                    if let Ok(mut entry) = reader.open_entry(index) {
-                        let mut sink = Vec::new();
-                        if entry.read_to_end(&mut sink).is_err() {
-                            refused = true;
-                        }
-                    }
-                }
-                assert!(
-                    refused || entries.iter().all(|(_, contents)| contents.is_empty()),
-                    "{name}: a BCJ2 archive read without being refused, which means wrong bytes"
-                );
-            }
-        }
+
+        // What this crate produces.
+        let ours = match read_with_libarchive(&bytes) {
+            Some(entries) => entries,
+            None => panic!("{name}: libarchive-rs cannot open a BCJ2 archive at all"),
+        };
+        // What the reference decoder produces from the same file.
+        let theirs = match read_with_sevenz(&bytes, "") {
+            Some(entries) => entries,
+            None => panic!("{name}: sevenz-rust2 cannot open its own BCJ2 fixture"),
+        };
+        assert!(
+            !theirs.is_empty(),
+            "{name}: the reference decoder produced no entries, so there is nothing to compare"
+        );
+
+        let matched = ours
+            .iter()
+            .filter(|(our_name, our_bytes)| {
+                theirs
+                    .iter()
+                    .any(|(their_name, their_bytes)| their_name == our_name && their_bytes == our_bytes)
+            })
+            .count();
+        assert_eq!(
+            matched,
+            theirs.len(),
+            "{name}: {matched} of {} BCJ2 entries match sevenz-rust2 byte for byte",
+            theirs.len()
+        );
     }
 }
 
