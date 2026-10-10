@@ -45,6 +45,17 @@ criterion = { version = "0.8", default-features = false, features = ["cargo_benc
 proptest = "1"
 rand = "0.9"
 tempfile = "3"
+# The differential harness (tests/differential.rs). Three oracles, all offline:
+# `unarc-rs` and `sevenz-rust2` are already regular dependencies; `oxiarc-archive` is the exact
+# git revision the app pins (TheFileManager/app/src/main/rust/Cargo.toml:28), resolvable from the
+# local cargo git cache.
+oxiarc-archive = { git = "https://github.com/MaxrregMustermann/oxiarc", rev = "93b17af" }
+# The corpus manifest, parsed with serde.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Generates the RAR corpus in examples/gen_corpus.rs, copying unarc-rs's own pattern
+# (unarc-rs-0.7.2/tests/rar_decompression.rs:10-48). No `rar`/`unrar` CLI exists on this machine.
+rars = "0.9"
 
 [features]
 default = []

@@ -604,6 +604,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -921,10 +930,14 @@ dependencies = [
  "hmac",
  "lz4_flex",
  "lzma-rust2 0.21.0",
+ "oxiarc-archive",
  "pbkdf2",
  "ppmd-rust",
  "proptest",
  "rand",
+ "rars",
+ "serde",
+ "serde_json",
  "sevenz-rust2 0.23.0",
  "sha1 0.10.7",
  "tempfile",
@@ -1049,6 +1062,97 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "oxiarc-archive"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "encoding_rs",
+ "oxiarc-brotli",
+ "oxiarc-bzip2",
+ "oxiarc-core",
+ "oxiarc-deflate",
+ "oxiarc-lz4",
+ "oxiarc-lzhuf",
+ "oxiarc-lzma",
+ "oxiarc-snappy",
+ "oxiarc-zstd",
+]
+
+[[package]]
+name = "oxiarc-brotli"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "oxiarc-bzip2"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
+
+[[package]]
+name = "oxiarc-core"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "oxiarc-deflate"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
+
+[[package]]
+name = "oxiarc-lz4"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
+
+[[package]]
+name = "oxiarc-lzhuf"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
+
+[[package]]
+name = "oxiarc-lzma"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
+
+[[package]]
+name = "oxiarc-snappy"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "oxiarc-zstd"
+version = "0.4.2"
+source = "git+https://github.com/MaxrregMustermann/oxiarc?rev=93b17af#93b17af8c46011acc28ef699d31274a2123a95e4"
+dependencies = [
+ "oxiarc-core",
+]
 
 [[package]]
 name = "page_size"
