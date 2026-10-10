@@ -106,13 +106,13 @@ fn writing(criterion: &mut Criterion) {
     group.bench_function("deflate", |bencher| {
         bencher.iter(|| {
             let (sink, elapsed) = measure(&WriteOptions::default());
-            std::hint::black_box((&sink.bytes, elapsed))
+            std::hint::black_box((sink.bytes.len(), elapsed))
         })
     });
     group.bench_function("stored", |bencher| {
         bencher.iter(|| {
             let (sink, elapsed) = measure(&WriteOptions::stored());
-            std::hint::black_box((&sink.bytes, elapsed))
+            std::hint::black_box((sink.bytes.len(), elapsed))
         })
     });
     group.finish();
@@ -198,44 +198,130 @@ fn reading_every_entry(criterion: &mut Criterion) {
     group.finish();
 }
 
+/// A read-only, seekable view of a shared buffer.
+///
+/// The payload of the first-byte benchmark is 256 MiB, so cloning it per iteration would cost more
+/// than the thing being measured. This hands out a fresh cursor over shared bytes instead: the
+/// clone is one reference count, and `position` is per-instance.
+struct SharedBytes {
+    bytes: std::sync::Arc<Vec<u8>>,
+    position: u64,
+}
+
+impl SharedBytes {
+    fn new(bytes: std::sync::Arc<Vec<u8>>) -> SharedBytes {
+        SharedBytes { bytes, position: 0 }
+    }
+}
+
+impl Read for SharedBytes {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let start = self.position as usize;
+        let available = self.bytes.len() - start;
+        let count = available.min(output.len());
+        output[..count].copy_from_slice(&self.bytes[start..start + count]);
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+impl Seek for SharedBytes {
+    fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+        let target = match position {
+            io::SeekFrom::Start(offset) => offset as i64,
+            io::SeekFrom::End(delta) => self.bytes.len() as i64 + delta,
+            io::SeekFrom::Current(delta) => self.position as i64 + delta,
+        };
+        if target < 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "before the start"));
+        }
+        self.position = target as u64;
+        Ok(self.position)
+    }
+}
+
 /// How long until the caller can read the first byte of a large entry.
 ///
 /// The code this crate replaces decompressed the whole entry first, which cost about a second on a
-/// 132 MB entry. A streaming reader hands over a first byte after one block. The measurement
-/// writes a 64 MiB entry, then times the first byte out of it and nothing else, so the number is
-/// latency rather than throughput.
+/// 132 MB entry. A streaming reader hands over a first byte after one block.
+///
+/// The source is behind an `Arc` and shared rather than cloned per iteration. This benchmark used to
+/// do `Cursor::new(bytes.clone())` on a 256 MiB archive inside the timed closure, so it was
+/// reporting the cost of a memcpy and calling it latency — 149 ms of which was the clone. The
+/// measurement is only worth having if it measures the reader, so the payload is built once and
+/// the timing starts after the reader is open.
+///
+/// The value is asserted, not just reported: the whole point of the property is that it does not
+/// scale with the entry's size, so a number that grows is a regression in the thing being claimed.
 fn first_byte_latency(criterion: &mut Criterion) {
-    let payload: Vec<u8> = (0..64 * 1024 * 1024u32).map(|value| (value % 251) as u8).collect();
-    let options = WriteOptions::default();
-    let mut writer =
-        ArchiveWriter::create(std::io::Cursor::new(Vec::new()), libarchive::Format::Zip, &options)
-            .expect("a writer");
-    for index in 0..4 {
-        let name = format!("big{index}.bin");
+    const ENTRIES: usize = 4;
+    const ENTRY_BYTES: usize = 64 * 1024 * 1024;
+
+    let payload: Vec<u8> = (0..ENTRY_BYTES).map(|value| (value % 251) as u8).collect();
+    let mut writer = ArchiveWriter::create(
+        std::io::Cursor::new(Vec::new()),
+        libarchive::Format::Zip,
+        &WriteOptions::default(),
+    )
+    .expect("a writer");
+    for index in 0..ENTRIES {
         writer
-            .write_entry(&NewEntry::file(name).stored(), &mut &payload[..])
+            .write_entry(
+                &NewEntry::file(format!("big{index}.bin")).stored(),
+                &mut &payload[..],
+            )
             .expect("write a stored entry");
     }
-    writer.finish().expect("finish");
-    let bytes = writer
-        .finish_into()
-        .expect("the sink")
-        .into_inner();
+    let bytes = std::sync::Arc::new(writer.finish_into().expect("the sink").into_inner());
+    drop(payload);
 
-    criterion.bench_function("first-byte-of-a-64MiB-entry", |bencher| {
-        bencher.iter(|| {
-            let mut reader = ArchiveReader::open(
-                std::io::Cursor::new(bytes.clone()),
-                &OpenOptions::default(),
-            )
-            .expect("opens");
-            let start = Instant::now();
-            let mut entry = reader.open_entry(0).expect("open");
-            let mut one = [0u8; 1];
-            entry.read_exact(&mut one).expect("one byte");
-            std::hint::black_box((start.elapsed(), one[0]))
+    let mut group = criterion.benchmark_group("zip-first-byte");
+    group.throughput(Throughput::Elements(1));
+    group.bench_function("first-byte-of-a-64MiB-stored-entry", |bencher| {
+        bencher.iter_custom(|iterations| {
+            let mut elapsed = std::time::Duration::ZERO;
+            for _ in 0..iterations {
+                let mut reader =
+                    ArchiveReader::open(
+                        SharedBytes::new(std::sync::Arc::clone(&bytes)),
+                        &OpenOptions::default(),
+                    )
+                        .expect("opens");
+                let start = Instant::now();
+                let mut entry = reader.open_entry(0).expect("open");
+                let mut one = [0u8; 1];
+                entry.read_exact(&mut one).expect("one byte");
+                elapsed += start.elapsed();
+                std::hint::black_box(one[0]);
+            }
+            elapsed
         })
     });
+    group.finish();
+
+    assert_first_byte_is_cheap(&bytes);
+}
+
+/// The first-byte assertion, outside criterion, where a failure is a failure rather than a number
+/// somebody has to notice.
+///
+/// A stored entry needs no codec at all, so the first byte should cost one `read` of one byte out of
+/// the source — microseconds. The old whole-entry reader needed about a second on a 132 MB entry.
+/// Anything in the milliseconds means an entry is being materialised somewhere, which is the exact
+/// regression this crate exists to prevent.
+fn assert_first_byte_is_cheap(bytes: &std::sync::Arc<Vec<u8>>) {
+    let mut reader =
+        ArchiveReader::open(SharedBytes::new(std::sync::Arc::clone(bytes)), &OpenOptions::default())
+            .expect("opens");
+    let start = Instant::now();
+    let mut entry = reader.open_entry(0).expect("open");
+    let mut one = [0u8; 1];
+    entry.read_exact(&mut one).expect("one byte");
+    let latency = start.elapsed();
+    assert!(
+        latency < std::time::Duration::from_millis(5),
+        "the first byte of a 64 MiB stored entry took {latency:?}; an entry is being buffered"
+    );
 }
 
 criterion_group!(
