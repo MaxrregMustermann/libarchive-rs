@@ -37,9 +37,11 @@ output stream no bind pair consumes, each coder being built over whatever feeds 
 That second walk is the one `ArchiveReader::build_decode_stack2`/`get_in_stream2` makes for the
 same folder, and it is here because a solid BCJ2 folder is exactly the case this cursor exists for:
 `read_file` decodes the folder from its start for every entry, and a file manager opens one entry
-at a time. The two walks share their refusal set — a cyclic bind-pair graph, a multi-input coder
-that is not BCJ2, a BCJ2 coder that does not declare exactly four inputs, a folder whose pack
-streams are missing — so anything unresolvable is an error rather than a partial read.
+at a time. The two share their refusal set — a cyclic bind-pair graph, a multi-input coder that is
+not BCJ2, a BCJ2 coder that does not declare exactly four inputs, a folder whose pack streams are
+missing — so anything unresolvable is an error rather than a partial read. The two functions doing
+the walk are named `input_stream_reader` and `coder_decoder` rather than after upstream's pair,
+because they take two different kinds of index and the upstream names suggest otherwise.
 
 Nothing else in the crate was changed to make this work. `BlockCursor` uses only crate-visible
 items that already existed: `add_decoder`, `Block::ordered_coder_iter`, `Block::find_bind_pair_for_in_stream`,

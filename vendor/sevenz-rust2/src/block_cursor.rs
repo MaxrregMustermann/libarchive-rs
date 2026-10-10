@@ -423,7 +423,7 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
         }
 
         let main_coder_index = main_coder_index(&self.block)?;
-        let mut decoder = Self::get_in_stream2(
+        let mut decoder = Self::coder_decoder(
             &self.block,
             &sources,
             &coder_to_stream_map,
@@ -450,8 +450,10 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
     /// Resolves one folder input stream to a reader that feeds it.
     ///
     /// Either the stream is a pack stream, in which case it is read straight out of the archive, or
-    /// it is bound to another coder's output stream, in which case that coder is built first.
-    fn get_in_stream(
+    /// it is bound to the output stream of one of the folder's coders, in which case that coder has
+    /// to be built first. The two are told apart by whether the stream index appears in
+    /// `Block::packed_streams`.
+    fn input_stream_reader(
         block: &Block,
         sources: &[RangeReader<R>],
         coder_to_stream_map: &[usize],
@@ -477,7 +479,7 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
                     "Couldn't find bind pair for stream {in_stream_index}"
                 ))
             })?;
-        Self::get_in_stream2(
+        Self::coder_decoder(
             block,
             sources,
             coder_to_stream_map,
@@ -490,11 +492,14 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
 
     /// Builds the decoder for one coder of a branched folder.
     ///
-    /// `coder_index` names the coder, `depth` counts how far into the graph the walk has gone. A
-    /// coder with one input is an ordinary decoder built over whatever feeds it. BCJ2, the only
-    /// multi-input coder supported, is built over its four inputs in the order the filter expects
-    /// them: main, call, jump, range coder.
-    fn get_in_stream2(
+    /// `coder_index` names the coder — note that this is a *coder* index, not the input-stream
+    /// index `input_stream_reader` takes, and the two numberings are not the same. `depth` counts
+    /// how far into the graph the walk has gone.
+    ///
+    /// A coder with one input is any ordinary decoder, built over whatever feeds it: LZMA2, Delta,
+    /// another filter. BCJ2, the only multi-input coder supported, is built over its four inputs in
+    /// the order the filter expects them: main, call, jump and the range coder.
+    fn coder_decoder(
         block: &Block,
         sources: &[RangeReader<R>],
         coder_to_stream_map: &[usize],
@@ -525,7 +530,7 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
             .ok_or_else(|| Error::other("7z coder unpack size is missing"))?;
 
         if coder.num_in_streams == 1 {
-            let input = Self::get_in_stream(
+            let input = Self::input_stream_reader(
                 block,
                 sources,
                 coder_to_stream_map,
@@ -558,7 +563,7 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
                 .ok_or_else(|| Error::other("7z BCJ2 coder input streams are out of range"))?;
             let mut inputs: Vec<Box<dyn Read + Send>> = Vec::with_capacity(4);
             for index in start_index..end_index {
-                inputs.push(Self::get_in_stream(
+                inputs.push(Self::input_stream_reader(
                     block,
                     sources,
                     coder_to_stream_map,
