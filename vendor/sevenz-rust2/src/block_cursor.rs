@@ -28,22 +28,33 @@
 //!
 //! # What it does and does not handle
 //!
-//! This builds the **single-stream** decode chain: a folder whose coders form a chain with one
-//! input and one output each, which is every folder produced by the codecs a file manager meets —
-//! LZMA, LZMA2, BZip2, Deflate, PPMd, Zstd, Copy, and BCJ filters layered on any of them.
-//! BCJ2 folders, which have four input streams and a branched coder graph, are not handled here
-//! and are reported as unsupported rather than being read incorrectly. That matches what the
-//! upstream `for_each_entries` path supports for the solid case, so nothing that used to open now
-//! fails to open.
+//! A folder is either a **chain** — one input stream and one output stream per coder, which is every
+//! folder produced by the codecs a file manager meets: LZMA, LZMA2, BZip2, Deflate, PPMd, Zstd,
+//! Copy, and BCJ filters layered on any of them — or it is a **BCJ2 folder**, which has four input
+//! streams and a branched coder graph. Both are decoded here. The chain is walked in coder order;
+//! the BCJ2 graph is walked backwards from the coder whose output stream no bind pair consumes,
+//! which is the same walk `ArchiveReader::read_file` makes for the same folder.
+//!
+//! Anything the walk cannot resolve is an error and never a partial read that looks like success:
+//! a multi-input coder that is not BCJ2, a cyclic bind-pair graph, a BCJ2 coder that does not
+//! declare four inputs, a folder whose pack streams are missing.
 
 use std::io::{self, Read, Seek, SeekFrom};
 use std::sync::{Arc, Mutex};
 
-use crate::archive::{Archive, SIGNATURE_HEADER_SIZE};
+use lzma_rust2::filter::bcj2::Bcj2Reader;
+
+use crate::archive::{Archive, EncoderMethod, SIGNATURE_HEADER_SIZE};
 use crate::block::{Block, Coder};
 use crate::decoder::add_decoder;
 use crate::error::Error;
 use crate::Password;
+
+/// How many coders one folder may name before the folder is refused.
+///
+/// A real folder has between one and five. The bound exists because the coder graph is walked into
+/// a fixed-size array, so a folder naming thousands of coders has to be refused somewhere.
+const MAX_CODER_COUNT: usize = 32;
 
 /// Reads a byte range of the source, seeking before every read.
 ///
@@ -53,13 +64,30 @@ use crate::Password;
 /// blocks by the codec, so this costs a handful of extra seeks per folder.
 struct RangeReader<R> {
     source: Arc<Mutex<R>>,
+    /// Where this range begins in the source. Kept so `fresh` can restart at it.
+    start: u64,
     position: u64,
     end: u64,
 }
 
 impl<R: Read + Seek> RangeReader<R> {
     fn new(source: Arc<Mutex<R>>, start: u64, end: u64) -> RangeReader<R> {
-        RangeReader { source, position: start, end }
+        RangeReader { source, start, position: start, end }
+    }
+
+    /// A second reader over the same byte range, positioned at its start.
+    ///
+    /// A branched folder's coder graph names the same pack stream from more than one coder — BCJ2
+    /// takes three of its four inputs from coders that are themselves fed by packed streams — and
+    /// each of those references needs its own position. Sharing one would make the second consumer
+    /// start wherever the first stopped.
+    fn fresh(&self) -> RangeReader<R> {
+        RangeReader {
+            source: Arc::clone(&self.source),
+            start: self.start,
+            position: self.start,
+            end: self.end,
+        }
     }
 }
 
@@ -123,8 +151,12 @@ pub struct BlockCursor<R: Read + Seek + Send + 'static> {
     block: Block,
     /// The folder's first pack stream index, needed to find its bytes in the source.
     first_pack_stream_index: usize,
-    pack_offset: u64,
-    pack_size: u64,
+    /// Every pack stream this folder's bytes come from, as `(offset, size)`.
+    ///
+    /// A folder whose coders form a chain has one. A BCJ2 folder has four — one per input stream,
+    /// three of them feeding coders of their own — so the whole list is kept rather than the first.
+    pack_ranges: Vec<(u64, u64)>,
+    /// How many bytes the folder expands to, recorded once so a read cannot ask for more.
     unpack_size: u64,
     /// Where the archive's packed data begins, so a folder's byte range is `pack_pos + offset`.
     pack_position: u64,
@@ -141,8 +173,10 @@ pub struct BlockCursor<R: Read + Seek + Send + 'static> {
 impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
     /// Opens a cursor over folder `block_index` of `archive`.
     ///
-    /// Reports an error for a folder this cursor cannot decode — a BCJ2 folder, or one whose
-    /// coders branch — rather than reading it incorrectly.
+    /// Opens for every folder shape this cursor can decode, which is both the coder chain and the
+    /// BCJ2 graph. A folder it *cannot* decode — a cyclic bind-pair graph, a multi-input coder that
+    /// is not BCJ2 — is refused by the walk that would have built it, at the first read rather than
+    /// here, so that the error names the coder that went wrong.
     pub fn open(
         archive: &Archive,
         source: Arc<Mutex<R>>,
@@ -153,27 +187,32 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
         let block = archive.blocks.get(block_index).cloned().ok_or_else(|| {
             Error::other(format!("7z folder {block_index} is out of range"))
         })?;
-        if block.total_input_streams > block.total_output_streams {
-            return Err(Error::unsupported(
-                "7z folder uses BCJ2, which this reader does not decode",
-            ));
-        }
         let first_pack_stream_index = *archive
             .stream_map
             .block_first_pack_stream_index()
             .get(block_index)
             .ok_or_else(|| Error::other("7z folder has no pack stream"))?;
-        let pack_offset = archive
-            .stream_map
-            .pack_stream_offsets()
-            .get(first_pack_stream_index)
-            .copied()
-            .ok_or_else(|| Error::other("7z folder's pack stream offset is missing"))?;
-        let pack_size = archive
-            .pack_sizes()
-            .get(first_pack_stream_index)
-            .copied()
-            .ok_or_else(|| Error::other("7z folder's pack stream size is missing"))?;
+        // Every pack stream the folder's coders read from, in folder order. A chain takes the
+        // first one; a BCJ2 folder takes four, one per input stream, and which is which is only
+        // known once the coder graph is walked, so all of them are kept.
+        let mut pack_ranges = Vec::with_capacity(block.packed_streams.len());
+        for index in 0..block.packed_streams.len() {
+            let stream_index = first_pack_stream_index
+                .checked_add(index)
+                .ok_or_else(|| Error::other("7z folder's pack stream index is out of range"))?;
+            let offset = archive
+                .stream_map
+                .pack_stream_offsets()
+                .get(stream_index)
+                .copied()
+                .ok_or_else(|| Error::other("7z folder's pack stream offset is missing"))?;
+            let size = archive
+                .pack_sizes()
+                .get(stream_index)
+                .copied()
+                .ok_or_else(|| Error::other("7z folder's pack stream size is missing"))?;
+            pack_ranges.push((offset, size));
+        }
         let unpack_size = block.get_unpack_size();
         let substream = archive
             .stream_map
@@ -195,8 +234,7 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
             source,
             block,
             first_pack_stream_index,
-            pack_offset,
-            pack_size,
+            pack_ranges,
             unpack_size,
             pack_position: archive.pack_pos(),
             entry_crc,
@@ -282,13 +320,25 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
     }
 
     /// Builds the decode stack and rewinds.
+    ///
+    /// A folder whose coders branch — more input streams than output streams, so that some output
+    /// stream is consumed by more than one coder's input — is a BCJ2 folder and takes the graph
+    /// walk. Everything else takes the chain.
     fn restart(&mut self) -> Result<(), Error> {
+        if self.block.total_input_streams > self.block.total_output_streams {
+            return self.restart_branched();
+        }
+        let (pack_offset, pack_size) = self
+            .pack_ranges
+            .first()
+            .copied()
+            .ok_or_else(|| Error::other("7z folder has no pack stream"))?;
         let start = SIGNATURE_HEADER_SIZE
             .checked_add(self.pack_position)
-            .and_then(|value| value.checked_add(self.pack_offset))
+            .and_then(|value| value.checked_add(pack_offset))
             .ok_or_else(|| Error::other("7z folder offset is out of range"))?;
         let end = start
-            .checked_add(self.pack_size)
+            .checked_add(pack_size)
             .ok_or_else(|| Error::other("7z folder end is out of range"))?;
 
         let mut decoder: Box<dyn Read + Send> =
@@ -328,6 +378,224 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
         Ok(())
     }
 
+    /// Builds the decode stack for a folder whose coders branch.
+    ///
+    /// This is the BCJ2 shape. Its coder declares four input streams — main, call, jump and the
+    /// range coder's — and one output stream, which is the folder's; three of the four inputs come
+    /// from coders of their own and the fourth is a pack stream read directly. So the graph is
+    /// walked backwards from the folder's output, resolving each coder's inputs as it goes, rather
+    /// than in the order the coders happen to be listed.
+    ///
+    /// The cost is the same as the chain's: one build, one decode, and the entries come out as byte
+    /// ranges of it.
+    fn restart_branched(&mut self) -> Result<(), Error> {
+        if self.block.coders.len() > MAX_CODER_COUNT {
+            return Err(Error::unsupported(format!(
+                "7z folder has too many coders: {}",
+                self.block.coders.len()
+            )));
+        }
+        // Every pack stream gets its own reader over its own range. They share the source through
+        // the mutex, so one stream's read cannot disturb another's position.
+        let pack_position = SIGNATURE_HEADER_SIZE
+            .checked_add(self.pack_position)
+            .ok_or_else(|| Error::other("7z pack position is out of range"))?;
+        let mut sources: Vec<RangeReader<R>> = Vec::with_capacity(self.pack_ranges.len());
+        for (offset, size) in &self.pack_ranges {
+            let start = pack_position
+                .checked_add(*offset)
+                .ok_or_else(|| Error::other("7z pack stream offset is out of range"))?;
+            let end = start
+                .checked_add(*size)
+                .ok_or_else(|| Error::other("7z pack stream size is out of range"))?;
+            sources.push(RangeReader::new(Arc::clone(&self.source), start, end));
+        }
+
+        // Where each coder's first input stream sits in the folder's global input numbering, so a
+        // coder can be found from an input stream index.
+        let mut coder_to_stream_map = [usize::MAX; MAX_CODER_COUNT];
+        let mut stream = 0usize;
+        for (index, coder) in self.block.coders.iter().enumerate() {
+            coder_to_stream_map[index] = stream;
+            stream = stream
+                .checked_add(coder.num_in_streams as usize)
+                .ok_or_else(|| Error::other("7z folder input stream count is out of range"))?;
+        }
+
+        let main_coder_index = main_coder_index(&self.block)?;
+        let mut decoder = Self::get_in_stream2(
+            &self.block,
+            &sources,
+            &coder_to_stream_map,
+            &self.password,
+            main_coder_index,
+            0,
+            self.thread_count,
+        )?;
+        // The folder's own CRC, when the directory records one against the folder rather than its
+        // sub-streams. Per-entry CRCs are checked by the caller, which knows which is which.
+        if self.block.has_crc {
+            decoder = Box::new(CrcReader {
+                inner: decoder,
+                hasher: crc32fast::Hasher::new(),
+                expected: self.block.crc as u32,
+                remaining: self.unpack_size,
+            });
+        }
+        self.decoder = Some(decoder);
+        self.consumed = 0;
+        Ok(())
+    }
+
+    /// Resolves one folder input stream to a reader that feeds it.
+    ///
+    /// Either the stream is a pack stream, in which case it is read straight out of the archive, or
+    /// it is bound to another coder's output stream, in which case that coder is built first.
+    fn get_in_stream(
+        block: &Block,
+        sources: &[RangeReader<R>],
+        coder_to_stream_map: &[usize],
+        password: &Password,
+        in_stream_index: usize,
+        depth: usize,
+        thread_count: u32,
+    ) -> Result<Box<dyn Read + Send>, Error> {
+        if let Some(index) = block
+            .packed_streams
+            .iter()
+            .position(|&stream| stream == in_stream_index as u64)
+        {
+            let source = sources
+                .get(index)
+                .ok_or_else(|| Error::other("7z folder pack stream is missing"))?;
+            return Ok(Box::new(source.fresh()));
+        }
+        let bind_pair = block
+            .find_bind_pair_for_in_stream(in_stream_index as u64)
+            .ok_or_else(|| {
+                Error::other(format!(
+                    "Couldn't find bind pair for stream {in_stream_index}"
+                ))
+            })?;
+        Self::get_in_stream2(
+            block,
+            sources,
+            coder_to_stream_map,
+            password,
+            bind_pair.out_index as usize,
+            depth,
+            thread_count,
+        )
+    }
+
+    /// Builds the decoder for one coder of a branched folder.
+    ///
+    /// `coder_index` names the coder, `depth` counts how far into the graph the walk has gone. A
+    /// coder with one input is an ordinary decoder built over whatever feeds it. BCJ2, the only
+    /// multi-input coder supported, is built over its four inputs in the order the filter expects
+    /// them: main, call, jump, range coder.
+    fn get_in_stream2(
+        block: &Block,
+        sources: &[RangeReader<R>],
+        coder_to_stream_map: &[usize],
+        password: &Password,
+        coder_index: usize,
+        depth: usize,
+        thread_count: u32,
+    ) -> Result<Box<dyn Read + Send>, Error> {
+        // Each coder is visited at most once in an acyclic graph, so a walk deeper than the coder
+        // count means the bind pairs form a cycle. Bail out rather than recursing until the stack
+        // overflows, which would be an uncatchable abort.
+        if depth > block.coders.len() {
+            return Err(Error::other("cyclic coder bind-pair graph"));
+        }
+        let coder = block
+            .coders
+            .get(coder_index)
+            .ok_or_else(|| Error::other("7z coder index is out of range"))?;
+        let start_index = *coder_to_stream_map
+            .get(coder_index)
+            .ok_or_else(|| Error::other("7z coder index is out of range"))?;
+        if start_index == usize::MAX {
+            return Err(Error::other("7z coder index is out of range"));
+        }
+        let uncompressed_len = *block
+            .unpack_sizes
+            .get(coder_index)
+            .ok_or_else(|| Error::other("7z coder unpack size is missing"))?;
+
+        if coder.num_in_streams == 1 {
+            let input = Self::get_in_stream(
+                block,
+                sources,
+                coder_to_stream_map,
+                password,
+                start_index,
+                depth + 1,
+                thread_count,
+            )?;
+            let decoder = add_decoder(
+                input,
+                uncompressed_len as usize,
+                coder,
+                password,
+                usize::MAX / 1024,
+                thread_count,
+            )?;
+            return Ok(Box::new(decoder));
+        }
+
+        if coder.encoder_method_id() == EncoderMethod::ID_BCJ2 {
+            // The BCJ2 decoder indexes exactly four input streams; a coder declaring any other
+            // count is malformed, and handing it a short list would panic rather than fail.
+            if coder.num_in_streams != 4 {
+                return Err(Error::other(
+                    "7z BCJ2 coder must declare exactly four input streams",
+                ));
+            }
+            let end_index = start_index
+                .checked_add(coder.num_in_streams as usize)
+                .ok_or_else(|| Error::other("7z BCJ2 coder input streams are out of range"))?;
+            let mut inputs: Vec<Box<dyn Read + Send>> = Vec::with_capacity(4);
+            for index in start_index..end_index {
+                inputs.push(Self::get_in_stream(
+                    block,
+                    sources,
+                    coder_to_stream_map,
+                    password,
+                    index,
+                    depth + 1,
+                    thread_count,
+                )?);
+            }
+            return Ok(Box::new(Bcj2Reader::new(inputs, uncompressed_len)));
+        }
+
+        Err(Error::unsupported(format!(
+            "7z folder has a multi-input coder this reader cannot decode: {:?}",
+            coder.encoder_method_id()
+        )))
+    }
+}
+
+/// The index of the coder whose output stream no bind pair consumes: the folder's own output.
+///
+/// A branched folder has exactly one such coder, and its output is the folder's output. Every other
+/// coder's output is consumed by a bind pair, so this is the one to walk back from.
+fn main_coder_index(block: &Block) -> Result<usize, Error> {
+    let mut consumed = [false; MAX_CODER_COUNT];
+    for bind_pair in block.bind_pairs.iter() {
+        // The out index is validated `< total_output_streams` at parse time; it indexes coders here,
+        // so one past the end is refused rather than used to index out of bounds.
+        let out_index = bind_pair.out_index as usize;
+        if out_index >= block.coders.len() {
+            return Err(Error::other("7z bind pair out index exceeds coder count"));
+        }
+        consumed[out_index] = true;
+    }
+    (0..block.coders.len())
+        .find(|index| !consumed[*index])
+        .ok_or_else(|| Error::other("7z folder has no coder whose output is its own"))
 }
 
 /// The folder's index into the archive's pack streams, kept for callers that report it.
