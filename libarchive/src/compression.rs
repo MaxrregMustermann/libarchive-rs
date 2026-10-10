@@ -67,10 +67,13 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
             "{method} is a bare chunked codec with no container; see the 7Z and XZ readers"
         ))),
         // PPMd's 7Z variant is driven by the 7Z coder chain, which needs the model properties as
-        // well as the data. `compress` is LZW with a twist and has no crate here.
-        Compression::Ppmd | Compression::Z | Compression::Unknown(_) => {
+        // well as the data.
+        Compression::Ppmd | Compression::Unknown(_) => {
             Err(Error::unimplemented(format!("{method} cannot be decoded by this build")))
         }
+        // Unix `compress` is LZW with block padding, decoded streaming by `crate::zlzw` so that
+        // a large `.Z` costs the dictionary rather than the file.
+        Compression::Z => Ok(Box::new(crate::zlzw::ZDecoder::new(input))),
     }
 }
 
@@ -266,6 +269,7 @@ pub fn can_decode(method: Compression) -> bool {
             | Compression::Lz4
             | Compression::Zstd
             | Compression::Xz
+            | Compression::Z
     )
 }
 
@@ -415,10 +419,11 @@ mod tests {
             Compression::Lz4,
             Compression::Zstd,
             Compression::Xz,
+            Compression::Z,
         ] {
             assert!(can_decode(method), "{method} should be decodable");
         }
-        for method in [Compression::Unknown(9999), Compression::Ppmd, Compression::Z] {
+        for method in [Compression::Unknown(9999), Compression::Ppmd] {
             assert!(!can_decode(method), "{method} should not claim to be decodable");
         }
     }
@@ -426,7 +431,7 @@ mod tests {
     #[test]
     fn a_codec_with_no_container_says_so_rather_than_producing_garbage() {
         let bytes = vec![0u8; 16];
-        for method in [Compression::Lzma2, Compression::Ppmd, Compression::Z] {
+        for method in [Compression::Lzma2, Compression::Ppmd] {
             let error = match decode(method, Box::new(Cursor::new(bytes.clone()))) {
             Ok(_) => panic!("{method} should have no raw decoder"),
             Err(error) => error,

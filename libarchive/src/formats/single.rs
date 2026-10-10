@@ -85,6 +85,12 @@ impl<R: Read + Seek + Send + 'static> SingleStreamReader<R> {
         if length == 0 {
             return Err(Error::malformed("a compressed stream cannot be empty"));
         }
+        if compression == Compression::Z {
+            // The magic and code width are checked here, at open, so that opening garbage as `.Z`
+            // reports `Malformed` rather than failing halfway through the first read. The bytes
+            // stay where they are: entry reads start from the beginning, header included.
+            check_z_header(&source)?;
+        }
         // The tail is read once, here, and the size taken from it if the format records one.
         let tail = read_tail(&source, length)?;
         let size = recorded_size(compression, &tail);
@@ -230,6 +236,32 @@ fn modification_time(_compression: Compression, _tail: &[u8]) -> Option<std::tim
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     let slice = bytes.get(at..at + 4)?;
     Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+/// Checks a `.Z` stream's header eagerly, so a bad one fails at open.
+///
+/// Reads the first three bytes without moving the source: entry reads start from the beginning
+/// and the decoder reads the header again itself.
+fn check_z_header<R: Read + Seek>(source: &Shared<R>) -> Result<()> {
+    let mut guard = crate::reader::lock(source)?;
+    let current = guard.stream_position()?;
+    guard.seek(SeekFrom::Start(0))?;
+    let mut header = [0u8; 3];
+    let result = guard.read_exact(&mut header).map_err(Error::io);
+    // The position is restored whatever happened, so a failed open leaves the source where the
+    // caller had it rather than wherever the failure happened.
+    let _ = guard.seek(SeekFrom::Start(current));
+    result?;
+    if header[0..2] != [0x1F, 0x9D] {
+        return Err(Error::malformed("not a .Z stream: the magic is not 0x1f 0x9d"));
+    }
+    let max_bits = header[2] & 0x1F;
+    if !(9..=16).contains(&max_bits) {
+        return Err(Error::malformed(format!(
+            "a .Z stream with a code width of {max_bits} bits is not a compress stream"
+        )));
+    }
+    Ok(())
 }
 
 /// How long the file is.

@@ -72,6 +72,7 @@ pub mod formats;
 pub mod limits;
 pub mod reader;
 pub mod writer;
+mod zlzw;
 
 pub use detect::{detect, detect_header};
 pub use entry::{BlockPlacement, Entry, EntryKind, EntrySpecial};
