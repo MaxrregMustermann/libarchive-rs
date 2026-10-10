@@ -9,16 +9,26 @@ codec and every header field is untouched.
 
 ## Why a vendored copy at all
 
-A solid 7Z folder is compressed as one unit, so decoding entry *n* means decoding the folder
-from its start. `ArchiveReader::read_file` builds a fresh decode stack per call and does exactly
-that, which makes reading *N* entries of a solid folder cost *N* decodes. Measured here: 400
-entries took 15.5 s against 204 ms for the same data stored non-solid.
+Two reasons, one per half of the format.
+
+The first is the reader. A solid 7Z folder is compressed as one unit, so decoding entry *n* means
+decoding the folder from its start. `ArchiveReader::read_file` builds a fresh decode stack per call
+and does exactly that, which makes reading *N* entries of a solid folder cost *N* decodes. Measured
+here: 400 entries took 15.5 s against 204 ms for the same data stored non-solid.
 
 The fix needs a decode stack that outlives the call that built it. Upstream's
 `ArchiveReader::build_decode_stack` is private, takes `&mut R`, and returns a reader that borrows
 it — so a caller cannot hold one. Reaching it from outside would mean making `decoder`,
 `SharedBoundedReader` and the folder-graph walkers public, which is a much larger change to a
 fuzzed parser than adding one file that does the job inside the crate.
+
+The second is that `libarchive-rs` writes 7Z as well, and writing a second container
+implementation to avoid the dependency would put two of them in one binary with the new one being
+the one nobody had tested against real archives. So `libarchive/src/writer/sevenz.rs` is an
+adapter over this crate's `ArchiveWriter` exactly as `libarchive/src/formats/sevenz.rs` is one over
+`BlockCursor` — which is why the second one is worth recording here even though it **added no code
+to this crate at all**: the writer is used as upstream shipped it, and the list below is what has
+to stay true for that to remain an auditable claim.
 
 ## The changes
 
@@ -124,6 +134,15 @@ getter above. In particular:
   unreplaced code path does. Note that it *does* decode BCJ2, via `build_decode_stack2`; that path
   is upstream's and is left exactly as upstream wrote it, including the one places where it indexes
   a vector directly rather than returning an error.
+- `writer.rs` and its `writer/` subdirectory are untouched and **are used**:
+  `libarchive/src/writer/sevenz.rs` wraps `ArchiveWriter` for every byte this crate writes. Two
+  consequences worth knowing before editing anything here. First, `push_archive_entry` streams
+  from a reader but has no `begin`/`write`/`finish` shape, so the adapter buffers one entry (or,
+  for a solid archive, all of them) — the one place in this project where an entry is held whole.
+  Second, `push_archive_entries` and `prepare_block` take `Vec<SourceReader<R>>` and
+  `assert_eq!(r.reader_len(), entries.len())`, so a solid write is all-or-nothing into one folder.
+  `ArchiveWriter` has **no password support at all**, which is why an encrypted 7Z cannot be
+  written yet and why `SevenZWriter::create` refuses a `WriteOptions` carrying one.
 - No header parser, no CRC check and no bounds check was altered. The panic-freedom and
   fuzz-hardening already in upstream 0.23.0 are all still there, and this project adds its own
   tests on top rather than relying on that alone.

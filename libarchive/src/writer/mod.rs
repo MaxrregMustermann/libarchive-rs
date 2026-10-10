@@ -437,14 +437,19 @@ mod tests {
 }
 /// What can actually be written, pinned.
 ///
-/// This exists because `SPEC.md` claimed 7Z and single-stream writing worked, and neither does:
+/// This exists because `SPEC.md` claimed 7Z and single-stream writing worked, and none of them did:
 /// `SevenZWriter::create`, `SingleStreamWriter::create` and `CompressedTarWriter::create` all
-/// return `ErrorKind::Unimplemented`. The sevenz-rust2 differential corpus still passed, because
+/// returned `ErrorKind::Unimplemented`. The sevenz-rust2 differential corpus still passed, because
 /// reading 7Z is genuinely implemented and nothing in the test suite asked about *writing* it.
 ///
 /// The app writes 7Z today, through sevenz-rust2 directly, so a stub here is a functional
 /// regression rather than a missing feature. This test is the thing that says so out loud, and it
 /// is written as a list of what works so that adding a writer is a deliberate edit here.
+///
+/// 7Z writing is now implemented, by wrapping the vendored crate's own writer rather than by writing
+/// a second container implementation, so it has moved into the writable list. The shape of the test
+/// is unchanged: `libarchive/tests/sevenz_write.rs` is what proves the writer round-trips against
+/// the `7z` binary.
 #[cfg(test)]
 mod what_can_be_written {
     use super::*;
@@ -456,14 +461,17 @@ mod what_can_be_written {
     }
 
     #[test]
-    fn zip_and_tar_are_writable_and_nothing_else_is_yet() {
+    fn zip_tar_and_seven_z_are_writable_and_nothing_else_is_yet() {
         assert!(creates(Format::Zip).is_ok(), "ZIP writing is the app's common case");
         assert!(creates(Format::Tar).is_ok(), "TAR writing works");
+        assert!(
+            creates(Format::SevenZ).is_ok(),
+            "7Z writing wire ones the vendored ArchiveWriter; see writer::sevenz"
+        );
 
         // Each of these is a stub. When one starts working this test fails, and the failure is
         // the prompt to move it into the list above and to correct SPEC.md.
         for (format, why) in [
-            (Format::SevenZ, "the app writes 7Z through sevenz-rust2 today"),
             (Format::SingleStream(Compression::Xz), "oxiarc writes .xz"),
             (Format::CompressedTar(Compression::Gzip), "tar.gz is ordinary"),
         ] {
@@ -485,7 +493,6 @@ mod what_can_be_written {
     #[test]
     fn every_format_listed_as_read_only_is_actually_read_only() {
         for (format, what) in [
-            (Format::SevenZ, "the app writes 7Z today, through sevenz-rust2"),
             (Format::SingleStream(Compression::Xz), "oxiarc writes .xz"),
             (Format::CompressedTar(Compression::Gzip), "tar.gz is ordinary"),
         ] {
@@ -493,8 +500,8 @@ mod what_can_be_written {
             assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented, "{format:?}: {error}");
             let _ = what;
         }
-        // And the two that are writable really are, so this cannot pass by everything failing.
-        for format in [Format::Zip, Format::Tar] {
+        // And the ones that are writable really are, so this cannot pass by everything failing.
+        for format in [Format::Zip, Format::Tar, Format::SevenZ] {
             assert!(creates(format).is_ok(), "{format:?} is listed as writable");
         }
     }

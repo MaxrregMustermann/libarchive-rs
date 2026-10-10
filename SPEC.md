@@ -16,15 +16,20 @@ This document lists every format `libarchive-rs` knows, and for each one states 
 | Format | Read | Write | Streaming | Solid | Encrypted read | Encrypted write | Notes |
 |--------|------|-------|-----------|-------|----------------|-----------------|-------|
 | ZIP | ✅ | ✅ | ✅ | No | ❌ (refused) | ❌ | Deflate, Deflate64, Bzip2, LZMA, Zstd. Data descriptor (streaming) supported. |
-| 7Z | ✅ | ❌ **stub** | ✅ | Yes | ✅ (AES-256-SHA256) | ❌ | Reading works: solid folders decoded in order via `BlockCursor`; BCJ2 refused. **Writing is a stub** — `SevenZWriter::create` returns `Unimplemented`. The app writes 7Z today through sevenz-rust2, so this is a functional regression until it is implemented. |
+| 7Z | ✅ | ✅ | ✅ | Yes | ✅ (AES-256-SHA256) | ❌ | Reading works: solid folders decoded in order via `BlockCursor`, BCJ2 folders decoded through a coder-graph walk. Writing works by wrapping the vendored `ArchiveWriter`; non-solid by default (one folder per entry), solid on `WriteOptions::solid`. Round-tripped against the `7z` binary in `libarchive/tests/sevenz_write.rs`. |
 | TAR | ✅ | ✅ | ✅ | No | N/A | N/A | UStar, GNU, PAX. GNU sparse and PAX extended headers read. |
 | Compressed TAR (.tar.gz, .tar.bz2, .tar.xz, .tar.zst, .tar.lz4) | ✅ | ❌ **stub** | ✅ | No | N/A | N/A | Reading works and streams: the compression layer is decoded and TAR entries stream inside it. **Writing is a stub** — `CompressedTarWriter::create` returns `Unimplemented`. |
 | SingleStream (gz, bz2, xz, zst, br, lz4) | ✅ | ❌ **stub** | ✅ | No | N/A | N/A | One entry by definition. Reading works for all of these. **Writing is a stub** — `SingleStreamWriter::create` returns `Unimplemented` for every method, including the two (`XZ`, `Zstd`) an earlier version of this document wrongly claimed worked. |
 | SingleStream `.Z` (Unix compress / LZW) | ❌ refused | ❌ | — | No | N/A | N/A | Recognised by `detect` and refused: no LZW decoder is wired. |
 
-**Writing is implemented for ZIP and plain TAR only.** `writer::what_can_be_written` pins that in a
-test, so a document and a test cannot both drift away from the code. It is the single largest gap
-in the crate: the app creates ZIP, TAR and 7Z today, and 7Z creation is a stub.
+**Writing is implemented for ZIP, plain TAR and 7Z.** `writer::what_can_be_written` pins that in
+a test, so a document and a test cannot both drift away from the code. The 7Z writer wraps the
+vendored `sevenz-rust2` writer rather than reimplementing the container — the same trade the reader
+makes — and it is proved by extracting what it wrote with the real `7z` binary, not by reading it
+back with this crate alone. Two shapes: the default is one folder per entry, so any entry can be
+extracted without decoding the ones before it; `WriteOptions::solid` puts every entry in one
+folder, which compresses better and costs the whole archive in memory while it is written. An
+encrypted 7Z is refused with `Unimplemented` rather than written without its encryption.
 
 ## Long-tail formats (pending — legacy team)
 
