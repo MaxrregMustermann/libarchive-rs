@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["libarchive", "jni"]
+members = ["libarchive", "jni", "vendor/sevenz-rust2"]
 
 [workspace.package]
 version = "0.1.0"
