@@ -48,6 +48,11 @@ fn write(entries: &[(&str, Vec<u8>)], options: &WriteOptions) -> Vec<u8> {
     writer.finish_into().expect("finish the archive").into_inner()
 }
 
+/// Nothing, which is what a directory or a symlink is written from.
+fn crate_empty() -> std::io::Empty {
+    std::io::empty()
+}
+
 /// Reads every entry of `bytes` back as (name, contents).
 fn read_back(bytes: Vec<u8>) -> Vec<(String, Vec<u8>)> {
     let mut reader =
@@ -255,6 +260,54 @@ fn seven_z_can_read_a_solid_archive_this_crate_wrote() {
             "the solid archive came out as {folders} folders, so this test measured a non-solid one"
         );
     }
+}
+
+/// A directory entry round-trips, which is the shape a file manager writes when it compresses a
+/// folder rather than a file list.
+///
+/// It exercises a different path in the vendored writer: `push_archive_entry` decides an entry has
+/// no stream from the entry itself rather than from the reader, so passing `None` has to be right.
+#[test]
+fn a_directory_entry_round_trips_as_a_directory() {
+    let sink = Cursor::new(Vec::new());
+    let mut writer =
+        ArchiveWriter::create(sink, Format::SevenZ, &WriteOptions::default()).expect("a writer");
+    writer
+        .write_entry(&NewEntry::directory("folder"), &mut crate_empty())
+        .expect("write a directory");
+    writer
+        .write_entry_from_slice(&NewEntry::file("folder/inside.txt"), b"contents")
+        .expect("write a file");
+    let bytes = writer.finish_into().expect("finish").into_inner();
+
+    let entries = read_back(bytes.clone());
+    let directory = entries
+        .iter()
+        .find(|(name, _)| name == "folder")
+        .expect("the directory should come back");
+    assert!(directory.1.is_empty(), "a directory has no contents");
+    let inside = entries
+        .iter()
+        .find(|(name, _)| name == "folder/inside.txt")
+        .expect("the file inside it should come back");
+    assert_eq!(inside.1, b"contents");
+
+    // And the archive is readable by the tool, which is the claim that matters.
+    if !seven_z() {
+        return;
+    }
+    let archive = scratch("libarchive-directory.7z");
+    let target = scratch("libarchive-directory-out");
+    std::fs::write(&archive, &bytes).expect("write the fixture");
+    let _ = std::fs::remove_dir_all(&target);
+    let from_tool = by_name(extract_with_seven_z(&archive, &target).expect("7z extracts it"));
+    let names: Vec<&str> = from_tool.iter().map(|(name, _)| name.as_str()).collect();
+    assert!(
+        names.contains(&"folder/inside.txt"),
+        "7z did not find the file inside the directory: {names:?}"
+    );
+    let _ = std::fs::remove_file(&archive);
+    let _ = std::fs::remove_dir_all(&target);
 }
 
 /// An archive with no entries at all is still a valid, empty 7Z.
