@@ -72,7 +72,7 @@ struct Expect {
     error_kind: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct Entry {
     name: String,
     size: u64,
@@ -133,8 +133,10 @@ fn main() {
         entries: Some(single.clone()),
         // oxiarc reads brotli too; unarc-rs has no brotli at all.
         oracles: vec!["oxiarc".to_owned()],
-        notes: "brotli has no magic of its own; the manifest's format drives open_as, and \
-                detect() cannot find it in the wild."
+        notes: String::from(
+            "brotli has no magic of its own; the manifest's format drives open_as, and \
+             detect() cannot find it in the wild.",
+        )
     });
 
     // --- tar.lz4: the ustar.tar generate.py already wrote, wrapped in an lz4 frame. ---
@@ -163,8 +165,10 @@ fn main() {
         expect: Expect { kind: "ok".to_owned(), error_kind: None },
         entries: Some(tar_entries.clone()),
         oracles: Vec::new(),
-        notes: "no oracle here reads tar.lz4: unarc has no lz4, oxiarc has no compressed-TAR \
-                wrapper. The manifest's plaintext CRCs are the ground truth."
+        notes: String::from(
+            "no oracle here reads tar.lz4: unarc has no lz4, oxiarc has no compressed-TAR \
+             wrapper. The manifest's plaintext CRCs are the ground truth.",
+        )
     });
 
     // --- LZH: oxiarc's LzhWriter, stored and LH5, the writer the app itself used. ---
@@ -201,9 +205,11 @@ fn main() {
             },
             entries: Some(entries),
             oracles: vec!["oxiarc".to_owned()],
-            notes: "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader \
-                    is the second oracle here because it is the writer too — self-round-trip \
-                    plus cross-reader."
+            notes: String::from(
+                "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader \
+                 is the second oracle here because it is the writer too — self-round-trip \
+                 plus cross-reader.",
+            ),
         });
     }
 
@@ -240,7 +246,7 @@ fn main() {
         }
         let bytes = builder.to_bytes().expect("rars to_bytes");
         std::fs::write(generated.join("rar").join(file_name), &bytes).expect("write the rar");
-        let encrypted_flag = *encrypted;
+        let encrypted_flag = encrypted;
         records.push(Record {
             path: format!("generated/rar/{file_name}"),
             format: "rar".to_owned(),
@@ -256,14 +262,13 @@ fn main() {
             },
             entries: Some(rar_entries.clone()),
             oracles: vec!["unarc".to_owned()],
-            notes: "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so \
-                    the oracle is guaranteed to read these; when the RAR reader lands, flip to \
-                    gate and the entries above are the ground truth."
+            notes: String::from(
+                "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so \
+                 the oracle is guaranteed to read these; when the RAR reader lands, flip to \
+                 gate and the entries above are the ground truth.",
+            ),
         });
     }
-
-    // --- tar.lz4 needs Compression::Lz4 wrap — already recorded above. ---
-    let _ = compression::Compression::Lz4;
 
     let fragment = Fragment { files: records };
     let json = serde_json::to_string_pretty(&fragment).expect("serialise the fragment");
