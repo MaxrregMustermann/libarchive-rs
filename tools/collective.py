@@ -30,7 +30,10 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-COORD = REPO / "coord"
+# The mail store lives outside the repository so that every agent's git worktree shares one copy.
+# A directory committed into the repo would be checked out separately into each worktree, and six
+# agents would then be reading six different inboxes.
+COORD = Path(os.environ.get("COLLECTIVE_COORD", "/home/user/coord"))
 WORKTREES = Path(os.environ.get("COLLECTIVE_WORKTREES", "/home/user/wt"))
 REGISTRY = COORD / "registry.json"
 
@@ -355,6 +358,10 @@ def ensure_worktree(agent: str, registry: dict) -> Path:
             check=True,
         )
     link = path / "coord"
+    if link.is_dir() and not link.is_symlink():
+        # The checkout materialised a real directory, which happens when the
+        # worktree predates coord being moved out of the repository.
+        subprocess.run(["rm", "-rf", str(link)], check=True)
     if not link.exists() and not link.is_symlink():
         link.symlink_to(COORD)
     return path
