@@ -36,9 +36,8 @@
 //! upstream `for_each_entries` path supports for the solid case, so nothing that used to open now
 //! fails to open.
 
-use std::cell::RefCell;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use crate::archive::{Archive, SIGNATURE_HEADER_SIZE};
 use crate::block::{Block, Coder};
@@ -53,13 +52,13 @@ use crate::Password;
 /// it does not borrow it and can be held between two entries. The pack stream is consumed in large
 /// blocks by the codec, so this costs a handful of extra seeks per folder.
 struct RangeReader<R> {
-    source: Rc<RefCell<R>>,
+    source: Arc<Mutex<R>>,
     position: u64,
     end: u64,
 }
 
 impl<R: Read + Seek> RangeReader<R> {
-    fn new(source: Rc<RefCell<R>>, start: u64, end: u64) -> RangeReader<R> {
+    fn new(source: Arc<Mutex<R>>, start: u64, end: u64) -> RangeReader<R> {
         RangeReader { source, position: start, end }
     }
 }
@@ -72,8 +71,8 @@ impl<R: Read + Seek> Read for RangeReader<R> {
         let wanted = output.len().min((self.end - self.position) as usize);
         let mut source = self
             .source
-            .try_borrow_mut()
-            .map_err(|_| io::Error::other("the 7z source is already being read"))?;
+            .lock()
+            .map_err(|_| io::Error::other("the 7z source handle was left poisoned"))?;
         source.seek(SeekFrom::Start(self.position))?;
         let read = source.read(&mut output[..wanted])?;
         self.position += read as u64;
@@ -117,9 +116,9 @@ impl<R: Read> Read for CrcReader<R> {
 }
 
 /// A cursor over one folder of a 7Z archive, decoded once.
-pub struct BlockCursor<R: Read + Seek + 'static> {
+pub struct BlockCursor<R: Read + Seek + Send + 'static> {
     /// The archive's source, shared with the decoder chain.
-    source: Rc<RefCell<R>>,
+    source: Arc<Mutex<R>>,
     /// The folder being read, cloned so the cursor does not borrow the caller's archive.
     block: Block,
     /// The folder's first pack stream index, needed to find its bytes in the source.
@@ -134,19 +133,19 @@ pub struct BlockCursor<R: Read + Seek + 'static> {
     password: Password,
     thread_count: u32,
     /// The decode stack, built on the first read and reused by every one after it.
-    decoder: Option<Box<dyn Read>>,
+    decoder: Option<Box<dyn Read + Send>>,
     /// How many bytes of the folder have been handed out.
     consumed: u64,
 }
 
-impl<R: Read + Seek + 'static> BlockCursor<R> {
+impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
     /// Opens a cursor over folder `block_index` of `archive`.
     ///
     /// Reports an error for a folder this cursor cannot decode — a BCJ2 folder, or one whose
     /// coders branch — rather than reading it incorrectly.
     pub fn open(
         archive: &Archive,
-        source: Rc<RefCell<R>>,
+        source: Arc<Mutex<R>>,
         password: &Password,
         block_index: usize,
         thread_count: u32,
@@ -242,6 +241,18 @@ impl<R: Read + Seek + 'static> BlockCursor<R> {
         self.consumed
     }
 
+    /// Positions the cursor so that the next `read_entry` continues from `offset`.
+    ///
+    /// This is what "skipping an entry" means for a solid folder: rather than decoding and
+    /// discarding, the next read simply starts where the skipped entry ended. A backwards or
+    /// equal-to-the-current-position request is ignored, because moving forwards is the only
+    /// direction a decoder can go without being rebuilt.
+    pub fn advance_to(&mut self, offset: u64) {
+        if offset > self.consumed {
+            self.consumed = offset;
+        }
+    }
+
     /// How many bytes the folder expands to.
     pub fn len(&self) -> u64 {
         self.unpack_size
@@ -280,8 +291,8 @@ impl<R: Read + Seek + 'static> BlockCursor<R> {
             .checked_add(self.pack_size)
             .ok_or_else(|| Error::other("7z folder end is out of range"))?;
 
-        let mut decoder: Box<dyn Read> =
-            Box::new(RangeReader::new(Rc::clone(&self.source), start, end));
+        let mut decoder: Box<dyn Read + Send> =
+            Box::new(RangeReader::new(Arc::clone(&self.source), start, end));
         for (index, coder) in self.block.ordered_coder_iter() {
             if coder.num_in_streams != 1 || coder.num_out_streams != 1 {
                 return Err(Error::unsupported(
@@ -297,8 +308,13 @@ impl<R: Read + Seek + 'static> BlockCursor<R> {
                 self.thread_count,
             )?);
         }
+        // The sub-stream CRC describes one entry only when the folder holds exactly one. For a
+        // folder with several entries each has its own CRC in the sub-stream table and the folder
+        // decoder cannot tell them apart, so checking here would compare an entry's CRC against
+        // whichever entry the sub-stream table happened to record. The caller checks the right
+        // value per entry; this is left out rather than being wrong.
         if let Some(crc) = self.entry_crc {
-            if self.block.num_unpack_sub_streams == 1 {
+            if self.block.num_sub_streams() == 1 {
                 decoder = Box::new(CrcReader {
                     inner: decoder,
                     hasher: crc32fast::Hasher::new(),
@@ -315,7 +331,7 @@ impl<R: Read + Seek + 'static> BlockCursor<R> {
 }
 
 /// The folder's index into the archive's pack streams, kept for callers that report it.
-impl<R: Read + Seek + 'static> BlockCursor<R> {
+impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
     /// Which pack stream this folder's bytes come from.
     pub fn first_pack_stream_index(&self) -> usize {
         self.first_pack_stream_index
@@ -373,7 +389,7 @@ mod tests {
         let mut offset = 0u64;
         let mut cursor = BlockCursor::open(
             &archive,
-            Rc::new(RefCell::new(Cursor::new(bytes.clone()))),
+            Arc::new(Mutex::new(Cursor::new(bytes.clone()))),
             &Password::empty(),
             block_index,
             1,
@@ -416,7 +432,7 @@ mod tests {
         let started = Instant::now();
         let mut cursor = BlockCursor::open(
             &archive,
-            Rc::new(RefCell::new(Cursor::new(bytes))),
+            Arc::new(Mutex::new(Cursor::new(bytes))),
             &Password::empty(),
             block_index,
             1,
@@ -470,7 +486,7 @@ mod tests {
 
         let mut cursor = BlockCursor::open(
             &archive,
-            Rc::new(RefCell::new(Cursor::new(bytes))),
+            Arc::new(Mutex::new(Cursor::new(bytes))),
             &Password::empty(),
             block_index,
             1,
@@ -569,7 +585,7 @@ mod tests {
             .expect("at least one folder");
         let mut cursor = BlockCursor::open(
             &archive,
-            Rc::new(RefCell::new(Cursor::new(bytes))),
+            Arc::new(Mutex::new(Cursor::new(bytes))),
             &Password::empty(),
             block_index,
             1,
@@ -626,7 +642,7 @@ mod tests {
                 .expect("a folder");
             let mut cursor = BlockCursor::open(
                 &archive,
-                Rc::new(RefCell::new(source)),
+                Arc::new(Mutex::new(source)),
                 &Password::empty(),
                 block_index,
                 1,
@@ -681,7 +697,7 @@ mod tests {
         let (archive, bytes) = parse();
         let result = BlockCursor::<Cursor<Vec<u8>>>::open(
             &archive,
-            Rc::new(RefCell::new(Cursor::new(bytes))),
+            Arc::new(Mutex::new(Cursor::new(bytes))),
             &Password::empty(),
             archive.blocks.len() + 10,
             1,

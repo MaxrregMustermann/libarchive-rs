@@ -36,7 +36,31 @@ Nothing else in the crate was changed to make this work. `BlockCursor` uses only
 items that already existed: `add_decoder`, `Block::ordered_coder_iter`, `StreamMap`'s accessors
 and the crate-private fields.
 
-### 2. `src/lib.rs` — two lines
+### 2. `src/time.rs` and `src/block.rs` — two accessors
+
+```rust
+// time.rs
+pub fn to_u64(self) -> u64 { self.0 }
+// block.rs
+pub fn num_sub_streams(&self) -> usize { self.num_unpack_sub_streams }
+```
+
+Both fields are crate-private upstream. `libarchive-rs` needs the folder's entry count in order
+to map entries to folders — which is what lets a solid archive be read in order — and the raw
+timestamp in order to convert it without adding a date dependency to a crate that goes into every
+archive operation the app does. Both are getters and nothing else.
+
+### 3. `src/block.rs` — one accessor
+
+```rust
+pub fn num_sub_streams(&self) -> usize { self.num_unpack_sub_streams }
+```
+
+The field is crate-private upstream. `libarchive-rs` needs to know how many of an archive's files
+belong to each folder in order to map entries to folders, which is what lets a solid archive be
+read in order. It is a getter and nothing else.
+
+### 3. `src/lib.rs` — two lines
 
 ```diff
 -pub(crate) mod decoder;
@@ -47,7 +71,7 @@ and the crate-private fields.
 `decoder` becomes public so the crate's own documentation for the patch is reachable; nothing
 outside uses it. `block_cursor` is declared.
 
-### 3. `Cargo.toml` — optional, dev and wasm dependencies removed
+### 4. `Cargo.toml` — optional, dev and wasm dependencies removed
 
 ```diff
 -nt-time = ["dep:nt-time"]
@@ -64,14 +88,15 @@ on disk under `tests/` and can be run by building this crate standalone), and th
 dependencies are for a target this project does not build for. They are removed only because
 resolving them offline fails on a machine whose registry cache does not contain them.
 
-### 4. `Cargo.lock` removed
+### 5. `Cargo.lock` removed
 
 The upstream lockfile is not meaningful for a path dependency inside a workspace.
 
 ## What was *not* patched, and why it matters
 
-`reader.rs`, `archive.rs`, `block.rs`, `decoder.rs`, `codec/`, `encryption/`, `time.rs`,
-`error.rs` and `writer.rs` are byte-for-byte upstream. In particular:
+`reader.rs`, `archive.rs`, `decoder.rs`, `codec/`, `encryption/`, `time.rs`,
+`error.rs` and `writer.rs` are byte-for-byte upstream, and `block.rs` differs only by the one
+getter above. In particular:
 
 - `ArchiveReader::read_file` is untouched and still quadratic. This project does not call it; it
   uses `BlockCursor` instead. Leaving it alone is deliberate: it is the function the app calls

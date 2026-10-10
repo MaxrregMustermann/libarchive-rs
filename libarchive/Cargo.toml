@@ -27,11 +27,15 @@ aes-gcm.workspace = true
 sha1.workspace = true
 hmac.workspace = true
 pbkdf2.workspace = true
-# The 7Z container, the legacy long tail, and the codecs they carry with them.
+# The 7Z container. Vendored and patched: `vendor/sevenz-rust2/PATCHES.md` records every
+# difference from upstream 0.23.0, which is one new file and two lines. The file is a resumable
+# folder cursor, without which a solid archive costs one decode per entry instead of one per
+# archive.
 sevenz-rust2 = { workspace = true, features = ["util", "compress"] }
 unarc-rs.workspace = true
 
 [dev-dependencies]
+sevenz-rust2 = { workspace = true, features = ["util", "compress"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
 rand = "0.9"

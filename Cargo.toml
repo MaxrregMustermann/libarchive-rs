@@ -29,7 +29,7 @@ hmac = "0.13"
 pbkdf2 = "0.13"
 # Reused wholesale for the long tail of legacy formats. See libarchive/src/lib.rs.
 unarc-rs = { version = "0.7", default-features = false }
-sevenz-rust2 = { version = "0.23", default-features = false }
+sevenz-rust2 = { path = "vendor/sevenz-rust2", default-features = false }
 
 [profile.release]
 # Decompression is the hot path and this crate exists to make archives open fast, so the trade is

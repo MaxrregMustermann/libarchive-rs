@@ -28,6 +28,15 @@ impl Block {
     }
 
     /// Returns the total uncompressed size of data in this block.
+    /// PATCH (see PATCHES.md): a public accessor for the number of entries in this folder.
+    ///
+    /// The field itself is crate-private upstream. libarchive-rs needs it to know how many of an
+    /// archive's files belong to each folder, which is the mapping that lets a solid archive be
+    /// read in order. It is a getter and nothing else, so nothing upstream depends on it.
+    pub fn num_sub_streams(&self) -> usize {
+        self.num_unpack_sub_streams
+    }
+
     pub fn get_unpack_size(&self) -> u64 {
         if self.total_output_streams == 0 {
             return 0;

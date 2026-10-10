@@ -38,6 +38,12 @@ impl NtTime {
     /// Returns the current system time as an [`NtTime`].
     #[must_use]
     #[inline]
+    /// PATCH (see PATCHES.md): the raw FILETIME value, for a caller that needs to convert it
+    /// without pulling in a date library. Upstream keeps the field crate-private.
+    pub fn to_u64(self) -> u64 {
+        self.0
+    }
+
     pub fn now() -> Self {
         use std::time::SystemTime;
 
