@@ -191,10 +191,12 @@ impl<W: Write + Seek> ZipWriter<W> {
             // Writing whenever the buffer is full is what keeps the sink writes per entry in
             // single figures rather than in the tens.
             if output.len() >= OUTPUT_CHUNK {
-                let mut ready = std::mem::replace(output, Vec::with_capacity(OUTPUT_CHUNK));
-                emit(sink, position, &ready)?;
-                ready.clear();
-                *output = ready;
+                // Written in place rather than swapped out. `mem::replace` would need somewhere to
+                // put the buffer while it is being written, and the somewhere would be a fresh
+                // 128 KiB allocation — one per entry, which is 640 MB over a 5,000-entry archive
+                // and the whole of the allocation this crate set out to remove.
+                emit(sink, position, output)?;
+                output.clear();
             }
 
             match status {
@@ -204,10 +206,8 @@ impl<W: Write + Seek> ZipWriter<W> {
                 // retrying is the documented response.
                 Status::BufError => {
                     output.reserve(OUTPUT_CHUNK);
-                    let mut ready = std::mem::replace(output, Vec::with_capacity(OUTPUT_CHUNK));
-                    emit(sink, position, &ready)?;
-                    ready.clear();
-                    *output = ready;
+                    emit(sink, position, output)?;
+                    output.clear();
                 }
                 Status::Ok => {
                     if remaining.is_empty() && !matches!(flush, FlushCompress::Finish) {
@@ -233,16 +233,19 @@ impl<W: Write + Seek> ZipWriter<W> {
         }
     }
 
-    /// Flushes whatever the deflater is still holding, and writes it out.
+    /// Writes whatever the deflater is still holding, and clears the buffer.
+    ///
+    /// Destructured rather than moved out of, for the reason given in [`ZipWriter::compress_into`]:
+    /// taking the buffer out to write it means putting a new one in its place, and the new one is
+    /// a 128 KiB allocation that exists only to be dropped again a few lines later.
     fn flush_output(&mut self) -> Result<()> {
         if self.output.is_empty() {
             return Ok(());
         }
-        let mut ready = std::mem::replace(&mut self.output, Vec::with_capacity(OUTPUT_CHUNK));
-        let result = emit(&mut self.sink, &mut self.position, &ready);
-        ready.clear();
-        self.output = ready;
-        result
+        let ZipWriter { sink, position, output, .. } = self;
+        emit(sink, position, output)?;
+        output.clear();
+        Ok(())
     }
 
     /// Writes the central directory and the end-of-central-directory record.

@@ -78,7 +78,7 @@ pub use entry::{BlockPlacement, Entry, EntryKind, EntrySpecial};
 pub use error::{Error, ErrorKind, Result};
 pub use format::{Compression, Format};
 pub use limits::Limits;
-pub use reader::{ArchiveReader, EntryStream, OpenOptions};
+pub use reader::{ArchiveReader, EntryRead, EntrySource, EntryStream, OpenOptions, Shared};
 pub use writer::{ArchiveWriter, NewEntry, WriteOptions};
 
 /// How the code in this crate relates to the crates it replaces.

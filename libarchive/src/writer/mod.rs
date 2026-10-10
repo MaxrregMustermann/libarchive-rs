@@ -181,6 +181,13 @@ pub trait EntryWrite: Write {
 pub struct ArchiveWriter<W: Write + Seek> {
     backend: Box<dyn EntryWriter<W>>,
     format: Format,
+    /// The block buffer entries are copied through, owned here so it is allocated once per
+    /// archive rather than once per entry.
+    ///
+    /// This is the same rule as the writer's reusable deflater, one level up: 5,000 entries at
+    /// 128 KiB each is 640 MB of allocate-and-zero that buys nothing, because the buffer is dead
+    /// the moment the copy finishes.
+    block: Vec<u8>,
 }
 
 impl<W: Write + Seek + 'static> ArchiveWriter<W> {
@@ -195,6 +202,7 @@ impl<W: Write + Seek + 'static> ArchiveWriter<W> {
         Ok(ArchiveWriter {
             backend: crate::formats::create(format, sink, options)?,
             format,
+            block: vec![0; COPY_BUFFER_SIZE],
         })
     }
 
@@ -229,7 +237,14 @@ impl<W: Write + Seek + 'static> ArchiveWriter<W> {
         let mut sink = self.backend.begin(&normalised, options)?;
         // `copy_blocks` rather than `io::copy`: the caller's reader may return short reads, and
         // turning each of those into a write to the sink is what makes a many-entry archive slow.
-        let written = copy_blocks(contents, &mut *sink)?;
+        //
+        // The buffer is taken out rather than borrowed, because the entry sink already borrows
+        // the backend and borrowing a second field of the same struct at the same time does not
+        // compile. It is put straight back, so the allocation happens once per archive.
+        let mut block = std::mem::take(&mut self.block);
+        let result = copy_blocks_into(contents, &mut *sink, &mut block);
+        self.block = block;
+        let written = result?;
         // A caller that declared a size and then supplied a different one has a bug, and one that
         // is not caught here shows up much later as a corrupt archive.
         // Closed before the sizes are checked, so that an error here still leaves the archive in
@@ -282,12 +297,28 @@ impl Read for Empty {
 pub const COPY_BUFFER_SIZE: usize = crate::reader::Scratch::DEFAULT_SIZE;
 
 /// Copies `from` to `to` in blocks, returning how many bytes went across.
+///
+/// Convenience for a caller with no buffer of its own. An archive writer uses
+/// [`copy_blocks_into`] with a buffer it already owns, because this one allocates per call and a
+/// many-entry archive makes a lot of calls.
 pub fn copy_blocks(from: &mut dyn Read, to: &mut dyn Write) -> io::Result<u64> {
-    let mut buffer = vec![0u8; COPY_BUFFER_SIZE];
+    let mut buffer = vec![0; COPY_BUFFER_SIZE];
+    copy_blocks_into(from, to, &mut buffer)
+}
+
+/// Copies `from` to `to` through `buffer`, returning how many bytes went across.
+///
+/// Filling the block completely before handing it over is the point: a source that returns short
+/// reads — a socket, a channel, a `Cursor` at its end — would otherwise turn every one of them
+/// into a separate small write, which is the same problem as 32 sink writes per entry one level
+/// down.
+pub fn copy_blocks_into(
+    from: &mut dyn Read,
+    to: &mut dyn Write,
+    buffer: &mut [u8],
+) -> io::Result<u64> {
     let mut moved = 0u64;
     loop {
-        // Fill the block completely before handing it over, so a short read from the source does
-        // not become a short write to the sink.
         let mut filled = 0;
         while filled < buffer.len() {
             match from.read(&mut buffer[filled..]) {
@@ -366,8 +397,11 @@ mod tests {
                 Ok(())
             }
         }
-        let mut writer: ArchiveWriter<Cursor<Vec<u8>>> =
-            ArchiveWriter { backend: Box::new(Recorder), format: Format::Zip };
+        let mut writer: ArchiveWriter<Cursor<Vec<u8>>> = ArchiveWriter {
+            backend: Box::new(Recorder),
+            format: Format::Zip,
+            block: vec![0; COPY_BUFFER_SIZE],
+        };
         let entry = NewEntry::file("a.txt").with_size(100);
         let error = match writer.write_entry(&entry, &mut &b"only ten.."[..]) {
             Ok(()) => panic!("writing fewer bytes than declared must be refused"),

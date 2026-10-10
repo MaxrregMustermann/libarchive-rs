@@ -46,13 +46,80 @@ use crate::limits::Limits;
 /// once per read call, not once per byte: a read moves at least 128 KiB through the decompressor
 /// before the source is touched again, so the lock is not what limits throughput.
 ///
-/// `Arc` rather than `Rc` because the app hands entry streams to background threads, and `Send`
-/// is part of the contract every stream in this crate carries.
-pub type Shared<R> = Arc<Mutex<R>>;
+/// A newtype rather than a type alias, so that `Read` and `Seek` can be implemented for it.
+///
+/// An alias would be shorter and would not compile: the orphan rule forbids implementing a trait
+/// from the standard library for a type that is only an alias for one. Being a newtype is also
+/// what lets a caller hand the reader a source that is already shared, which is what the app does
+/// and what the tests that count bytes read need.
+pub struct Shared<R>(Arc<Mutex<R>>);
 
-/// Wraps a source for sharing, and fails cleanly rather than poisoning.
+impl<R> Shared<R> {
+    /// The reference count, for a caller reporting how many handles are outstanding.
+    pub fn handles(&self) -> usize {
+        Arc::strong_count(&self.0)
+    }
+
+    /// Takes the source back, when this is the only handle and nothing panicked holding it.
+    ///
+    /// Reports rather than panicking, because a caller that has already finished with an archive
+    /// should not be crashed by a library it used correctly.
+    pub fn into_inner(self) -> Result<R> {
+        let cell = Arc::try_unwrap(self.0).map_err(|shared| {
+            Error::malformed(format!(
+                "the archive is still in use by {} other handles",
+                Arc::strong_count(&shared)
+            ))
+        })?;
+        Ok(cell.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    /// The underlying arc, for the places that need to clone the handle itself.
+    pub fn arc(&self) -> Arc<Mutex<R>> {
+        self.0.clone()
+    }
+
+    /// Locks the source, or reports why it cannot be locked.
+    pub fn lock(&self) -> Result<MutexGuard<'_, R>> {
+        self.0.lock().map_err(|_| {
+            Error::malformed("the archive was left in an unknown state by an earlier failure")
+        })
+    }
+}
+
+impl<R> Clone for Shared<R> {
+    fn clone(&self) -> Shared<R> {
+        Shared(self.0.clone())
+    }
+}
+
+/// Wraps a source for sharing.
 pub fn share<R>(source: R) -> Shared<R> {
-    Arc::new(Mutex::new(source))
+    Shared(Arc::new(Mutex::new(source)))
+}
+
+/// Reads and seeks straight through a shared handle.
+///
+/// The app's source is a Java channel wrapped in a mutex, and the same shape works here: the
+/// reader takes a `Shared<R>` and every entry's decoder shares it, so a caller that already has a
+/// shared source does not have to unwrap it. Without this the shared handle is usable only through
+/// [`lock`], which is a fine internal tool and a poor public one.
+impl<R: Read> Read for Shared<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let mut guard = self
+            .lock()
+            .map_err(|error| io::Error::other(error.message().to_owned()))?;
+        guard.read(output)
+    }
+}
+
+impl<R: Seek> Seek for Shared<R> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        let mut guard = self
+            .lock()
+            .map_err(|error| io::Error::other(error.message().to_owned()))?;
+        guard.seek(position)
+    }
 }
 
 /// Locks a shared source, turning a poisoned mutex into an error.
@@ -61,9 +128,7 @@ pub fn share<R>(source: R) -> Shared<R> {
 /// an unknown position, but reporting an error is strictly better than the second panic, which is
 /// what `lock` would otherwise produce.
 pub fn lock<R>(source: &Shared<R>) -> Result<MutexGuard<'_, R>> {
-    source
-        .lock()
-        .map_err(|_| Error::malformed("the archive was left in an unknown state by an earlier failure"))
+    source.lock()
 }
 
 /// What to do when opening.

@@ -135,13 +135,7 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for TarReader<R> {
     }
 
     fn into_source(self: Box<Self>) -> Result<R> {
-        let cell = std::sync::Arc::try_unwrap(self.source).map_err(|shared| {
-            Error::malformed(format!(
-                "the TAR is still in use by {} other handles",
-                std::sync::Arc::strong_count(&shared)
-            ))
-        })?;
-        Ok(cell.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        self.source.into_inner()
     }
 }
 

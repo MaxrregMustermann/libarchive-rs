@@ -29,7 +29,6 @@
 //! or WinZip AES; see [`crate::formats::zip::crypt`].
 
 use std::io::{self, Read, Seek, SeekFrom};
-use std::sync::Arc;
 
 use crate::compression;
 use crate::entry::{normalise_name, Entry, EntryKind};
@@ -202,16 +201,7 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for ZipReader<R> {
         // The source is shared, so taking it back means being the only holder. An entry stream
         // that is still open is a caller that has not finished reading, and the right answer is
         // to say so rather than to block or to panic.
-        let cell = std::sync::Arc::try_unwrap(self.source).map_err(|shared| {
-            Error::malformed(format!(
-                "the ZIP is still in use by {} other handles, so its source cannot be recovered",
-                Arc::strong_count(&shared)
-            ))
-        })?;
-        // A poisoned lock still holds the source. Taking it out of the poison is what
-        // `PoisonError::into_inner` is for, and is better than propagating a failure that the
-        // crate's own no-panic policy makes unreachable in the first place.
-        Ok(cell.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        self.source.into_inner()
     }
 }
 
