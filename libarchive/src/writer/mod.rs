@@ -41,15 +41,24 @@ pub struct WriteOptions {
     /// the header that carries the size comes first. The writers turn this on automatically where
     /// the format allows and ignore it where it does not.
     pub buffer_entries: bool,
+    /// Whether a 7Z archive's entries go into one folder or one folder each.
+    ///
+    /// Only meaningful for 7Z, which is the only format here with a folder concept. Off by
+    /// default: one folder per entry lets any entry be extracted without decoding the ones before
+    /// it, which is what a file manager does. Turning it on compresses better — `7z` itself is
+    /// solid by default — and costs the whole archive in memory while it is written, because
+    /// nothing can go into the folder until the last entry closes.
+    pub solid: bool,
 }
 
 impl Default for WriteOptions {
-    fn default() -> WriteOptions {
+    fn default() -> Self {
         WriteOptions {
             compression: Compression::Deflate,
             password: None,
             limits: Limits::default(),
             buffer_entries: false,
+            solid: false,
         }
     }
 }
@@ -62,6 +71,12 @@ impl WriteOptions {
 
     pub fn with_password(mut self, password: impl Into<String>) -> WriteOptions {
         self.password = Some(password.into());
+        self
+    }
+
+    /// Whether every entry goes into one 7Z folder, rather than one folder each.
+    pub fn with_solid(mut self, solid: bool) -> WriteOptions {
+        self.solid = solid;
         self
     }
 
