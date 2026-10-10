@@ -141,6 +141,28 @@ impl Compression {
         })
     }
 
+    /// The ZIP method number for a compression, or the unknown method carrying the number.
+    ///
+    /// The reverse of [`Compression::zip_method`], and the only place a ZIP method number becomes
+    /// a [`Compression`]. An unrecognised number becomes [`Compression::Unknown`] rather than an
+    /// error, so that listing an archive still shows entries this build cannot extract — which is
+    /// what a file manager should do, since the entry's name and size are still worth showing.
+    pub fn from_zip_method(method: u16) -> Compression {
+        match method {
+            0 => Compression::None,
+            8 => Compression::Deflate,
+            9 => Compression::Deflate64,
+            12 => Compression::Bzip2,
+            14 => Compression::Lzma,
+            93 => Compression::Zstd,
+            95 => Compression::Xz,
+            // 1 is shrink, 6 is implode, and 2 through 5 are reduce variants. None of them has a
+            // crate here and all of them are old enough that a file using one is already a
+            // curiosity. They fall through to Unknown rather than being special-cased.
+            other => Compression::Unknown(other),
+        }
+    }
+
     /// Whether this crate can decompress this method.
     pub fn is_readable(self) -> bool {
         !matches!(self, Compression::Unknown(_))

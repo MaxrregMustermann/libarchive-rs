@@ -8,6 +8,13 @@
 //! These are checked *before* memory is committed, not after. A codec that says an entry is
 //! 900 PiB long is rejected on the strength of the header, so no allocation is attempted at all.
 
+/// The most memory an LZMA decoder may allocate for its dictionary.
+///
+/// A decoder is told its dictionary size in the entry's own header, so a 20-byte file can ask for
+/// a 4 GiB dictionary. The cap is a fourth of the per-entry ceiling, which is more than any real
+/// archive uses — the 7-Zip default dictionary is 16 MiB — while still being refused cheaply.
+pub const DEFAULT_LZMA_MEMORY_LIMIT: u64 = 1024 * 1024 * 1024;
+
 /// The ceilings applied while reading and writing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Limits {
@@ -118,6 +125,21 @@ impl Limits {
             return Err(crate::Error::limit(format!(
                 "The archive lists {count} entries, over the {} entry limit",
                 self.max_entries
+            )));
+        }
+        Ok(())
+    }
+
+    /// Rejects a metadata read that is past the ceiling.
+    ///
+    /// Separate from [`Limits::check_entry_size`] because the two have different justifications: a
+    /// metadata read is a single allocation the archive dictates the size of, whereas an entry's
+    /// size is a claim that may be wrong. Both are checked before anything is committed.
+    pub fn check_metadata_size(&self, size: u64) -> crate::Result<()> {
+        if size > self.max_metadata_size {
+            return Err(crate::Error::limit(format!(
+                "The archive's metadata claims {size} bytes, over the {} byte limit",
+                self.max_metadata_size
             )));
         }
         Ok(())

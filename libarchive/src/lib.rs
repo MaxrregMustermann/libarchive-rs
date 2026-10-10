@@ -60,6 +60,7 @@
 // `Err` on read rather than a compile error that stops the whole crate building.
 #![warn(clippy::result_large_err)]
 
+pub mod compression;
 pub mod detect;
 pub mod entry;
 pub mod error;

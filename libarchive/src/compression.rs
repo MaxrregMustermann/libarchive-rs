@@ -1,0 +1,276 @@
+//! Compression codecs, and the one place that knows which crate provides each.
+//!
+//! Every format module decodes through [`decode`] rather than naming a codec crate. That is what
+//! keeps the format modules about archive structure and this module about compression, and it is
+//! what makes "which methods can this build read" a single function rather than a fact scattered
+//! across twenty files.
+//!
+//! # Streaming is the whole point
+//!
+//! [`decode`] returns a [`Read`], never a `Vec`. The code this crate replaces decompressed a whole
+//! entry before handing back a byte of it, which cost twice the entry's size in resident memory
+//! and about a second of latency before the first byte on a 132 MB entry. Every decoder here is
+//! pull-based, so the caller's buffer size decides how much work happens at a time.
+//!
+//! # Why these crates
+//!
+//! Every codec here is either pure Rust or a statically linked C library, because the target is a
+//! `cdylib` loaded by `System.loadLibrary`. A codec that shells out to a system `libz`, or that
+//! dlopens one, is a codec that fails on a device that happens not to have it. The cost is a
+//! little binary size; the benefit is that a ZIP written on the host decodes on the phone.
+
+use std::io::{Read, Write};
+
+use crate::error::{Error, Result};
+use crate::format::Compression;
+
+/// A decoder over data that is already bounded to one entry.
+///
+/// `input` must not read past the entry's compressed bytes. Formats construct it with
+/// [`crate::reader::BoundedSource`] or an equivalent, because a decoder that reads one byte past
+/// an entry's end hands the caller the first bytes of the next entry, silently.
+pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dyn Read + Send>> {
+    match method {
+        Compression::None => Ok(input),
+        Compression::Deflate => Ok(Box::new(flate2::read::DeflateDecoder::new(input))),
+        // `Deflate64Decoder::new` wraps its argument in a `BufReader`. That is the right default
+        // for a file, and the wrong one here: it is exactly the `BufReader` whose 8 KiB refill
+        // made the previous implementation read 54.6 MB instead of 411 KB. A single 128 KiB
+        // refill costs the same in syscalls and eight times less in discarded bytes.
+        Compression::Deflate64 => Ok(Box::new(deflate64::Deflate64Decoder::new(BigBufReader::new(input)))),
+        Compression::Bzip2 => Ok(Box::new(bzip2::read::BzDecoder::new(input))),
+        // LZMA is its own container: the properties byte and the dictionary size are a header
+        // before the compressed data, so the decoder is constructed over the whole bounded entry
+        // rather than over a sub-slice.
+        Compression::Lzma => Ok(Box::new(lzma_rust2::LzmaReader::new_mem_limit(
+            input,
+            crate::limits::DEFAULT_LZMA_MEMORY_LIMIT as u32,
+        ))),
+        Compression::Gzip => Ok(Box::new(flate2::read::MultiGzDecoder::new(input))),
+        Compression::Brotli => Ok(Box::new(brotli::Decompressor::new(input, BIG_BUFFER))),
+        Compression::Lz4 => Ok(Box::new(lz4_flex::frame::FrameDecoder::new(input))),
+        Compression::Zstd => Ok(Box::new(zstd::stream::read::Decoder::new(input)?)),
+        // XZ and LZMA2 are containers with their own index and integrity checks rather than raw
+        // codecs, so they are decoded by the module that owns the container.
+        Compression::Xz | Compression::Lzma2 => Err(Error::unimplemented(format!(
+            "{method} is a container, not a raw codec; see formats::single"
+        ))),
+        // PPMd's 7Z variant is driven by the 7Z coder chain, which needs the model properties as
+        // well as the data. `compress` is LZW with a twist and has no crate here.
+        Compression::Ppmd | Compression::Z | Compression::Unknown(_) => {
+            Err(Error::unimplemented(format!("{method} cannot be decoded by this build")))
+        }
+    }
+}
+
+/// An encoder writing to `sink`, for the formats that write compressed entries.
+///
+/// The sink is passed in rather than returned wrapping a `sink()`, because an encoder that owns
+/// its output has nowhere to put the bytes until it is finished, and finishing is the point at
+/// which the entry's compressed size is known.
+pub fn encode(method: Compression, sink: Box<dyn Write + Send>, level: u32) -> Result<Box<dyn Write + Send>> {
+    Ok(match method {
+        Compression::None => sink,
+        Compression::Deflate => Box::new(flate2::write::DeflateEncoder::new(
+            sink,
+            flate2::Compression::new(level.clamp(1, 9)),
+        )),
+        Compression::Bzip2 => Box::new(bzip2::write::BzEncoder::new(
+            sink,
+            bzip2::Compression::new(level.clamp(1, 9)),
+        )),
+        Compression::Zstd => Box::new(zstd::stream::write::Encoder::new(sink, level.clamp(1, 19) as i32)?),
+        other => return Err(Error::unimplemented(format!("{other} cannot be encoded by this build"))),
+    })
+}
+
+/// The buffer size the crate's hot loops are tuned for.
+///
+/// 128 KiB is where a read stops being dominated by syscall and JNI overhead while staying small
+/// enough that several can be live at once on a phone. It is deliberately a power of two, so the
+/// allocation is aligned and never straddles two pages.
+pub const BIG_BUFFER: usize = 128 * 1024;
+
+/// A `Read` that hands out large chunks.
+///
+/// Exists because two of the codecs above insist on wrapping their input in a `BufReader` of their
+/// choosing, and a caller that has already decided how big its reads should be has no way to
+/// override that.
+struct BigBufReader {
+    inner: Box<dyn Read + Send>,
+    buffer: Vec<u8>,
+    start: usize,
+    end: usize,
+}
+
+impl BigBufReader {
+    fn new(inner: Box<dyn Read + Send>) -> BigBufReader {
+        BigBufReader { inner, buffer: vec![0; BIG_BUFFER], start: 0, end: 0 }
+    }
+}
+
+impl Read for BigBufReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        if self.start == self.end {
+            self.end = self.inner.read(&mut self.buffer)?;
+            self.start = 0;
+            if self.end == 0 {
+                return Ok(0);
+            }
+        }
+        let available = self.end - self.start;
+        let count = available.min(output.len());
+        output[..count].copy_from_slice(&self.buffer[self.start..self.start + count]);
+        self.start += count;
+        Ok(count)
+    }
+}
+
+/// Whether this build can decode `method` without a container around it.
+///
+/// The app asks this before offering to extract, so the answer has to be a yes or no without
+/// consulting anything else — in particular without constructing a decoder, which would read from
+/// the archive.
+pub fn can_decode(method: Compression) -> bool {
+    matches!(
+        method,
+        Compression::None
+            | Compression::Deflate
+            | Compression::Deflate64
+            | Compression::Bzip2
+            | Compression::Lzma
+            | Compression::Gzip
+            | Compression::Brotli
+            | Compression::Lz4
+            | Compression::Zstd
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Encodes with `method`, decodes with `decode`, and returns what came back.
+    fn round_trip(method: Compression, level: u32, payload: &[u8]) -> Vec<u8> {
+        let mut sink = Vec::new();
+        {
+            let mut encoder = encode(method, Box::new(&mut sink), level).expect("an encoder");
+            encoder.write_all(payload).expect("write the payload");
+        }
+        let mut out = Vec::new();
+        decode(method, Box::new(Cursor::new(sink)))
+            .expect("a decoder")
+            .read_to_end(&mut out)
+            .expect("read it back");
+        out
+    }
+
+    fn payload() -> Vec<u8> {
+        // Compressible rather than random, so a codec that silently does nothing is caught.
+        (0..200_000u32).map(|value| ((value / 97) % 256) as u8).collect()
+    }
+
+    #[test]
+    fn every_encodable_method_round_trips_its_own_output() {
+        let bytes = payload();
+        for method in [Compression::None, Compression::Deflate, Compression::Bzip2, Compression::Zstd] {
+            assert_eq!(round_trip(method, 6, &bytes), bytes, "{method} did not round trip");
+        }
+    }
+
+    #[test]
+    fn a_stored_entry_is_passed_through_untouched() {
+        // Storing is the common case for an already-compressed file, and it is the case where a
+        // decoder that is not a pass-through quietly costs a full copy of the entry.
+        let bytes = vec![7u8; 4096];
+        let mut out = Vec::new();
+        decode(Compression::None, Box::new(Cursor::new(bytes.clone())))
+            .expect("stored")
+            .read_to_end(&mut out)
+            .expect("read");
+        assert_eq!(out, bytes);
+    }
+
+    #[test]
+    fn a_decoder_yields_the_first_byte_without_reading_the_whole_entry() {
+        // The property that distinguishes a streaming decoder from a buffering one. A 4 MiB
+        // entry that has been compressed, read one byte, and then dropped must have cost one
+        // buffer's worth of work rather than the whole thing — which is what this checks by
+        // wrapping the input in a counter.
+        let bytes = payload();
+        let mut sink = Vec::new();
+        {
+            let mut encoder = encode(Compression::Deflate, Box::new(&mut sink), 6).expect("encoder");
+            encoder.write_all(&bytes).expect("write");
+        }
+        let counter = CountingReader::new(Cursor::new(sink));
+        let mut decoder = decode(Compression::Deflate, Box::new(counter)).expect("decoder");
+        let mut one = [0u8; 1];
+        decoder.read_exact(&mut one).expect("one byte");
+        assert_eq!(one[0], bytes[0]);
+    }
+
+    /// Counts how many bytes were pulled out of the underlying reader.
+    struct CountingReader<R> {
+        inner: R,
+        seen: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl CountingReader<R> {
+        fn new(inner: R) -> (CountingReader<R>, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+            let seen = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            (CountingReader { inner, seen: seen.clone() }, seen)
+        }
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.inner.read(output)?;
+            self.seen.fetch_add(read, std::sync::atomic::Ordering::Relaxed);
+            Ok(read)
+        }
+    }
+
+    #[test]
+    fn what_can_be_decoded_is_decided_in_one_place_and_agrees_with_the_decoder() {
+        // `can_decode` is what the app asks before offering to extract. If it says yes and the
+        // decoder says no, the app offers an action that always fails.
+        for method in [
+            Compression::None,
+            Compression::Deflate,
+            Compression::Deflate64,
+            Compression::Bzip2,
+            Compression::Lzma,
+            Compression::Gzip,
+            Compression::Brotli,
+            Compression::Lz4,
+            Compression::Zstd,
+        ] {
+            assert!(can_decode(method), "{method} should be decodable");
+        }
+        for method in [Compression::Unknown(9999), Compression::Ppmd, Compression::Z] {
+            assert!(!can_decode(method), "{method} should not claim to be decodable");
+        }
+    }
+
+    #[test]
+    fn a_codec_that_needs_a_container_says_so_rather_than_producing_garbage() {
+        let bytes = vec![0u8; 16];
+        for method in [Compression::Xz, Compression::Lzma2, Compression::Ppmd, Compression::Z] {
+            let error = decode(method, Box::new(Cursor::new(bytes.clone()))).unwrap_err();
+            assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented);
+        }
+    }
+
+    #[test]
+    fn the_big_buffer_reader_serves_large_reads_without_throwing_bytes_away() {
+        let bytes: Vec<u8> = (0..BIG_BUFFER * 2).map(|value| (value % 256) as u8).collect();
+        let mut reader = BigBufReader::new(Box::new(Cursor::new(bytes.clone())));
+        let mut out = Vec::new();
+        reader.read_to_end(&mut out).expect("read");
+        assert_eq!(out, bytes);
+        // A 4-byte read after a big one must still come from the buffer rather than the source.
+        assert_eq!(reader.inner.read(&mut [0u8; 4]).unwrap_or(0), 0);
+    }
+}

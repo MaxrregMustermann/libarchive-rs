@@ -22,11 +22,49 @@
 //! [`crate::open`] is for.
 
 use std::io::{self, Read, Seek, SeekFrom};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::entry::{BlockPlacement, Entry};
 use crate::error::{Error, ErrorKind, Result};
 use crate::format::Format;
 use crate::limits::Limits;
+
+/// The archive's source, shared between the reader and any entry stream it hands out.
+///
+/// # Why this is a reference count behind a mutex rather than a borrow
+///
+/// An entry stream owns a decompressor that pulls from the source, and the reader owns the entry
+/// list. If the stream borrowed the source, `ArchiveReader::open_entry` would have to hand back
+/// something that keeps the reader mutably borrowed, which would make it impossible to open a
+/// second entry while the first is still being read — and impossible to hold an entry stream at
+/// all across a JNI call, which is exactly what the app does.
+///
+/// The alternative, re-seeking for every read, would mean a syscall per read and would put the
+/// decoder's buffer size back in charge of how many syscalls happen.
+///
+/// So the source is shared. The mutex is uncontended in the common case and the lock is taken
+/// once per read call, not once per byte: a read moves at least 128 KiB through the decompressor
+/// before the source is touched again, so the lock is not what limits throughput.
+///
+/// `Arc` rather than `Rc` because the app hands entry streams to background threads, and `Send`
+/// is part of the contract every stream in this crate carries.
+pub type Shared<R> = Arc<Mutex<R>>;
+
+/// Wraps a source for sharing, and fails cleanly rather than poisoning.
+pub fn share<R>(source: R) -> Shared<R> {
+    Arc::new(Mutex::new(source))
+}
+
+/// Locks a shared source, turning a poisoned mutex into an error.
+///
+/// A poisoned mutex means another thread panicked while holding the source. The archive may be in
+/// an unknown position, but reporting an error is strictly better than the second panic, which is
+/// what `lock` would otherwise produce.
+pub fn lock<R>(source: &Shared<R>) -> Result<MutexGuard<'_, R>> {
+    source
+        .lock()
+        .map_err(|_| Error::malformed("the archive was left in an unknown state by an earlier failure"))
+}
 
 /// What to do when opening.
 #[derive(Clone, Debug)]
@@ -277,6 +315,57 @@ impl<R: Read + Seek> ArchiveReader<R> {
     /// Consumes the reader and gives the source back.
     pub fn into_inner(self) -> R {
         self.backend.into_source()
+    }
+}
+
+/// A `Read` over a byte range of the archive's source, shared like the source itself.
+///
+/// Every entry's decoder needs one of these: it has to start at an offset somebody computed and
+/// stop at an end somebody computed, and it has to do so without holding a borrow of the reader
+/// that handed it out. `limit` is `None` for the case where the end is not known in advance —
+/// a ZIP entry with a data descriptor written by a streaming writer — where the codec finds the
+/// end itself.
+pub struct RawReader<R: Read + Seek> {
+    source: Shared<R>,
+    remaining: Option<u64>,
+}
+
+impl<R: Read + Seek> RawReader<R> {
+    /// A reader over `length` bytes starting at `offset`, or to the end of the archive when
+    /// `length` is `None`.
+    pub fn new(source: Shared<R>, offset: u64, length: Option<u64>) -> RawReader<R> {
+        RawReader { source, remaining: length }
+    }
+
+    /// How many bytes are left, when the end is known.
+    pub fn remaining(&self) -> Option<u64> {
+        self.remaining
+    }
+}
+
+impl<R: Read + Seek + Send> Read for RawReader<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        let wanted = match self.remaining {
+            Some(0) => return Ok(0),
+            Some(left) => output.len().min((left as usize).min(usize::MAX as usize)),
+            None => output.len(),
+        };
+        // The lock is taken once per read of the *source*, not once per byte. A decoder with a
+        // 32 KiB window asks for 32 KiB at a time, so this is one lock per 32 KiB of compressed
+        // data, which is not what limits throughput.
+        let mut guard = self
+            .source
+            .lock()
+            .map_err(|_| io::Error::other("the archive handle was poisoned by an earlier panic"))?;
+        let read = guard.read(&mut output[..wanted])?;
+        drop(guard);
+        if let Some(left) = self.remaining.as_mut() {
+            *left -= read as u64;
+        }
+        Ok(read)
     }
 }
 

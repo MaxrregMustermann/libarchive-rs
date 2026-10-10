@@ -4,10 +4,8 @@
     "edit": "allow",
     "webfetch": "allow",
     "websearch": "allow",
-    "external_directory": "*",
-    "bash": {
-      "*": "allow"
-    }
+    "external_directory": "allow",
+    "bash": "allow"
   },
   "tool_output": {
     "max_lines": 400

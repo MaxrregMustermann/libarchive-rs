@@ -14,6 +14,11 @@
 //! 3. **Nothing is buffered whole.** [`ArchiveWriter::write_entry`] takes any [`std::io::Read`] and
 //!    pulls it in fixed-size blocks, so a 4 GiB entry costs 128 KiB.
 
+pub mod sevenz;
+pub mod single;
+pub mod tar;
+pub mod zip;
+
 use std::io::{self, Read, Seek, Write};
 
 use crate::error::{Error, Result};
