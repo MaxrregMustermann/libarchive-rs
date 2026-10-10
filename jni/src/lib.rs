@@ -247,14 +247,24 @@ fn millis_to_system_time(millis: i64) -> std::time::SystemTime {
     }
 }
 
-/// Millis since the epoch for a `SystemTime`, or `None` when the archive's clock is outside the
-/// range a millisecond count can hold.
+/// Millis since the epoch for a `SystemTime`, or `None` when the instant is too far from the
+/// epoch for a millisecond count to hold.
+///
+/// Before the epoch is the case worth getting right. `duration_since` fails for a time before
+/// 1970, and the obvious fix — `.ok()?` — turns every such timestamp into "no timestamp at all".
+/// That is not a rare corner: a 7Z FILETIME counts from 1601, and a TAR header carries a signed
+/// octal time, so a pre-1970 date is a date a real archive can contain. Dropping it silently
+/// loses information the archive had.
+///
+/// `None` is therefore only for the genuinely unrepresentable: far enough from the epoch that the
+/// signed millisecond count overflows, which is about 292 million years either way.
 fn millis_of(time: &std::time::SystemTime) -> Option<i64> {
-    let millis = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_millis();
-    i64::try_from(millis).ok()
+    match time.duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => i64::try_from(since.as_millis()).ok(),
+        Err(before) => i64::try_from(before.duration().as_millis())
+            .ok()
+            .and_then(|millis| millis.checked_neg()),
+    }
 }
 
 /// The 7-element metadata array for one entry, in the order `RustArchive.Reader` reads them.
@@ -654,16 +664,49 @@ mod tests {
     }
 
     #[test]
-    fn millis_round_trip_through_the_epoch_in_both_directions() {
+    fn millis_round_trip_through_the_epoch_at_the_precision_the_boundary_has() {
         // A write carries millis and a read turns them back, so the two conversions have to agree.
+        //
+        // They agree *to the millisecond*, and this test used to assert exact equality against
+        // `SystemTime::now()`, which carries nanoseconds. It failed by 441,981 ns, and the code was
+        // right and the test was wrong: Java's clock is `currentTimeMillis`, `FileTime.toMillis`
+        // is millis, and the Kotlin side passes a `Long`. Sub-millisecond precision does not cross
+        // this boundary, so it must not be expected to survive it.
         let now = std::time::SystemTime::now();
-        assert_eq!(millis_of(&now).map(millis_to_system_time), Some(now));
-        // Before the epoch is representable in a TAR header, and must not panic on `i64::MIN`.
-        let before = std::time::UNIX_EPOCH - std::time::Duration::from_secs(10);
-        assert_eq!(millis_of(&before).map(millis_to_system_time), Some(before));
+        let round_tripped = millis_of(&now).map(millis_to_system_time).expect("after the epoch");
+        assert_eq!(round_tripped, trunc_to_millis(now), "must lose no millisecond and gain none");
+
+        // The one property that does matter about the loss: it rounds towards the past, so a
+        // timestamp never becomes *later* by being passed through here. A file's modification
+        // time drifting forwards would put it in the wrong day's bucket in a listing.
+        assert!(round_tripped <= now, "the round trip moved a timestamp forwards");
+
+        // Before the epoch must survive rather than be dropped. `millis_of` used to return `None`
+        // for anything before 1970, which loses a date a real archive can carry: a 7Z FILETIME
+        // counts from 1601 and a TAR header holds a signed octal time.
+        let cases = [
+            (std::time::UNIX_EPOCH - std::time::Duration::from_secs(10), -10_000),
+            (std::time::UNIX_EPOCH - std::time::Duration::from_millis(1), -1),
+            (std::time::UNIX_EPOCH, 0),
+            (std::time::UNIX_EPOCH + std::time::Duration::from_millis(1), 1),
+        ];
+        for (instant, expected_millis) in cases {
+            assert_eq!(
+                millis_of(&instant),
+                Some(expected_millis),
+                "{instant:?} must convert to {expected_millis} ms, not vanish"
+            );
+            assert_eq!(millis_of(&instant).map(millis_to_system_time), Some(instant));
+        }
         assert_eq!(
             millis_to_system_time(i64::MIN),
             std::time::UNIX_EPOCH - std::time::Duration::from_millis(i64::MIN.unsigned_abs())
         );
+    }
+
+    /// The same instant with its sub-millisecond part removed, which is what the boundary carries.
+    fn trunc_to_millis(time: std::time::SystemTime) -> std::time::SystemTime {
+        let since_epoch = time.duration_since(std::time::UNIX_EPOCH).expect("after the epoch");
+        std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_epoch.as_millis() as u64)
     }
 }
