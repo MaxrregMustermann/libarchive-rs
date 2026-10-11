@@ -46,12 +46,18 @@ Pack-Ice; JAR is a solid ZIP and SQZ and Pack-Ice are not in `Format`, so they a
 
 **None of the twelve is refused.** `open` returns a reader for all of them, not
 `ErrorKind::Unsupported`. Eleven dispatch to `unarc-rs` through `formats::legacy::open`; UC2 is this
-crate's own reader in `formats/uc2.rs`; UCB dispatches to `unarc-rs`'s Unix-compress (`Z`) reader,
-which is not a UCB decoder and has no fixture to try it on. What differs between them is what
-happens *after* that. The table below is what the crate does with the real archives `unarc-rs` 0.7.2
+crate's own reader in `formats/uc2.rs`. What differs between them is what happens *after* that.
+
+**UCB is the one that is not really read.** It dispatches to `unarc-rs`'s Unix-compress (`Z`)
+reader, which is not a UCB decoder and has no UCB fixture to try it on, so a `.ucb` file fails to
+decode rather than decoding wrongly — but that is an accident of the wiring, not support. No
+signature and no name hint reach it, and this document does not claim it. See the Detection
+section. The table below is what the crate does with the real archives `unarc-rs` 0.7.2
 ships, plus five LZH archives, because it ships no LZH fixture. An earlier version of this document
 said "Refused" for all twelve and said encrypted ZIP was refused too; both were wrong, and this
 table is what the code does.
+
+Every row here is measured with `open_as`, which takes the format the caller already knows. Whether a caller *can* know it is a separate question, answered in the Detection section below: ARC and ICE are reachable by name only, and UCB is not reachable at all.
 
 | Format | Opens | Lists | Extracts bytes matching the plaintext | Why not, where it does not |
 |--------|-------|-------|--------------------------------------|---------------------------|
@@ -62,7 +68,7 @@ table is what the code does.
 | Zoo | Yes | Yes | **Yes** for three of four; the fourth is a fixture with a deliberately wrong stored CRC-16 and is correctly refused `Malformed` | — |
 | ARJ | Yes | Yes | **No** — every plaintext fixture fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads all five method levels correctly on its own. The encrypted fixture correctly reports `Password` rather than bytes. |
 | SQ | Yes | 1 entry, **with size 0** | **No** — the entry streams **0 bytes** for an 11,357-byte file, with no error at all | Same listing-loop defect, and it fails *silently*: 11,357 bytes of license text become an empty file. This is the worst row in the table. |
-| UCB | Not measured | Not measured | Not measured | **There is no UCB decoder in this crate.** No UCB fixture exists in `unarc-rs`, in any other crate in the cargo cache, or on this machine. `formats::legacy::open` maps `Format::Ucb` onto `unarc-rs`'s `Z` reader, which is the Unix-compress decoder. A `.ucb` file will therefore fail to decode rather than decode wrongly, but it is not supported and this table does not pretend otherwise. |
+| UCB | **No** | — | — | **Not supported, and the row is here rather than deleted so the gap stays visible.** There is no UCB decoder in this crate. No UCB fixture exists in `unarc-rs`, in any other crate in the cargo cache, or on this machine. `formats::legacy::open` maps `Format::Ucb` onto `unarc-rs`'s `Z` reader, which is the Unix-compress decoder. A `.ucb` file will therefore fail to decode rather than decode wrongly, but it is not supported and this table does not pretend otherwise. |
 | UC2 | Yes | Yes | **Yes**, all four fixtures, byte for byte | Not a carried format: `Format::Uc2` is this crate's own reader in `formats/uc2.rs`. |
 | Ha | Yes | Yes | **No** — every entry fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads all three correctly on its own. |
 | Hyp | Yes | Yes | **No** — every entry fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads the entries correctly on its own. |
@@ -127,24 +133,64 @@ here, whatever its architecture could in principle support.
 
 ## Detection
 
-Detection reads signatures, not extensions. The order in `detect.rs` is: 7Z → XZ → Zstd → LZ4 → Brotli → Gzip → Bzip2 → Z → ZIP → TAR → long tail (RAR, LZH, ACE, ARC, Zoo, ARJ, SQ, UCB, UC2, Ha, Hyp, Ice). A file with no recognised signature falls through to ZIP rather than failing, matching the app's historical behaviour.
+Detection reads signatures, not extensions. A file with no recognised signature falls through to ZIP
+rather than failing, matching the app's historical behaviour: ZIP is the only format whose central
+directory is found by scanning back from the end, which makes it the one that can report a useful
+error for a file that is not an archive at all.
 
-**Of the twelve long-tail formats, two are detected.** Measured over every row in the long-tail
-table (48 rows, 47 distinct fixtures), `detect_header` returns `Rar` for the three RAR rows and
-`Arj` for the ten ARJ rows, and returns `Zip` for the other thirty-five — LZH, ACE, ARC, Zoo, SQ,
-UC2, Ha, Hyp and Ice all fall through. So `ArchiveReader::open` (auto-detect) on a Zoo file hands
-back a ZIP reader and a ZIP error rather than the right one; `open_as` with a format the caller
-already knows is the working path, which is what the table above is measured with.
+`detect` reads [`HEADER_SIZE`](libarchive/src/detect.rs) = 512 bytes and never seeks, so it works on
+a pipe. `detect_with_name` takes the name the caller already has and uses it **only after every
+signature has failed**, so a name can never override a format the file actually is. `ArchiveReader::open`
+is `open_named(source, None, options)`.
 
-The reasons are specific, and all of them are in `detect.rs` rather than in the formats:
+### What each of the twelve is reachable by
 
-* ACE writes its `**ACE**` marker at offset 8; the constant is compared at offset 0.
-* Zoo writes `ZOO .210`; the constant is `ZOO 200`.
-* An SQ file starts with a four-byte prefix, not `SQ\x1a`.
-* Hyp's constant is `ZZX\0`; a Hyp file starts `\x1aHP%`. Ice's constant is `\x1f\xa0`; an Ice file starts `\x5d\x2c`.
-* ARC, UC2 and Ha have no signature at all.
-* The LZH fixtures here carry a 0x1ebb-byte SFX stub in front of the `-lh5-` header, so the `-lh`
-  check at offset 0 misses them even though the check itself is right for a bare `.lzh`.
+Every row below is asserted against the vendored fixtures by
+`libarchive/tests/detect_signatures.rs`, which prints the first twelve bytes of each fixture and the
+format detection returns for it. Reproduce with:
+
+```
+CARGO_TARGET_DIR=/home/user/cargo-target-wren cargo test -p libarchive --offline --test detect_signatures -- --nocapture
+```
+
+| Format | Reached by | The bytes | The signature is |
+|--------|-----------|-----------|------------------|
+| RAR | content | `52 61 72 21 1a 07 …` | offset 0 |
+| ARJ | content | `60 ea` | offset 0 |
+| Zoo | content | `5a 4f 4f 20 32 2e 31 30 20 41 72 63 68 69 76 65 2e` = `ZOO 2.10 Archive.` | offset 0, 17 bytes (`zoo/zoo_header.rs:6`) |
+| Ha | content | `48 41` = `HA` | offset 0 (`ha/header.rs:6`) — the weakest here, checked last |
+| Hyp | content | `1a 48 50` or `1a 53 54` = 0x1A then `HP` or `ST` | offset 0 (`hyp/header.rs:5-6`) |
+| SQ | content | `76 ff` (SQ1) or `fa ff` (SQ2) | offset 0 (`sq/header.rs`) |
+| UC2 | content | `55 43 32 1a` = `UC2\x1a` | offset 0, **4** bytes (`uc2/uc2_archive.rs:40`, `ID = 0x1A324355`) |
+| ACE | content | `2a 2a 41 43 45 2a 2a` = `**ACE**` | **searched for**, from offset 7 on (`ace/ace_archive.rs:76` does the same over 512 KiB) |
+| LZH | content | `2d 6c 68 35 2d` = `-lh5-` | offset **2**, method byte at **5** (`delharc-0.8.0 src/header/compression.rs`) |
+| **ARC** | **name only** | `1a 02`, `1a 04`, `1a 08`, `1a 09` | **none.** `0x1A` is the DOS end-of-file marker and appears in files that are not archives. `archive.arc` reaches `Format::Arc`; `archive.zip` reaches neither and does not open. |
+| **ICE** | **name only** | `5d 2c 00 00` | **none.** The first four bytes are the uncompressed size — `license_lha.ice` starts `5d 2c 00 00` and what comes out of it is 11,357 = 0x2C5D bytes. `archive.ice` reaches `Format::Ice`; `archive.zip` does not open. |
+| **UCB** | **not supported** | — | **No signature, no name hint, no decoder.** `unarc-rs` 0.7.2 has no `ucb` module, and `formats::legacy::open` maps `Format::Ucb` onto its `Z` reader, which is Unix compress (magic `1f 9d`) and cannot read UCB. There is no UCB fixture anywhere on this machine. `detect.rs` used to carry `UCh\x1a\0`, which matched nothing; that constant is gone, and so is the name hint, because routing a format to a decoder that cannot read it only moves the failure. |
+
+**Ten of the twelve were unreachable before this section was written, and the reason was in
+`detect.rs`, not in the readers.** Eight of the twelve signatures there were written from the
+published description rather than from the bytes and matched no real archive at all — `ZOO 200`,
+`SQ\x1a`, `ZZX\0`, `1f a0`, `UCh\x1a\0`, `**ACE**` at offset 0, and `-lh` at offset 0 — and ARC,
+Ha and UC2 had no entry whatsoever. `detect_header` returned `Zip` for 35 of the 48 rows in
+`tests/long_tail.rs`. Nine formats are now reachable from content and two more by name; UCB is the
+only one that is not reachable, and it is not reachable because it cannot be read.
+
+Two claims this document used to make, checked against the fixtures and both wrong:
+
+* "The LZH fixtures here carry a 0x1ebb-byte SFX stub in front of the `-lh5-` header." They do not.
+  `1e bb` is a level 1 LHA header's own length and checksum, which is why the method identifier is at
+  offset 2 rather than 0. There was never a stub.
+* "ACE writes its `**ACE**` marker at offset 8." It is at offset 7. The seven bytes before it are the
+  main header's CRC-16 and size, which is also why a marker found earlier than that is refused.
+
+### What is *not* claimed
+
+Detection being right is a separate fact from a format working. Of the nine formats now reachable by
+content, `tests/long_tail.rs` still records that only RAR, ACE, Zoo, UC2 and ICE stream bytes
+matching their vendored plaintext; ARC, ARJ, Ha, Hyp, LZH and SQ reach the right reader and then
+fail on this crate's listing loop. Being detectable is necessary and not sufficient, and the table
+above says which is which.
 
 ## Limits (default)
 
