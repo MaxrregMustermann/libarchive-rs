@@ -643,7 +643,7 @@ const TRUTH: &[Row] = &[
         format: Format::Uc2,
         fixture: "uc2/fast.uc2",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Uc2,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -654,7 +654,7 @@ const TRUTH: &[Row] = &[
         format: Format::Uc2,
         fixture: "uc2/normal.uc2",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Uc2,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -665,7 +665,7 @@ const TRUTH: &[Row] = &[
         format: Format::Uc2,
         fixture: "uc2/stight.uc2",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Uc2,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -676,7 +676,7 @@ const TRUTH: &[Row] = &[
         format: Format::Uc2,
         fixture: "uc2/tight.uc2",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Uc2,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
