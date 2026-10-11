@@ -369,7 +369,11 @@ mod tests {
         // Every method `delharc` knows, at the byte that carries it.
         for method in [b'0', b'1', b'4', b'5', b'7', b'x', b'd', b's', b'z'] {
             header[5] = method;
-            assert_eq!(detect_header(&header), Format::Lzh, "-lh{method}- is an LZH");
+            assert_eq!(
+                detect_header(&header),
+                Format::Lzh,
+                "-lh{method}- is an LZH"
+            );
         }
         // A method no decoder has is not an LZH, and saying so gets the caller "not an archive"
         // rather than an LHA error about a method.
@@ -399,16 +403,28 @@ mod tests {
     fn a_name_settles_only_what_the_bytes_cannot() {
         let ice = [0x5Du8, 0x1C, 0x00, 0x00, 0xAA, 0x00];
         // Content first, and then the name, which is how an ARC and an ICE become reachable at all.
-        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ice"))), Format::Ice);
-        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.zip"))), Format::Zip);
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("a.ice"))),
+            Format::Ice
+        );
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("a.zip"))),
+            Format::Zip
+        );
         assert_eq!(detect_header_with_name(&ice, None), Format::Zip);
         // Case and a second dot do not matter; a name with no extension does not either.
-        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ICE"))), Format::Ice);
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("a.ICE"))),
+            Format::Ice
+        );
         assert_eq!(
             detect_header_with_name(&ice, Some(Path::new("archive.tar.ice"))),
             Format::Ice
         );
-        assert_eq!(detect_header_with_name(&ice, Some(Path::new("ice"))), Format::Zip);
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("ice"))),
+            Format::Zip
+        );
         // A real archive keeps its real format whatever it is called.
         let mut zoo = vec![0u8; HEADER_SIZE];
         zoo[..ZOO.len()].copy_from_slice(ZOO);
@@ -417,7 +433,10 @@ mod tests {
             Format::Zoo
         );
         // And there is no name that says UCB, because nothing here can read one.
-        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ucb"))), Format::Zip);
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("a.ucb"))),
+            Format::Zip
+        );
     }
 
     #[test]
@@ -434,7 +453,11 @@ mod tests {
         let mut source = Cursor::new(bytes.to_vec());
         source.seek(SeekFrom::Start(0)).unwrap();
         assert_eq!(detect(&mut source).unwrap(), Format::SevenZ);
-        assert_eq!(source.stream_position().unwrap(), 0, "the source must be rewound");
+        assert_eq!(
+            source.stream_position().unwrap(),
+            0,
+            "the source must be rewound"
+        );
     }
 
     #[test]
@@ -468,7 +491,10 @@ mod tests {
                 Ok(self.position as u64)
             }
         }
-        let mut source = Chunky { data: SEVEN_Z.to_vec(), position: 0 };
+        let mut source = Chunky {
+            data: SEVEN_Z.to_vec(),
+            position: 0,
+        };
         assert_eq!(detect(&mut source).unwrap(), Format::SevenZ);
         assert_eq!(source.position, 0);
     }

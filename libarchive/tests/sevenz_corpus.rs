@@ -20,20 +20,31 @@ fn corpus() -> Vec<std::path::PathBuf> {
     let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&directory)
         .unwrap_or_else(|error| panic!("the 7Z corpus at {directory:?} is missing: {error}"))
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().map(|extension| extension == "7z").unwrap_or(false))
+        .filter(|path| {
+            path.extension()
+                .map(|extension| extension == "7z")
+                .unwrap_or(false)
+        })
         .collect();
     files.sort();
     files
 }
 
 fn read_with_libarchive(bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
-    let mut reader =
-        ArchiveReader::open(std::io::Cursor::new(bytes.to_vec()), &OpenOptions::default()).ok()?;
+    let mut reader = ArchiveReader::open(
+        std::io::Cursor::new(bytes.to_vec()),
+        &OpenOptions::default(),
+    )
+    .ok()?;
     let mut entries = Vec::new();
     for index in 0..reader.len() {
         let name = reader.entry(index)?.name.clone();
         let mut contents = Vec::new();
-        reader.open_entry(index).ok()?.read_to_end(&mut contents).ok()?;
+        reader
+            .open_entry(index)
+            .ok()?
+            .read_to_end(&mut contents)
+            .ok()?;
         entries.push((name, contents));
     }
     Some(entries)
@@ -42,11 +53,8 @@ fn read_with_libarchive(bytes: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
 fn read_with_sevenz(bytes: &[u8], password: &str) -> Option<Vec<(String, Vec<u8>)>> {
     // Only entries with a stream of their own, which is what `read_file` can produce.
     let password = sevenz_rust2::Password::from_raw(password.as_bytes());
-    let mut reader = sevenz_rust2::ArchiveReader::new(
-        std::io::Cursor::new(bytes.to_vec()),
-        password,
-    )
-    .ok()?;
+    let mut reader =
+        sevenz_rust2::ArchiveReader::new(std::io::Cursor::new(bytes.to_vec()), password).ok()?;
     let archive = reader.archive().clone();
     let mut entries = Vec::new();
     for file in archive.files.iter() {
@@ -141,7 +149,9 @@ fn every_openable_corpus_archive_matches_sevenz_rust2() {
             ));
             continue;
         }
-        for ((our_name, our_bytes), (their_name, their_bytes)) in ours_streamed.iter().zip(theirs.iter()) {
+        for ((our_name, our_bytes), (their_name, their_bytes)) in
+            ours_streamed.iter().zip(theirs.iter())
+        {
             if our_name != their_name || our_bytes != their_bytes {
                 failures.push(format!("{name}: entry {our_name} differs"));
                 break;
@@ -149,8 +159,15 @@ fn every_openable_corpus_archive_matches_sevenz_rust2() {
         }
         checked += 1;
     }
-    assert!(checked > 0, "no corpus file was readable, so nothing was tested");
-    assert!(failures.is_empty(), "differences found:\n  {}", failures.join("\n  "));
+    assert!(
+        checked > 0,
+        "no corpus file was readable, so nothing was tested"
+    );
+    assert!(
+        failures.is_empty(),
+        "differences found:\n  {}",
+        failures.join("\n  ")
+    );
 }
 
 /// Every BCJ2 corpus archive decodes to exactly the bytes `sevenz-rust2` produces from it.
@@ -188,9 +205,9 @@ fn a_bcj2_archive_decodes_to_the_same_bytes_as_sevenz_rust2() {
         let matched = ours
             .iter()
             .filter(|(our_name, our_bytes)| {
-                theirs
-                    .iter()
-                    .any(|(their_name, their_bytes)| their_name == our_name && their_bytes == our_bytes)
+                theirs.iter().any(|(their_name, their_bytes)| {
+                    their_name == our_name && their_bytes == our_bytes
+                })
             })
             .count();
         assert_eq!(
@@ -292,9 +309,10 @@ fn a_truncated_7z_is_an_error_at_every_truncation_point_and_never_a_panic() {
     while at < bytes.len() {
         let truncated = &bytes[..at];
         // Opening must not panic, whatever it returns.
-        if let Ok(mut reader) =
-            ArchiveReader::open(std::io::Cursor::new(truncated.to_vec()), &OpenOptions::default())
-        {
+        if let Ok(mut reader) = ArchiveReader::open(
+            std::io::Cursor::new(truncated.to_vec()),
+            &OpenOptions::default(),
+        ) {
             // Nor must reading an entry.
             for index in 0..reader.len().min(4) {
                 if let Ok(mut entry) = reader.open_entry(index) {
@@ -306,5 +324,8 @@ fn a_truncated_7z_is_an_error_at_every_truncation_point_and_never_a_panic() {
         points += 1;
         at += 512;
     }
-    assert!(points > 1, "the corpus file was too short to truncate meaningfully");
+    assert!(
+        points > 1,
+        "the corpus file was too short to truncate meaningfully"
+    );
 }

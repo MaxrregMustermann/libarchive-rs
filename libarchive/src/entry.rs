@@ -22,9 +22,13 @@ pub enum EntryKind {
 /// The special file kinds, for the formats that record them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum EntrySpecial {
+    /// A named pipe (FIFO).
     Fifo,
+    /// A character device.
     CharDevice,
+    /// A block device.
     BlockDevice,
+    /// A Unix domain socket.
     Socket,
 }
 
@@ -37,6 +41,7 @@ pub struct Entry {
     /// The path within the archive, always with `/` as the separator and never with a trailing
     /// slash, whatever the format itself uses.
     pub name: String,
+    /// What kind of entry this is (file, directory, symlink, etc.).
     pub kind: EntryKind,
     /// The size the *uncompressed* contents will be, when the archive says. `None` when it does
     /// not, which is common and is not an error: a stream still works, it just cannot report a
@@ -44,6 +49,7 @@ pub struct Entry {
     pub size: Option<u64>,
     /// The size as stored, after compression. Useful for reporting what an archive costs.
     pub compressed_size: Option<u64>,
+    /// The last modification timestamp, when the format records it.
     pub last_modified: Option<SystemTime>,
     /// The unix permission bits, when the format records them.
     pub mode: Option<u32>,
@@ -74,14 +80,17 @@ pub struct BlockPlacement {
 }
 
 impl Entry {
+    /// Returns `true` if this entry is a directory.
     pub fn is_directory(&self) -> bool {
         self.kind == EntryKind::Directory
     }
 
+    /// Returns `true` if this entry is a regular file.
     pub fn is_file(&self) -> bool {
         self.kind == EntryKind::File
     }
 
+    /// Returns `true` if this entry is a symlink.
     pub fn is_symlink(&self) -> bool {
         self.kind == EntryKind::Symlink
     }

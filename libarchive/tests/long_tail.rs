@@ -40,7 +40,9 @@ use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use libarchive::{detect_header, detect_header_with_name, ArchiveReader, ErrorKind, Format, OpenOptions};
+use libarchive::{
+    detect_header, detect_header_with_name, ArchiveReader, ErrorKind, Format, OpenOptions,
+};
 
 /// The chunk size extraction is measured in.
 ///
@@ -1065,7 +1067,11 @@ fn long_tail_truth_table() {
         // the name really is all of it. Asserted rather than assumed, because a signature for
         // either would be a guess.
         let by_content = detect_header(&bytes);
-        let expected_by_content = if row.needs_name { Format::Zip } else { row.detected };
+        let expected_by_content = if row.needs_name {
+            Format::Zip
+        } else {
+            row.detected
+        };
         if by_content != expected_by_content {
             failures.push(format!(
                 "{label}: detect from the bytes alone says {by_content:?}, the table records \

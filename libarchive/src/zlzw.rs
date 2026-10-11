@@ -118,7 +118,9 @@ impl<R: Read> ZDecoder<R> {
             }
         }
         if self.header_buf[0..2] != MAGIC {
-            return Err(Error::malformed("not a .Z stream: the magic is not 0x1f 0x9d"));
+            return Err(Error::malformed(
+                "not a .Z stream: the magic is not 0x1f 0x9d",
+            ));
         }
         let flags = self.header_buf[2];
         let max_bits = (flags & MAX_BITS_MASK) as usize;
@@ -153,7 +155,11 @@ impl<R: Read> ZDecoder<R> {
     fn getcode(&mut self) -> Result<Option<usize>> {
         let max_bits = match self.max_bits {
             Some(bits) => bits,
-            None => return Err(Error::malformed("a .Z header must be read before its codes")),
+            None => {
+                return Err(Error::malformed(
+                    "a .Z header must be read before its codes",
+                ))
+            }
         };
         if self.clear_flag || self.block_off >= self.block_size || self.free_ent > self.maxcode {
             // The dictionary outgrew the width: wider codes from here on. This cannot run past
@@ -162,10 +168,15 @@ impl<R: Read> ZDecoder<R> {
             if self.free_ent > self.maxcode {
                 self.n_bits += 1;
                 if self.n_bits > max_bits {
-                    return Err(Error::malformed("a .Z stream grew its codes past its own limit"));
+                    return Err(Error::malformed(
+                        "a .Z stream grew its codes past its own limit",
+                    ));
                 }
-                self.maxcode =
-                    if self.n_bits == max_bits { self.maxmaxcode } else { maxcode(self.n_bits) };
+                self.maxcode = if self.n_bits == max_bits {
+                    self.maxmaxcode
+                } else {
+                    maxcode(self.n_bits)
+                };
             }
             if self.clear_flag {
                 self.n_bits = INIT_BITS;
@@ -229,7 +240,9 @@ impl<R: Read> ZDecoder<R> {
                 }
             };
             if first > 255 {
-                return Err(Error::malformed("a .Z stream must start with a literal byte"));
+                return Err(Error::malformed(
+                    "a .Z stream must start with a literal byte",
+                ));
             }
             self.finchar = first as u8;
             self.oldcode = first;
@@ -259,7 +272,9 @@ impl<R: Read> ZDecoder<R> {
                 }
             };
             if next > 255 {
-                return Err(Error::malformed("a .Z CLEAR must be followed by a literal byte"));
+                return Err(Error::malformed(
+                    "a .Z CLEAR must be followed by a literal byte",
+                ));
             }
             self.finchar = next as u8;
             self.oldcode = next;
@@ -300,9 +315,10 @@ impl<R: Read> ZDecoder<R> {
             self.pending.push(byte);
         }
         if self.free_ent < self.maxmaxcode {
-            if let (Some(prefix), Some(suffix)) =
-                (self.prefix.get_mut(self.free_ent), self.suffix.get_mut(self.free_ent))
-            {
+            if let (Some(prefix), Some(suffix)) = (
+                self.prefix.get_mut(self.free_ent),
+                self.suffix.get_mut(self.free_ent),
+            ) {
                 *prefix = self.oldcode as u16;
                 *suffix = self.finchar;
             }
@@ -369,7 +385,10 @@ mod tests {
     #[test]
     fn a_header_on_its_own_decodes_to_nothing() {
         // `compress` of an empty file is just the header. It must read as empty, not as an error.
-        assert_eq!(decode_all(&[0x1F, 0x9D, 0x90]).expect("empty"), Vec::<u8>::new());
+        assert_eq!(
+            decode_all(&[0x1F, 0x9D, 0x90]).expect("empty"),
+            Vec::<u8>::new()
+        );
     }
 
     #[test]
@@ -381,7 +400,10 @@ mod tests {
 
     #[test]
     fn a_wrong_magic_is_refused() {
-        assert!(decode_all(&[0x1F, 0x8B, 0x08, 0, 0]).is_err(), "gzip is not compress");
+        assert!(
+            decode_all(&[0x1F, 0x8B, 0x08, 0, 0]).is_err(),
+            "gzip is not compress"
+        );
     }
 
     #[test]
@@ -404,7 +426,11 @@ mod tests {
     fn every_single_byte_value_round_trips() {
         for value in 0u8..=255 {
             let compressed = encode(&[value]);
-            assert_eq!(decode_all(&compressed).expect("one byte"), vec![value], "byte {value}");
+            assert_eq!(
+                decode_all(&compressed).expect("one byte"),
+                vec![value],
+                "byte {value}"
+            );
         }
     }
 
@@ -412,7 +438,10 @@ mod tests {
     fn compressible_text_round_trips() {
         let payload: Vec<u8> = b"hello compress world, ".repeat(40).to_vec();
         let compressed = encode(&payload);
-        assert!(compressed.len() < payload.len(), "it should actually compress");
+        assert!(
+            compressed.len() < payload.len(),
+            "it should actually compress"
+        );
         assert_eq!(decode_all(&compressed).expect("text"), payload);
     }
 
@@ -439,14 +468,19 @@ mod tests {
             })
             .collect();
         let (compressed, clears, max_width) = encode_stats(&payload);
-        assert!(clears > 0, "this input should force at least one table reset");
+        assert!(
+            clears > 0,
+            "this input should force at least one table reset"
+        );
         assert_eq!(max_width, 16, "this input should reach the widest codes");
         assert_eq!(decode_all(&compressed).expect("large"), payload);
     }
 
     #[test]
     fn decoding_a_byte_at_a_time_gives_the_same_bytes() {
-        let payload: Vec<u8> = b"the quick brown fox jumps over the lazy dog. ".repeat(30).to_vec();
+        let payload: Vec<u8> = b"the quick brown fox jumps over the lazy dog. "
+            .repeat(30)
+            .to_vec();
         let compressed = encode(&payload);
         let mut decoder = ZDecoder::new(Cursor::new(compressed));
         let mut got = Vec::new();
@@ -523,7 +557,11 @@ mod tests {
     impl TestEncoder {
         fn new(max_bits: u8, block_mode: bool) -> TestEncoder {
             let max_bits = max_bits as usize;
-            let out = vec![0x1F, 0x9D, (if block_mode { BLOCK_MODE } else { 0 }) | max_bits as u8];
+            let out = vec![
+                0x1F,
+                0x9D,
+                (if block_mode { BLOCK_MODE } else { 0 }) | max_bits as u8,
+            ];
             TestEncoder {
                 max_bits,
                 block_mode,
@@ -568,8 +606,11 @@ mod tests {
             if self.n_bits < self.max_bits && threshold + self.codes_emitted > self.maxcode {
                 self.flush_full();
                 self.n_bits += 1;
-                self.maxcode =
-                    if self.n_bits == self.max_bits { self.maxmaxcode } else { maxcode(self.n_bits) };
+                self.maxcode = if self.n_bits == self.max_bits {
+                    self.maxmaxcode
+                } else {
+                    maxcode(self.n_bits)
+                };
                 self.block = vec![0u8; self.n_bits];
             }
         }

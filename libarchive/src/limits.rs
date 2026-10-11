@@ -69,6 +69,7 @@ pub struct Total {
 }
 
 impl Total {
+    /// Creates a new `Total` with the given byte limit.
     pub fn new(limit: u64) -> Total {
         Total { limit, spent: 0 }
     }
@@ -87,6 +88,7 @@ impl Total {
         Ok(())
     }
 
+    /// Returns the number of bytes charged so far.
     pub fn spent(&self) -> u64 {
         self.spent
     }
@@ -170,7 +172,6 @@ impl Limits {
         }
         Ok(())
     }
-
 }
 
 #[cfg(test)]
@@ -182,10 +183,14 @@ mod tests {
     fn a_normal_archive_is_nowhere_near_any_ceiling() {
         let limits = Limits::default();
         // A 4 GiB video, in an archive with a few hundred entries.
-        assert!(limits.check_entry_size(Some(4 * 1024 * 1024 * 1024 - 1)).is_ok());
+        assert!(limits
+            .check_entry_size(Some(4 * 1024 * 1024 * 1024 - 1))
+            .is_ok());
         assert!(limits.check_entry_count(500).is_ok());
         // Text compresses well. A factor of twenty is unremarkable.
-        assert!(limits.check_ratio(5 * 1024 * 1024, 100 * 1024 * 1024).is_ok());
+        assert!(limits
+            .check_ratio(5 * 1024 * 1024, 100 * 1024 * 1024)
+            .is_ok());
     }
 
     #[test]
@@ -193,7 +198,10 @@ mod tests {
         let limits = Limits::default();
         let error = limits.check_entry_size(Some(u64::MAX)).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::LimitExceeded);
-        assert!(error.message().contains("over the"), "the error should say why: {error}");
+        assert!(
+            error.message().contains("over the"),
+            "the error should say why: {error}"
+        );
     }
 
     #[test]
@@ -237,7 +245,11 @@ mod tests {
         // let the bomb carry on, which is the failure this is written to prevent.
         let error = total.charge(1).expect_err("the budget is gone");
         assert_eq!(error.kind(), ErrorKind::LimitExceeded);
-        assert_eq!(total.spent(), u64::MAX, "the counter saturates rather than wrapping");
+        assert_eq!(
+            total.spent(),
+            u64::MAX,
+            "the counter saturates rather than wrapping"
+        );
     }
 
     #[test]

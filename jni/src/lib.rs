@@ -213,10 +213,10 @@ fn read_new_entry(env: &mut JNIEnv, metadata: &JObjectArray) -> Option<libarchiv
     let size = string_at(env, metadata, field::SIZE)
         .and_then(|value| value.parse().ok())
         .unwrap_or(0);
-    let last_modified_millis = string_at(env, metadata, field::LAST_MODIFIED_MILLIS)
-        .and_then(|value| value.parse().ok());
-    let symlink_target = string_at(env, metadata, field::SYMLINK_TARGET)
-        .filter(|target| !target.is_empty());
+    let last_modified_millis =
+        string_at(env, metadata, field::LAST_MODIFIED_MILLIS).and_then(|value| value.parse().ok());
+    let symlink_target =
+        string_at(env, metadata, field::SYMLINK_TARGET).filter(|target| !target.is_empty());
     let is_directory = string_at(env, metadata, field::IS_DIRECTORY).as_deref() == Some("true");
     let is_symlink = string_at(env, metadata, field::IS_SYMLINK).as_deref() == Some("true");
     let kind = if is_symlink {
@@ -353,7 +353,11 @@ pub extern "system" fn Java_me_zhanghai_android_files_provider_archive_archiver_
         };
         match libarchive::ArchiveReader::open(channel, &options) {
             Ok(reader) => {
-                let handle = ReadHandle { reader, next_index: 0, current: None };
+                let handle = ReadHandle {
+                    reader,
+                    next_index: 0,
+                    current: None,
+                };
                 Box::into_raw(Box::new(handle)) as jlong
             }
             Err(error) => {
@@ -673,22 +677,40 @@ mod tests {
         // is millis, and the Kotlin side passes a `Long`. Sub-millisecond precision does not cross
         // this boundary, so it must not be expected to survive it.
         let now = std::time::SystemTime::now();
-        let round_tripped = millis_of(&now).map(millis_to_system_time).expect("after the epoch");
-        assert_eq!(round_tripped, trunc_to_millis(now), "must lose no millisecond and gain none");
+        let round_tripped = millis_of(&now)
+            .map(millis_to_system_time)
+            .expect("after the epoch");
+        assert_eq!(
+            round_tripped,
+            trunc_to_millis(now),
+            "must lose no millisecond and gain none"
+        );
 
         // The one property that does matter about the loss: it rounds towards the past, so a
         // timestamp never becomes *later* by being passed through here. A file's modification
         // time drifting forwards would put it in the wrong day's bucket in a listing.
-        assert!(round_tripped <= now, "the round trip moved a timestamp forwards");
+        assert!(
+            round_tripped <= now,
+            "the round trip moved a timestamp forwards"
+        );
 
         // Before the epoch must survive rather than be dropped. `millis_of` used to return `None`
         // for anything before 1970, which loses a date a real archive can carry: a 7Z FILETIME
         // counts from 1601 and a TAR header holds a signed octal time.
         let cases = [
-            (std::time::UNIX_EPOCH - std::time::Duration::from_secs(10), -10_000),
-            (std::time::UNIX_EPOCH - std::time::Duration::from_millis(1), -1),
+            (
+                std::time::UNIX_EPOCH - std::time::Duration::from_secs(10),
+                -10_000,
+            ),
+            (
+                std::time::UNIX_EPOCH - std::time::Duration::from_millis(1),
+                -1,
+            ),
             (std::time::UNIX_EPOCH, 0),
-            (std::time::UNIX_EPOCH + std::time::Duration::from_millis(1), 1),
+            (
+                std::time::UNIX_EPOCH + std::time::Duration::from_millis(1),
+                1,
+            ),
         ];
         for (instant, expected_millis) in cases {
             assert_eq!(
@@ -696,7 +718,10 @@ mod tests {
                 Some(expected_millis),
                 "{instant:?} must convert to {expected_millis} ms, not vanish"
             );
-            assert_eq!(millis_of(&instant).map(millis_to_system_time), Some(instant));
+            assert_eq!(
+                millis_of(&instant).map(millis_to_system_time),
+                Some(instant)
+            );
         }
         assert_eq!(
             millis_to_system_time(i64::MIN),
@@ -706,7 +731,9 @@ mod tests {
 
     /// The same instant with its sub-millisecond part removed, which is what the boundary carries.
     fn trunc_to_millis(time: std::time::SystemTime) -> std::time::SystemTime {
-        let since_epoch = time.duration_since(std::time::UNIX_EPOCH).expect("after the epoch");
+        let since_epoch = time
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch");
         std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_epoch.as_millis() as u64)
     }
 }

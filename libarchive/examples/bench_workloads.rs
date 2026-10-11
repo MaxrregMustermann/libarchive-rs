@@ -55,8 +55,8 @@
 //! run says so, because a fixture its own author produced does not measure anything.
 
 use std::fs::File;
-use std::io::{Cursor, Write};
 use std::io::Read;
+use std::io::{Cursor, Write};
 use std::time::{Duration, Instant};
 
 use libarchive::{
@@ -91,7 +91,11 @@ fn main() {
     println!("  workload     {selected}");
     // One workload selected means the caller wants a profile or a focused number rather than a
     // summary, and five runs of a 200 ms workload is not enough sample for `perf` to attribute.
-    let runs = if matches!(selected, "all" | "any") { RUNS } else { PROFILE_RUNS };
+    let runs = if matches!(selected, "all" | "any") {
+        RUNS
+    } else {
+        PROFILE_RUNS
+    };
     println!("  runs         {runs} for this workload");
     println!();
 
@@ -154,7 +158,11 @@ fn ms(duration: Duration) -> f64 {
 
 fn load_average() -> String {
     match std::fs::read_to_string("/proc/loadavg") {
-        Ok(text) => text.split_whitespace().take(3).collect::<Vec<_>>().join(" "),
+        Ok(text) => text
+            .split_whitespace()
+            .take(3)
+            .collect::<Vec<_>>()
+            .join(" "),
         // Android has no /proc/loadavg in the same shape, and saying so is better than
         // printing a plausible-looking zero.
         Err(_) => "unavailable on this platform".to_string(),
@@ -167,14 +175,19 @@ fn load_average() -> String {
 /// it. Bytes-read is reported as well as time, because a listing that is fast because it read
 /// the whole archive into a buffer is fast in the wrong way, and only the byte count shows it.
 fn listing(path: &str, runs: usize) -> Result<String, String> {
-    let bytes = std::fs::metadata(path).map_err(|error| format!("{path}: {error}"))?.len();
+    let bytes = std::fs::metadata(path)
+        .map_err(|error| format!("{path}: {error}"))?
+        .len();
 
     let (mut best, mut names, mut detected) = (Duration::MAX, 0usize, String::new());
     let mut listed = 0usize;
     for _ in 0..runs {
         let mut file = File::open(path).map_err(|error| format!("{path}: {error}"))?;
         if detected.is_empty() {
-            detected = format!("{:?}", detect(&mut file).map_err(|error| error.to_string())?);
+            detected = format!(
+                "{:?}",
+                detect(&mut file).map_err(|error| error.to_string())?
+            );
         }
         let start = Instant::now();
         let reader = ArchiveReader::open(file, &OpenOptions::default())
@@ -198,19 +211,23 @@ fn listing(path: &str, runs: usize) -> Result<String, String> {
 /// Entries are read in 128 KiB blocks, which is what the app's extraction does, so this
 /// includes the per-read cost the app pays rather than measuring the codec alone.
 fn extracting(path: &str, runs: usize) -> Result<String, String> {
-    let bytes = std::fs::metadata(path).map_err(|error| format!("{path}: {error}"))?.len();
+    let bytes = std::fs::metadata(path)
+        .map_err(|error| format!("{path}: {error}"))?
+        .len();
 
     let (mut best, mut count, mut produced) = (Duration::MAX, 0usize, 0u64);
     for _ in 0..runs {
         let file = File::open(path).map_err(|error| format!("{path}: {error}"))?;
         let start = Instant::now();
-        let mut reader =
-            ArchiveReader::open(file, &OpenOptions::default()).map_err(|error| error.to_string())?;
+        let mut reader = ArchiveReader::open(file, &OpenOptions::default())
+            .map_err(|error| error.to_string())?;
         let mut buffer = vec![0u8; 128 * 1024];
         let mut got = 0u64;
         let mut read = 0usize;
         for index in 0..reader.len() {
-            let mut entry = reader.open_entry(index).map_err(|error| error.to_string())?;
+            let mut entry = reader
+                .open_entry(index)
+                .map_err(|error| error.to_string())?;
             loop {
                 let n = entry.read(&mut buffer).map_err(|error| error.to_string())?;
                 if n == 0 {

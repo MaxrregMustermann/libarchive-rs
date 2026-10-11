@@ -59,7 +59,7 @@ use sevenz_rust2::{
     SourceReader,
 };
 
-use crate::entry::{EntryKind, normalise_name};
+use crate::entry::{normalise_name, EntryKind};
 use crate::error::{Error, Result};
 use crate::writer::{EntryWrite, EntryWriter, NewEntry, WriteOptions};
 
@@ -91,7 +91,11 @@ struct PendingEntry {
 }
 
 impl<W: Write + Seek> SevenZWriter<W> {
-    pub fn create<W2: Write + Seek + 'static>(sink: W2, options: &WriteOptions) -> Result<Box<dyn EntryWriter<W2>>> {
+    /// Creates a new 7Z writer.
+    pub fn create<W2: Write + Seek + 'static>(
+        sink: W2,
+        options: &WriteOptions,
+    ) -> Result<Box<dyn EntryWriter<W2>>> {
         // The vendored writer has no password support at all. Producing an archive that silently
         // omits the encryption the caller asked for is worse than refusing: the file would look
         // like it worked.
@@ -137,7 +141,10 @@ impl<W: Write + Seek> SevenZWriter<W> {
             // The sink goes into the archive so the vendored writer has somewhere to seek; nothing
             // is written until the folder closes.
             self.ensure_open()?;
-            self.pending.push(PendingEntry { entry: archive_entry, contents });
+            self.pending.push(PendingEntry {
+                entry: archive_entry,
+                contents,
+            });
             return Ok(());
         }
         // A directory has no stream, and the vendored writer decides that from the entry rather
@@ -251,7 +258,9 @@ struct EntrySink<'a, W: Write + Seek> {
 impl<W: Write + Seek> Write for EntrySink<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         if self.closed {
-            return Err(std::io::Error::other("this 7Z entry has already been finished"));
+            return Err(std::io::Error::other(
+                "this 7Z entry has already been finished",
+            ));
         }
         self.buffer.extend_from_slice(bytes);
         self.written += bytes.len() as u64;

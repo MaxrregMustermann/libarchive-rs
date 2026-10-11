@@ -38,14 +38,16 @@ fn scratch(name: &str) -> std::path::PathBuf {
 /// Writes `entries` into a 7Z and returns the archive's bytes.
 fn write(entries: &[(&str, Vec<u8>)], options: &WriteOptions) -> Vec<u8> {
     let sink = Cursor::new(Vec::new());
-    let mut writer =
-        ArchiveWriter::create(sink, Format::SevenZ, options).expect("a 7Z writer");
+    let mut writer = ArchiveWriter::create(sink, Format::SevenZ, options).expect("a 7Z writer");
     for (name, contents) in entries {
         writer
             .write_entry_from_slice(&NewEntry::file(*name), contents)
             .expect("write an entry");
     }
-    writer.finish_into().expect("finish the archive").into_inner()
+    writer
+        .finish_into()
+        .expect("finish the archive")
+        .into_inner()
 }
 
 /// Nothing, which is what a directory or a symlink is written from.
@@ -97,7 +99,12 @@ fn by_name(mut entries: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
 /// that quietly came out as the other one would make both tests pass while measuring nothing.
 /// `7z l -slt` reports a `Block` line per entry, so the distinct count is the folder count.
 fn folders(path: &Path) -> Option<usize> {
-    let output = Command::new("7z").arg("l").arg("-slt").arg(path).output().ok()?;
+    let output = Command::new("7z")
+        .arg("l")
+        .arg("-slt")
+        .arg(path)
+        .output()
+        .ok()?;
     let listing = String::from_utf8_lossy(&output.stdout).to_string();
     let mut blocks: Vec<&str> = listing
         .lines()
@@ -123,7 +130,10 @@ fn extract_with_seven_z(path: &Path, target: &Path) -> Option<Vec<(String, Vec<u
         .arg("-y")
         .output()
         .ok()?;
-    assert!(status.status.success(), "7z refused the archive: {status:?}");
+    assert!(
+        status.status.success(),
+        "7z refused the archive: {status:?}"
+    );
     let mut entries = Vec::new();
     collect_files(target, target, &mut entries);
     Some(entries)
@@ -209,16 +219,21 @@ fn seven_z_can_read_a_non_solid_archive_this_crate_wrote() {
     let target = scratch("libarchive-nonsolid-out");
     std::fs::write(&archive, &bytes).expect("write the fixture");
     let _ = std::fs::remove_dir_all(&target);
-    let from_tool = by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
+    let from_tool =
+        by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
     let from_crate = by_name(read_back(bytes));
     assert_eq!(
         from_tool.len(),
         from_crate.len(),
         "7z extracted a different number of entries: {from_tool:?}"
     );
-    for ((tool_name, tool_bytes), (our_name, our_bytes)) in from_tool.iter().zip(from_crate.iter()) {
+    for ((tool_name, tool_bytes), (our_name, our_bytes)) in from_tool.iter().zip(from_crate.iter())
+    {
         assert_eq!(tool_name, our_name, "the names differ");
-        assert_eq!(tool_bytes, our_bytes, "{our_name} came back different bytes");
+        assert_eq!(
+            tool_bytes, our_bytes,
+            "{our_name} came back different bytes"
+        );
     }
     if let Some(folders) = folders(&archive) {
         assert!(
@@ -243,16 +258,21 @@ fn seven_z_can_read_a_solid_archive_this_crate_wrote() {
     let target = scratch("libarchive-solid-out");
     std::fs::write(&archive, &bytes).expect("write the fixture");
     let _ = std::fs::remove_dir_all(&target);
-    let from_tool = by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
+    let from_tool =
+        by_name(extract_with_seven_z(&archive, &target).expect("7z extracts the archive"));
     let from_crate = by_name(read_back(bytes));
     assert_eq!(
         from_tool.len(),
         from_crate.len(),
         "7z extracted a different number of entries: {from_tool:?}"
     );
-    for ((tool_name, tool_bytes), (our_name, our_bytes)) in from_tool.iter().zip(from_crate.iter()) {
+    for ((tool_name, tool_bytes), (our_name, our_bytes)) in from_tool.iter().zip(from_crate.iter())
+    {
         assert_eq!(tool_name, our_name, "the names differ");
-        assert_eq!(tool_bytes, our_bytes, "{our_name} came back different bytes");
+        assert_eq!(
+            tool_bytes, our_bytes,
+            "{our_name} came back different bytes"
+        );
     }
     if let Some(folders) = folders(&archive) {
         assert_eq!(

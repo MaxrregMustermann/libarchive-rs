@@ -71,7 +71,9 @@ impl<R> Shared<R> {
                 Arc::strong_count(&shared)
             ))
         })?;
-        Ok(cell.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()))
+        Ok(cell
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 
     /// The underlying arc, for the places that need to clone the handle itself.
@@ -164,11 +166,13 @@ impl Default for OpenOptions {
 }
 
 impl OpenOptions {
+    /// Sets the password to try when opening an encrypted archive.
     pub fn with_password(mut self, password: impl Into<String>) -> OpenOptions {
         self.password = Some(password.into());
         self
     }
 
+    /// Sets custom limits for decompression bomb protection.
     pub fn with_limits(mut self, limits: Limits) -> OpenOptions {
         self.limits = limits;
         self
@@ -243,6 +247,7 @@ pub struct EntryStream {
 }
 
 impl EntryStream {
+    /// Wraps a per-format reader in the shared streaming layer.
     pub fn new(inner: Box<dyn EntryRead>) -> EntryStream {
         EntryStream { inner, consumed: 0 }
     }
@@ -380,7 +385,10 @@ impl<R: Read + Seek + Send + 'static> ArchiveReader<R> {
     /// it is never *required*: an out-of-order open restarts the block, which costs a decode.
     pub fn open_entry(&mut self, index: usize) -> Result<EntryStream> {
         let entry = self.entries.get(index).ok_or_else(|| {
-            Error::malformed(format!("Entry {index} is out of range, the archive has {}", self.len()))
+            Error::malformed(format!(
+                "Entry {index} is out of range, the archive has {}",
+                self.len()
+            ))
         })?;
         self.limits.check_entry_size(entry.size)?;
         self.backend.open(index)
@@ -440,7 +448,12 @@ impl<R: Read + Seek> RawReader<R> {
     /// A reader over `length` bytes starting at `offset`, or to the end of the archive when
     /// `length` is `None`.
     pub fn new(source: Shared<R>, offset: u64, length: Option<u64>) -> RawReader<R> {
-        RawReader { source, offset, remaining: length, positioned: false }
+        RawReader {
+            source,
+            offset,
+            remaining: length,
+            positioned: false,
+        }
     }
 
     /// How many bytes are left, when the end is known.
@@ -497,22 +510,31 @@ impl Scratch {
     /// still being small enough that several can be live at once on a phone.
     pub const DEFAULT_SIZE: usize = 128 * 1024;
 
+    /// Creates a new scratch buffer with the default size (128 KiB).
     pub fn new() -> Scratch {
-        Scratch { buffer: vec![0; Scratch::DEFAULT_SIZE] }
+        Scratch {
+            buffer: vec![0; Scratch::DEFAULT_SIZE],
+        }
     }
 
+    /// Creates a new scratch buffer with the given capacity.
     pub fn with_capacity(size: usize) -> Scratch {
-        Scratch { buffer: vec![0; size] }
+        Scratch {
+            buffer: vec![0; size],
+        }
     }
 
+    /// Returns a mutable reference to the scratch buffer.
     pub fn buffer(&mut self) -> &mut [u8] {
         &mut self.buffer
     }
 
+    /// Returns the length of the scratch buffer.
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
+    /// Returns `true` if the scratch buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
@@ -536,8 +558,13 @@ pub struct BoundedSource<'a, R> {
 }
 
 impl<'a, R: Read> BoundedSource<'a, R> {
+    /// Creates a new bounded source over `length` bytes of `inner`.
     pub fn new(inner: &'a mut R, length: u64) -> BoundedSource<'a, R> {
-        BoundedSource { inner, remaining: length, consumed: 0 }
+        BoundedSource {
+            inner,
+            remaining: length,
+            consumed: 0,
+        }
     }
 
     /// How much has been read out of the bound.
@@ -553,7 +580,9 @@ impl<R: Read> Read for BoundedSource<'_, R> {
         }
         // Never ask the underlying reader for more than the bound allows, so a block that claims
         // to be larger than the file cannot cause a read into the next block.
-        let wanted = output.len().min(self.remaining.min(usize::MAX as u64) as usize);
+        let wanted = output
+            .len()
+            .min(self.remaining.min(usize::MAX as u64) as usize);
         let read = self.inner.read(&mut output[..wanted])?;
         if read == 0 {
             self.remaining = 0;
@@ -573,7 +602,10 @@ impl<R: Seek> Seek for BoundedSource<'_, R> {
             SeekFrom::End(delta) => self.remaining as i64 + delta,
         };
         if target < 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "seeking before the start of the block"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seeking before the start of the block",
+            ));
         }
         let reached = target as u64;
         let delta = reached - self.consumed;
@@ -620,7 +652,12 @@ mod tests {
 
     impl FakeSource {
         fn new(reused: bool) -> FakeSource {
-            FakeSource { entries: Vec::new(), contents: Vec::new(), reused, opened: Vec::new() }
+            FakeSource {
+                entries: Vec::new(),
+                contents: Vec::new(),
+                reused,
+                opened: Vec::new(),
+            }
         }
 
         fn add(&mut self, name: &str, contents: Vec<u8>) {
@@ -648,7 +685,11 @@ mod tests {
             self.opened.push(index);
             let contents = self.contents.get(index).cloned().unwrap_or_default();
             let size = contents.len() as u64;
-            Ok(EntryStream::new(Box::new(SliceRead { bytes: contents, offset: 0, size })))
+            Ok(EntryStream::new(Box::new(SliceRead {
+                bytes: contents,
+                offset: 0,
+                size,
+            })))
         }
 
         fn reuses_blocks(&self) -> bool {
@@ -682,7 +723,11 @@ mod tests {
         }
     }
 
-    fn reader_with(entries: usize, contents: usize, reused: bool) -> ArchiveReader<Cursor<Vec<u8>>> {
+    fn reader_with(
+        entries: usize,
+        contents: usize,
+        reused: bool,
+    ) -> ArchiveReader<Cursor<Vec<u8>>> {
         let mut source = FakeSource::new(reused);
         for index in 0..entries {
             source.add(&format!("file{index}.bin"), vec![b'x'; contents]);
@@ -778,7 +823,11 @@ mod tests {
         let mut bounded = BoundedSource::new(&mut bytes, 1000);
         let mut output = [0u8; 16];
         assert_eq!(bounded.read(&mut output).unwrap(), 3);
-        assert_eq!(bounded.read(&mut output).unwrap(), 0, "a short file ends the block");
+        assert_eq!(
+            bounded.read(&mut output).unwrap(),
+            0,
+            "a short file ends the block"
+        );
     }
 
     #[test]
@@ -792,23 +841,42 @@ mod tests {
             mode: None,
             symlink_target: None,
             is_encrypted: false,
-            block: Some(BlockPlacement { block_index: 3, offset_in_block: 0, block_size: 10 }),
+            block: Some(BlockPlacement {
+                block_index: 3,
+                offset_in_block: 0,
+                block_size: 10,
+            }),
         };
         let same_block = Entry {
             name: "b".to_owned(),
-            block: Some(BlockPlacement { block_index: 3, offset_in_block: 5, block_size: 10 }),
+            block: Some(BlockPlacement {
+                block_index: 3,
+                offset_in_block: 5,
+                block_size: 10,
+            }),
             ..base.clone()
         };
         let other_block = Entry {
             name: "c".to_owned(),
-            block: Some(BlockPlacement { block_index: 4, offset_in_block: 0, block_size: 10 }),
+            block: Some(BlockPlacement {
+                block_index: 4,
+                offset_in_block: 0,
+                block_size: 10,
+            }),
             ..base.clone()
         };
-        let no_block = Entry { name: "d".to_owned(), block: None, ..base.clone() };
+        let no_block = Entry {
+            name: "d".to_owned(),
+            block: None,
+            ..base.clone()
+        };
         assert!(shares_block(&base, &same_block));
         assert!(!shares_block(&base, &other_block));
         assert!(!shares_block(&base, &no_block));
-        assert!(!shares_block(&no_block, &no_block), "absent is not 'the same block'");
+        assert!(
+            !shares_block(&no_block, &no_block),
+            "absent is not 'the same block'"
+        );
     }
 
     #[test]

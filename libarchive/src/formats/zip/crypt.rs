@@ -97,7 +97,11 @@ pub fn parse_aes_extra(extra: &[u8]) -> Option<AesParams> {
             };
             let strength = AesStrength::from_extra_byte(payload[4])?;
             let method = Compression::from_zip_method(u16::from_le_bytes([payload[5], payload[6]]));
-            return Some(AesParams { strength, ae2, method });
+            return Some(AesParams {
+                strength,
+                ae2,
+                method,
+            });
         }
         at += 4 + size;
     }
@@ -117,7 +121,11 @@ impl ZipCryptoKeys {
     fn derive(password: &[u8]) -> ZipCryptoKeys {
         // The password is bytes, not text: the specification never says how it is encoded, so a
         // UTF-8 assumption would lock out archives whose password is not valid UTF-8.
-        let mut keys = ZipCryptoKeys { key0: 0x12345678, key1: 0x23456789, key2: 0x34567890 };
+        let mut keys = ZipCryptoKeys {
+            key0: 0x12345678,
+            key1: 0x23456789,
+            key2: 0x34567890,
+        };
         for &byte in password {
             keys.update(byte);
         }
@@ -153,7 +161,11 @@ impl ZipCryptoKeys {
 fn crc32(crc: u32, byte: u8) -> u32 {
     let mut value = crc ^ byte as u32;
     for _ in 0..8 {
-        value = if value & 1 != 0 { (value >> 1) ^ 0xEDB8_8320 } else { value >> 1 };
+        value = if value & 1 != 0 {
+            (value >> 1) ^ 0xEDB8_8320
+        } else {
+            value >> 1
+        };
     }
     value
 }
@@ -226,8 +238,9 @@ where
         // `try_from` fails rather than panics on the wrong length, so a key that does not match
         // the cipher is a malformed archive rather than a dead process. The lengths always match
         // by construction (the key is cut out of the derived block by strength).
-        let key = aes::cipher::Key::<C>::try_from(key)
-            .map_err(|_| Error::malformed("a WinZip AES key is not the length its strength says"))?;
+        let key = aes::cipher::Key::<C>::try_from(key).map_err(|_| {
+            Error::malformed("a WinZip AES key is not the length its strength says")
+        })?;
         Ok(AesCtr {
             cipher: C::new(&key),
             counter: 1,
@@ -241,7 +254,9 @@ where
         // which is what resolves `encrypt_block` below.
         for byte in target.iter_mut() {
             if self.used == 16 {
-                self.block.as_mut_slice().copy_from_slice(&self.counter.to_le_bytes());
+                self.block
+                    .as_mut_slice()
+                    .copy_from_slice(&self.counter.to_le_bytes());
                 self.cipher.encrypt_block(&mut self.block);
                 self.counter += 1;
                 self.used = 0;
@@ -307,13 +322,22 @@ impl<R: Read> AesReader<R> {
         let mut salt = vec![0u8; salt_len];
         read_exact(&mut source, &mut salt, "reading a WinZip AES salt")?;
         let mut stored_verify = [0u8; AES_VERIFY_LEN];
-        read_exact(&mut source, &mut stored_verify, "reading a WinZip AES verification value")?;
+        read_exact(
+            &mut source,
+            &mut stored_verify,
+            "reading a WinZip AES verification value",
+        )?;
         // PBKDF2-HMAC-SHA1, 1000 rounds, yielding two keys and the verification value. The only
         // failure mode is an output size the PRF cannot produce, which cannot happen with HMAC;
         // it is still reported rather than unwrapped.
         let mut derived = vec![0u8; 2 * key_len + AES_VERIFY_LEN];
-        pbkdf2::pbkdf2::<hmac::SimpleHmacReset<sha1::Sha1>>(password, &salt, AES_ROUNDS, &mut derived)
-            .map_err(|_| Error::malformed("a WinZip AES password could not be processed"))?;
+        pbkdf2::pbkdf2::<hmac::SimpleHmacReset<sha1::Sha1>>(
+            password,
+            &salt,
+            AES_ROUNDS,
+            &mut derived,
+        )
+        .map_err(|_| Error::malformed("a WinZip AES password could not be processed"))?;
         let cipher = AesCipher::with_key(params.strength, &derived[..key_len])?;
         let hmac =
             hmac::SimpleHmacReset::<sha1::Sha1>::new_from_slice(&derived[key_len..2 * key_len])
@@ -327,7 +351,13 @@ impl<R: Read> AesReader<R> {
         if diff != 0 {
             return Err(Error::password("wrong password for this WinZip AES entry"));
         }
-        Ok(AesReader { source, cipher, hmac, remaining: data_len, authed: false })
+        Ok(AesReader {
+            source,
+            cipher,
+            hmac,
+            remaining: data_len,
+            authed: false,
+        })
     }
 
     /// Consumes the trailing authentication code and checks it against the HMAC over the
@@ -336,7 +366,10 @@ impl<R: Read> AesReader<R> {
         use hmac::Mac;
         let mut stored = [0u8; AES_AUTH_LEN];
         self.source.read_exact(&mut stored).map_err(|error| {
-            std::io::Error::new(error.kind(), format!("reading a WinZip AES trailer: {error}"))
+            std::io::Error::new(
+                error.kind(),
+                format!("reading a WinZip AES trailer: {error}"),
+            )
         })?;
         let computed = self.hmac.finalize_reset().into_bytes();
         let mut diff = 0u8;
@@ -407,7 +440,9 @@ mod tests {
     fn the_aes_extra_field_parses_the_values_real_writers_emit() {
         // Taken from a 7-Zip-written AES-256 entry: version 2 (AE-2), vendor `AE`, strength 3,
         // method 0 (stored).
-        let extra = [0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x41, 0x45, 0x03, 0x00, 0x00];
+        let extra = [
+            0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x41, 0x45, 0x03, 0x00, 0x00,
+        ];
         let params = parse_aes_extra(&extra).expect("7-Zip's AES field");
         assert_eq!(params.strength, AesStrength::Aes256);
         assert!(params.ae2);
@@ -418,7 +453,9 @@ mod tests {
     fn the_aes_extra_field_is_found_among_other_fields() {
         // A ZIP64 field followed by the AES field: the scan must skip what it does not know.
         let mut extra = vec![0x01, 0x00, 0x08, 0x00, 1, 2, 3, 4, 5, 6, 7, 8];
-        extra.extend_from_slice(&[0x01, 0x99, 0x07, 0x00, 0x01, 0x00, 0x41, 0x45, 0x01, 0x08, 0x00]);
+        extra.extend_from_slice(&[
+            0x01, 0x99, 0x07, 0x00, 0x01, 0x00, 0x41, 0x45, 0x01, 0x08, 0x00,
+        ]);
         let params = parse_aes_extra(&extra).expect("AES after ZIP64");
         assert_eq!(params.strength, AesStrength::Aes128);
         assert!(!params.ae2, "version 1 is AE-1");
@@ -431,11 +468,15 @@ mod tests {
         // Right id, wrong length.
         assert!(parse_aes_extra(&[0x01, 0x99, 0x03, 0x00, 0x01, 0x02, 0x03]).is_none());
         // Wrong vendor.
-        assert!(parse_aes_extra(&[0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x58, 0x58, 0x03, 0x00, 0x00])
-            .is_none());
+        assert!(parse_aes_extra(&[
+            0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x58, 0x58, 0x03, 0x00, 0x00
+        ])
+        .is_none());
         // Unknown strength.
-        assert!(parse_aes_extra(&[0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x41, 0x45, 0x09, 0x00, 0x00])
-            .is_none());
+        assert!(parse_aes_extra(&[
+            0x01, 0x99, 0x07, 0x00, 0x02, 0x00, 0x41, 0x45, 0x09, 0x00, 0x00
+        ])
+        .is_none());
         // Truncated mid-field.
         assert!(parse_aes_extra(&[0x01, 0x99, 0x07, 0x00, 0x02]).is_none());
     }
@@ -496,8 +537,7 @@ mod tests {
     fn zipcrypto_decrypts_a_byte_at_a_time() {
         let plain: Vec<u8> = (0..1000u32).map(|value| (value % 251) as u8).collect();
         let encrypted = zipcrypto_encrypt(&plain, b"pw", 0x00);
-        let mut reader =
-            ZipCryptoReader::open(Cursor::new(encrypted), b"pw", 0x00).expect("opens");
+        let mut reader = ZipCryptoReader::open(Cursor::new(encrypted), b"pw", 0x00).expect("opens");
         let mut got = Vec::new();
         let mut one = [0u8; 1];
         loop {
@@ -513,8 +553,11 @@ mod tests {
 
     #[test]
     fn aes_with_a_short_total_is_refused_rather_than_reading_past_the_end() {
-        let params =
-            AesParams { strength: AesStrength::Aes256, ae2: true, method: Compression::None };
+        let params = AesParams {
+            strength: AesStrength::Aes256,
+            ae2: true,
+            method: Compression::None,
+        };
         let error = match AesReader::open(Cursor::new(vec![0u8; 64]), 10, b"pw", params) {
             Ok(_) => panic!("shorter than salt plus trailer"),
             Err(error) => error,

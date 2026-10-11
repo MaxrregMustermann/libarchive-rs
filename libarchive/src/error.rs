@@ -59,8 +59,13 @@ pub struct Error {
 }
 
 impl Error {
+    /// Creates a new error with the given kind and message.
     pub fn new(kind: ErrorKind, message: impl Into<String>) -> Error {
-        Error { kind, message: message.into(), source: None }
+        Error {
+            kind,
+            message: message.into(),
+            source: None,
+        }
     }
 
     /// An error caused by the underlying reader or writer.
@@ -71,7 +76,11 @@ impl Error {
             std::io::ErrorKind::UnexpectedEof => ErrorKind::Malformed,
             _ => ErrorKind::Io,
         };
-        Error { kind, message: error.to_string(), source: Some(Box::new(error)) }
+        Error {
+            kind,
+            message: error.to_string(),
+            source: Some(Box::new(error)),
+        }
     }
 
     /// Wraps this error with more context, keeping the kind.
@@ -83,30 +92,37 @@ impl Error {
         self
     }
 
+    /// Returns the kind of this error.
     pub fn kind(&self) -> ErrorKind {
         self.kind
     }
 
+    /// Returns the error message.
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    /// Creates a `Malformed` error.
     pub fn malformed(message: impl Into<String>) -> Error {
         Error::new(ErrorKind::Malformed, message)
     }
 
+    /// Creates an `Unsupported` error.
     pub fn unsupported(message: impl Into<String>) -> Error {
         Error::new(ErrorKind::Unsupported, message)
     }
 
+    /// Creates an `Unimplemented` error.
     pub fn unimplemented(message: impl Into<String>) -> Error {
         Error::new(ErrorKind::Unimplemented, message)
     }
 
+    /// Creates a `Password` error.
     pub fn password(message: impl Into<String>) -> Error {
         Error::new(ErrorKind::Password, message)
     }
 
+    /// Creates a `LimitExceeded` error.
     pub fn limit(message: impl Into<String>) -> Error {
         Error::new(ErrorKind::LimitExceeded, message)
     }
@@ -168,6 +184,7 @@ impl From<unarc_rs::error::ArchiveError> for Error {
     }
 }
 
+/// Result type using this crate's [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]
@@ -176,7 +193,10 @@ mod tests {
 
     #[test]
     fn an_unexpected_eof_reads_as_malformed_rather_than_as_a_plain_io_failure() {
-        let error = Error::io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short"));
+        let error = Error::io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "short",
+        ));
         assert_eq!(error.kind(), ErrorKind::Malformed);
         assert!(error.kind().is_worth_retrying());
     }
@@ -207,22 +227,43 @@ mod tests {
 
         let cases: Vec<(Source, ErrorKind)> = vec![
             (
-                Source::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "short")),
+                Source::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "short",
+                )),
                 ErrorKind::Malformed,
             ),
-            (Source::UnsupportedFormat("weird".into()), ErrorKind::Unsupported),
             (
-                Source::UnsupportedMethod { format: "ARC".into(), method: "9".into() },
+                Source::UnsupportedFormat("weird".into()),
                 ErrorKind::Unsupported,
             ),
-            (Source::InvalidHeader { format: "ARJ".into() }, ErrorKind::Malformed),
+            (
+                Source::UnsupportedMethod {
+                    format: "ARC".into(),
+                    method: "9".into(),
+                },
+                ErrorKind::Unsupported,
+            ),
+            (
+                Source::InvalidHeader {
+                    format: "ARJ".into(),
+                },
+                ErrorKind::Malformed,
+            ),
             (Source::IndexMismatch("nope".into()), ErrorKind::Malformed),
             (
-                Source::CrcMismatch { entry: "a".into(), expected: 1, actual: 2 },
+                Source::CrcMismatch {
+                    entry: "a".into(),
+                    expected: 1,
+                    actual: 2,
+                },
                 ErrorKind::Malformed,
             ),
             (
-                Source::DecompressionFailed { entry: "a".into(), reason: "bad".into() },
+                Source::DecompressionFailed {
+                    entry: "a".into(),
+                    reason: "bad".into(),
+                },
                 ErrorKind::Malformed,
             ),
             (
@@ -234,20 +275,37 @@ mod tests {
                 ErrorKind::Malformed,
             ),
             (
-                Source::ExternalLibrary { library: "rars".into(), message: "no".into() },
+                Source::ExternalLibrary {
+                    library: "rars".into(),
+                    message: "no".into(),
+                },
                 ErrorKind::Malformed,
             ),
-            (Source::PasswordRequired { path: "/tmp/a.rar".into() }, ErrorKind::Password),
             (
-                Source::EncryptionRequired { entry: "a".into(), format: "ACE".into() },
+                Source::PasswordRequired {
+                    path: "/tmp/a.rar".into(),
+                },
                 ErrorKind::Password,
             ),
             (
-                Source::InvalidPassword { entry: "a".into(), format: "ACE".into() },
+                Source::EncryptionRequired {
+                    entry: "a".into(),
+                    format: "ACE".into(),
+                },
                 ErrorKind::Password,
             ),
             (
-                Source::SizeLimitExceeded { entry: "a".into(), limit: 10 },
+                Source::InvalidPassword {
+                    entry: "a".into(),
+                    format: "ACE".into(),
+                },
+                ErrorKind::Password,
+            ),
+            (
+                Source::SizeLimitExceeded {
+                    entry: "a".into(),
+                    limit: 10,
+                },
                 ErrorKind::LimitExceeded,
             ),
         ];
@@ -255,7 +313,10 @@ mod tests {
         for (source, expected) in cases {
             let error = Error::from(source);
             assert_eq!(error.kind(), expected, "{error}");
-            assert!(!error.message().is_empty(), "a mapped error must still say what went wrong");
+            assert!(
+                !error.message().is_empty(),
+                "a mapped error must still say what went wrong"
+            );
         }
     }
 

@@ -18,7 +18,12 @@ struct CountingSource {
 
 impl CountingSource {
     fn new(bytes: Vec<u8>) -> CountingSource {
-        CountingSource { bytes, position: 0, read: 0, reads: 0 }
+        CountingSource {
+            bytes,
+            position: 0,
+            read: 0,
+            reads: 0,
+        }
     }
 }
 
@@ -42,7 +47,10 @@ impl std::io::Seek for CountingSource {
             std::io::SeekFrom::Current(delta) => self.position as i64 + delta,
         };
         if target < 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "before the start"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "before the start",
+            ));
         }
         self.position = target as usize;
         Ok(target as u64)
@@ -51,7 +59,9 @@ impl std::io::Seek for CountingSource {
 
 /// How many bytes the source has handed out so far.
 fn read_so_far(source: &libarchive::Shared<CountingSource>) -> usize {
-    libarchive::reader::lock(source).map(|guard| guard.read).unwrap_or(usize::MAX)
+    libarchive::reader::lock(source)
+        .map(|guard| guard.read)
+        .unwrap_or(usize::MAX)
 }
 
 /// Builds an archive with `entries` entries and returns its bytes.
@@ -65,7 +75,9 @@ fn build(entries: usize) -> Vec<u8> {
     .expect("a writer");
     for index in 0..entries {
         let name = format!("dir{}/file{index}.txt", index % 16);
-        let contents: Vec<u8> = (0..4096).map(|offset| ((index + offset) % 251) as u8).collect();
+        let contents: Vec<u8> = (0..4096)
+            .map(|offset| ((index + offset) % 251) as u8)
+            .collect();
         writer
             .write_entry(&libarchive::NewEntry::file(&name), &mut &contents[..])
             .expect("write");
@@ -91,9 +103,11 @@ fn listing_reads_little(criterion: &mut Criterion) {
     group.bench_function("bytes-touched", |bencher| {
         bencher.iter(|| {
             let source = libarchive::reader::share(CountingSource::new(bytes.clone()));
-            let reader =
-                libarchive::ArchiveReader::open(source.clone(), &libarchive::OpenOptions::default())
-                    .expect("opens");
+            let reader = libarchive::ArchiveReader::open(
+                source.clone(),
+                &libarchive::OpenOptions::default(),
+            )
+            .expect("opens");
             std::hint::black_box((reader.len(), read_so_far(&source)))
         })
     });

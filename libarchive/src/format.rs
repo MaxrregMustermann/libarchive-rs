@@ -6,24 +6,39 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Format {
+    /// ZIP archive (.zip). Supports Deflate, Deflate64, Bzip2, LZMA, Zstd. Read and write.
     Zip,
+    /// 7-Zip archive (.7z). Supports LZMA2, Bzip2, Zstd, PPMd, BCJ2. Read and write.
     SevenZ,
+    /// Uncompressed TAR archive (.tar). Read and write.
     Tar,
-    /// A tar wrapped in one whole-archive compression stream.
+    /// A tar wrapped in one whole-archive compression stream (.tar.gz, .tar.bz2, etc.). Read and write for gzip, bzip2, xz, zstd, lz4.
     CompressedTar(Compression),
-    /// A single compressed stream, which is one entry by definition.
+    /// A single compressed stream, which is one entry by definition (.gz, .bz2, .xz, .zst, .lz4, .br, .Z). Read and write.
     SingleStream(Compression),
+    /// RAR archive (.rar). Read only; multi-volume requires a VolumeProvider not yet wired.
     Rar,
+    /// LHA/LZH archive (.lzh). Read only; extraction blocked by listing-loop defect.
     Lzh,
+    /// ACE archive (.ace). Read only; single-volume works, multi-volume requires VolumeProvider.
     Ace,
+    /// ARC archive (.arc). Read only; extraction blocked by listing-loop defect.
     Arc,
+    /// Zoo archive (.zoo). Read only; works for most fixtures.
     Zoo,
+    /// ARJ archive (.arj). Read only; extraction blocked by listing-loop defect.
     Arj,
+    /// SQ archive (.sq, .sq2). Read only; fails silently (streams 0 bytes).
     Sq,
+    /// UCB archive (.ucb). Not supported; no decoder available.
     Ucb,
+    /// UC2 archive (.uc2). Read only; this crate's own implementation, works correctly.
     Uc2,
+    /// Ha archive (.ha). Read only; extraction blocked by listing-loop defect.
     Ha,
+    /// Hyp archive (.hyp). Read only; extraction blocked by listing-loop defect.
     Hyp,
+    /// Ice archive (.ice). Read only; works correctly for single-volume.
     Ice,
 }
 
@@ -105,21 +120,29 @@ impl Format {
 pub enum Compression {
     /// No compression. Called "store" in ZIP.
     None,
+    /// Deflate (ZIP method 8, gzip, zlib). Read and write.
     Deflate,
+    /// Deflate64 (ZIP method 9). Read only.
     Deflate64,
+    /// Bzip2 (ZIP method 12, .bz2, 7Z, TAR). Read and write.
     Bzip2,
+    /// Raw LZMA (ZIP method 14). Read only.
     Lzma,
+    /// LZMA2 (7Z folder, XZ container). Not a raw codec; driven by 7Z/XZ readers.
     Lzma2,
-    /// The PPMd variant used by 7Z.
+    /// The PPMd variant used by 7Z. Not wired.
     Ppmd,
+    /// Zstd (7Z folder, .zst, TAR). Read and write.
     Zstd,
+    /// LZ4 frame (7Z folder, .lz4, TAR). Frame decoder only; read only.
     Lz4,
-    /// XZ, which is LZMA2 inside a container with its own index and integrity checks.
+    /// XZ, which is LZMA2 inside a container with its own index and integrity checks. Read and write.
     Xz,
-    /// Gzip, which is deflate inside a container with its own header and trailer.
+    /// Gzip, which is deflate inside a container with its own header and trailer. Read and write.
     Gzip,
+    /// Brotli (.br, 7Z folder). Read only; no magic, trial-decode.
     Brotli,
-    /// The Unix `compress` format, which is LZW with a twist.
+    /// The Unix `compress` format, which is LZW with a twist. No decoder crate; carried from `unarc-rs`.
     Z,
     /// A method this build cannot handle. Carried rather than dropped so that listing an archive
     /// still shows every entry, even ones whose contents cannot be produced.
@@ -207,8 +230,14 @@ mod tests {
         assert_eq!(Format::SevenZ.extension(), "7z");
         assert_eq!(Format::Tar.extension(), "tar");
         assert_eq!(Format::CompressedTar(Compression::Xz).extension(), "tar.xz");
-        assert_eq!(Format::CompressedTar(Compression::Gzip).extension(), "tar.gz");
-        assert_eq!(Format::CompressedTar(Compression::Bzip2).extension(), "tar.bz2");
+        assert_eq!(
+            Format::CompressedTar(Compression::Gzip).extension(),
+            "tar.gz"
+        );
+        assert_eq!(
+            Format::CompressedTar(Compression::Bzip2).extension(),
+            "tar.bz2"
+        );
         assert_eq!(Format::SingleStream(Compression::Xz).extension(), "xz");
     }
 
@@ -220,7 +249,11 @@ mod tests {
         assert_eq!(Compression::Bzip2.zip_method(), Some(12));
         assert_eq!(Compression::Lzma.zip_method(), Some(14));
         assert_eq!(Compression::Zstd.zip_method(), Some(93));
-        assert_eq!(Compression::None.zip_method().unwrap(), 0, "store is method 0");
+        assert_eq!(
+            Compression::None.zip_method().unwrap(),
+            0,
+            "store is method 0"
+        );
     }
 
     #[test]

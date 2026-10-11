@@ -25,7 +25,9 @@ const PASSWORD: &str = "s3cret-password-42";
 /// Plaintexts: one tiny file (writers store it) and one large enough to deflate.
 fn plaintexts(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
     let tiny = b"a tiny secret\n".to_vec();
-    let big: Vec<u8> = b"a deflatable line of secret text 0123456789\n".repeat(200).to_vec();
+    let big: Vec<u8> = b"a deflatable line of secret text 0123456789\n"
+        .repeat(200)
+        .to_vec();
     std::fs::write(dir.join("tiny.txt"), &tiny).expect("write");
     std::fs::write(dir.join("big.txt"), &big).expect("write");
     vec![("tiny.txt".to_owned(), tiny), ("big.txt".to_owned(), big)]
@@ -33,7 +35,9 @@ fn plaintexts(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
 
 fn tool(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).map(|dir| dir.join(name)).find(|path| path.is_file())
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join(name))
+            .find(|path| path.is_file())
     })
 }
 
@@ -42,7 +46,11 @@ fn run(tool: &PathBuf, args: &[&str]) {
         .args(args)
         .output()
         .expect("tool runs");
-    assert!(out.status.success(), "{} {args:?} failed: {out:?}", tool.display());
+    assert!(
+        out.status.success(),
+        "{} {args:?} failed: {out:?}",
+        tool.display()
+    );
 }
 
 /// One generated fixture: the archive, and the independent tool that proves it valid.
@@ -97,7 +105,12 @@ fn generate(dir: &std::path::Path) -> Vec<(&'static str, Fixture)> {
         if let Some(unzip) = tool("unzip") {
             let oracle = (
                 unzip,
-                vec!["-P".to_owned(), PASSWORD.to_owned(), "-p".to_owned(), archive_str],
+                vec![
+                    "-P".to_owned(),
+                    PASSWORD.to_owned(),
+                    "-p".to_owned(),
+                    archive_str,
+                ],
             );
             fixtures.push(("infozip-crypto-deflate", Fixture { archive, oracle }));
         }
@@ -115,7 +128,11 @@ fn oracle_extract(fixture: &Fixture, entry: &str) -> Vec<u8> {
         .args(&full)
         .output()
         .expect("oracle runs");
-    assert!(out.status.success(), "oracle for {} failed: {out:?}", fixture.archive.display());
+    assert!(
+        out.status.success(),
+        "oracle for {} failed: {out:?}",
+        fixture.archive.display()
+    );
     out.stdout
 }
 
@@ -128,7 +145,11 @@ fn encrypted_entries_list_without_a_password_and_read_with_one() {
         eprintln!("neither 7z nor zip found; skipping the encrypted-ZIP tests");
         return;
     }
-    assert!(fixtures.len() >= 2, "expected several fixtures, got {}", fixtures.len());
+    assert!(
+        fixtures.len() >= 2,
+        "expected several fixtures, got {}",
+        fixtures.len()
+    );
     for (name, fixture) in &fixtures {
         let bytes = std::fs::read(&fixture.archive).expect("fixture");
         // Listing works with no password and marks every entry encrypted.
@@ -137,7 +158,11 @@ fn encrypted_entries_list_without_a_password_and_read_with_one() {
                 .expect("listing needs no password");
         assert!(!reader.is_empty(), "{name} has entries");
         for entry in reader.entries() {
-            assert!(entry.is_encrypted, "{name}: {} should be marked encrypted", entry.name);
+            assert!(
+                entry.is_encrypted,
+                "{name}: {} should be marked encrypted",
+                entry.name
+            );
         }
         // Every entry reads back exactly, through the streaming API in small chunks.
         for (index, entry) in reader.entries().iter().enumerate() {
@@ -233,10 +258,12 @@ fn encrypted_entries_report_password_without_one_or_with_the_wrong_one() {
     }
     for (name, fixture) in &fixtures {
         let bytes = std::fs::read(&fixture.archive).expect("fixture");
-        for options in [OpenOptions::default(), OpenOptions::default().with_password("wrong")] {
-            let mut reader =
-                ArchiveReader::open(std::io::Cursor::new(bytes.clone()), &options)
-                    .expect("listing never needs the password");
+        for options in [
+            OpenOptions::default(),
+            OpenOptions::default().with_password("wrong"),
+        ] {
+            let mut reader = ArchiveReader::open(std::io::Cursor::new(bytes.clone()), &options)
+                .expect("listing never needs the password");
             for index in 0..reader.len() {
                 let error = match reader.open_entry(index) {
                     Ok(_) => panic!("{name} entry {index} opened without the right password"),

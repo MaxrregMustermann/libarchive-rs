@@ -21,8 +21,8 @@
 
 use std::time::Instant;
 
-use libarchive::{ArchiveReader, OpenOptions};
 use libarchive::error::Error as LibError;
+use libarchive::{ArchiveReader, OpenOptions};
 
 /// The vendored crate's corpus. Present because it is upstream's own test corpus, which is the
 /// most real 7Z data available without downloading anything.
@@ -66,8 +66,10 @@ fn solid_is_not_quadratic() {
     let (solid, non_solid) = match (corpus("solid400big.7z"), corpus("nonsolid400big.7z")) {
         (Some(solid), Some(non_solid)) => (solid, non_solid),
         _ => {
-            eprintln!("skipping: set LIBARCHIVE_BENCH_CORPUS to a directory holding \
-                       solid400big.7z and nonsolid400big.7z (tools/make-corpus.sh makes them)");
+            eprintln!(
+                "skipping: set LIBARCHIVE_BENCH_CORPUS to a directory holding \
+                       solid400big.7z and nonsolid400big.7z (tools/make-corpus.sh makes them)"
+            );
             return;
         }
     };
@@ -77,14 +79,18 @@ fn solid_is_not_quadratic() {
     let solid_time = start.elapsed();
 
     let start = Instant::now();
-    let (control_entries, control_bytes) = read_all_in_order(&non_solid).expect("reads non_solid.7z");
+    let (control_entries, control_bytes) =
+        read_all_in_order(&non_solid).expect("reads non_solid.7z");
     let non_solid_time = start.elapsed();
 
     println!("solid.7z      {entries} entries, {bytes} bytes in {solid_time:?}");
     println!(
         "non_solid.7z  {control_entries} entries, {control_bytes} bytes in {non_solid_time:?}"
     );
-    println!("ratio {:.1}x", solid_time.as_secs_f64() / non_solid_time.as_secs_f64().max(1e-9));
+    println!(
+        "ratio {:.1}x",
+        solid_time.as_secs_f64() / non_solid_time.as_secs_f64().max(1e-9)
+    );
 
     // The property, stated as a bound rather than as a comparison: a solid block costs one extra
     // decode of the same bytes, so it may be slower, but it may not be slower by the number of
@@ -197,8 +203,14 @@ fn bcj2_is_not_quadratic_either() {
         read_all_in_order(&non_solid).expect("reads the non-solid BCJ2 archive");
     let non_solid_time = start.elapsed();
 
-    assert_eq!(entries, control_entries, "the two archives hold different entries");
-    assert_eq!(bytes, control_bytes, "the two archives hold different bytes");
+    assert_eq!(
+        entries, control_entries,
+        "the two archives hold different entries"
+    );
+    assert_eq!(
+        bytes, control_bytes,
+        "the two archives hold different bytes"
+    );
 
     println!("bcj2solid400big.7z   {entries} entries, {bytes} bytes in {solid_time:?}");
     println!(
@@ -232,7 +244,10 @@ fn bcj2_is_not_quadratic_either() {
             .filter(|file| file.has_stream())
             .map(|file| file.name().to_owned())
             .collect();
-        assert!(!names.is_empty(), "the BCJ2 fixture holds no streamed entries");
+        assert!(
+            !names.is_empty(),
+            "the BCJ2 fixture holds no streamed entries"
+        );
         for name in &names {
             let bytes = archive.read_file(name).expect("reads");
             read_file_total += bytes.len() as u64;

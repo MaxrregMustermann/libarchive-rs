@@ -44,11 +44,11 @@ use std::sync::{Arc, Mutex};
 
 use lzma_rust2::filter::bcj2::Bcj2Reader;
 
+use crate::Password;
 use crate::archive::{Archive, EncoderMethod, SIGNATURE_HEADER_SIZE};
 use crate::block::{Block, Coder};
 use crate::decoder::add_decoder;
 use crate::error::Error;
-use crate::Password;
 
 /// How many coders one folder may name before the folder is refused.
 ///
@@ -72,7 +72,12 @@ struct RangeReader<R> {
 
 impl<R: Read + Seek> RangeReader<R> {
     fn new(source: Arc<Mutex<R>>, start: u64, end: u64) -> RangeReader<R> {
-        RangeReader { source, start, position: start, end }
+        RangeReader {
+            source,
+            start,
+            position: start,
+            end,
+        }
     }
 
     /// A second reader over the same byte range, positioned at its start.
@@ -184,9 +189,11 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
         block_index: usize,
         thread_count: u32,
     ) -> Result<BlockCursor<R>, Error> {
-        let block = archive.blocks.get(block_index).cloned().ok_or_else(|| {
-            Error::other(format!("7z folder {block_index} is out of range"))
-        })?;
+        let block = archive
+            .blocks
+            .get(block_index)
+            .cloned()
+            .ok_or_else(|| Error::other(format!("7z folder {block_index} is out of range")))?;
         let first_pack_stream_index = *archive
             .stream_map
             .block_first_pack_stream_index()
@@ -261,7 +268,10 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
         if offset > self.consumed {
             self.skip(offset - self.consumed)?;
         }
-        let decoder = self.decoder.as_mut().expect("restart leaves a decoder in place");
+        let decoder = self
+            .decoder
+            .as_mut()
+            .expect("restart leaves a decoder in place");
         let mut data = vec![0u8; size as usize];
         decoder.read_exact(&mut data)?;
         self.consumed = offset + size;
@@ -614,16 +624,13 @@ impl<R: Read + Seek + Send + 'static> BlockCursor<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Archive;
     use crate::archive::ArchiveEntry;
     use crate::writer::{ArchiveWriter, SourceReader};
-    use crate::Archive;
     use std::io::Cursor;
     use std::time::Instant;
 
-    const SOLID: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/resources/solid.7z"
-    );
+    const SOLID: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/resources/solid.7z");
 
     fn parse() -> (Archive, Vec<u8>) {
         let bytes = std::fs::read(SOLID).expect("the solid corpus file");
@@ -677,20 +684,29 @@ mod tests {
             let data = cursor
                 .read_entry(offset, file.size)
                 .expect("read an entry in order");
-            assert_eq!(data.len() as u64, file.size, "entry {file_index} is the wrong length");
+            assert_eq!(
+                data.len() as u64,
+                file.size,
+                "entry {file_index} is the wrong length"
+            );
             offset += file.size;
             total += data.len() as u64;
         }
-        assert_eq!(cursor.consumed(), total, "the cursor read exactly the folder");
-        assert_eq!(total, cursor.len(), "the whole folder's output was produced");
+        assert_eq!(
+            cursor.consumed(),
+            total,
+            "the cursor read exactly the folder"
+        );
+        assert_eq!(
+            total,
+            cursor.len(),
+            "the whole folder's output was produced"
+        );
 
         // Now the same entries, the way the app reads them today.
         let started = Instant::now();
-        let mut reader = crate::ArchiveReader::new(
-            Cursor::new(bytes.clone()),
-            Password::empty(),
-        )
-        .expect("an archive reader");
+        let mut reader = crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
+            .expect("an archive reader");
         for file_index in start..(start + count) {
             let file = &archive.files[file_index];
             if !file.has_stream {
@@ -789,7 +805,6 @@ mod tests {
     /// files are small and this needs enough entries for reversing to be a real test.
     #[test]
     fn reading_out_of_order_restarts_the_folder_and_stays_correct() {
-
         let names: Vec<String> = (0..12).map(|index| format!("file{index}.txt")).collect();
         let entries: Vec<ArchiveEntry> = names
             .iter()
@@ -811,10 +826,7 @@ mod tests {
             writer
                 .push_archive_entries(entries, readers)
                 .expect("compress the entries together into one solid folder");
-            writer
-                .finish()
-                .expect("finish the archive")
-                .into_inner()
+            writer.finish().expect("finish the archive").into_inner()
         };
 
         let mut source = Cursor::new(bytes.clone());
@@ -838,11 +850,13 @@ mod tests {
                 })
                 .collect()
         };
-        assert!(streams.len() >= 10, "need a solid archive with many entries");
+        assert!(
+            streams.len() >= 10,
+            "need a solid archive with many entries"
+        );
 
-        let mut reader =
-            crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
-                .expect("an archive reader");
+        let mut reader = crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
+            .expect("an archive reader");
         let expected: std::collections::HashMap<String, Vec<u8>> = streams
             .iter()
             .map(|(_, _, name)| {
@@ -866,10 +880,11 @@ mod tests {
         .expect("a cursor over the solid archive");
 
         for (offset, size, name) in streams.iter().rev() {
-            let data = cursor.read_entry(*offset, *size).expect("read out of order");
+            let data = cursor
+                .read_entry(*offset, *size)
+                .expect("read out of order");
             assert_eq!(
-                data,
-                expected[name],
+                data, expected[name],
                 "reading {name} out of order gave different bytes"
             );
         }
@@ -938,8 +953,14 @@ mod tests {
         assert!(archive_is_solid(&small) && archive_is_solid(&large));
 
         // Take the best of each, so a scheduling hiccup cannot make the ratio look quadratic.
-        let small_time = (0..3).map(|_| read_all(small.clone())).min().expect("timed");
-        let large_time = (0..3).map(|_| read_all(large.clone())).min().expect("timed");
+        let small_time = (0..3)
+            .map(|_| read_all(small.clone()))
+            .min()
+            .expect("timed");
+        let large_time = (0..3)
+            .map(|_| read_all(large.clone()))
+            .min()
+            .expect("timed");
         let growth = large_time.as_secs_f64() / small_time.as_secs_f64().max(1e-6);
 
         println!(
@@ -960,7 +981,9 @@ mod tests {
     fn archive_is_solid(bytes: &[u8]) -> bool {
         let mut source = Cursor::new(bytes.to_vec());
         Archive::read(&mut source, &Password::empty())
-            .map(|archive| archive.blocks.len() == 1 && archive.blocks[0].num_unpack_sub_streams > 1)
+            .map(|archive| {
+                archive.blocks.len() == 1 && archive.blocks[0].num_unpack_sub_streams > 1
+            })
             .unwrap_or(false)
     }
 
@@ -975,7 +998,10 @@ mod tests {
             archive.blocks.len() + 10,
             1,
         );
-        assert!(result.is_err(), "a folder that does not exist must not open");
+        assert!(
+            result.is_err(),
+            "a folder that does not exist must not open"
+        );
     }
 
     /// A BCJ2 folder decodes to the same bytes `read_file` produces for it.
@@ -1013,9 +1039,8 @@ mod tests {
              testing nothing"
         );
 
-        let mut reader =
-            crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
-                .expect("an archive reader");
+        let mut reader = crate::ArchiveReader::new(Cursor::new(bytes.clone()), Password::empty())
+            .expect("an archive reader");
         let expected: Vec<(String, Vec<u8>)> = archive
             .files
             .iter()
@@ -1060,7 +1085,8 @@ mod tests {
                     .map(|(_, contents)| contents)
                     .expect("read_file produced this entry too");
                 assert_eq!(
-                    &data, wanted,
+                    &data,
+                    wanted,
                     "{} of BCJ2 folder {block_index} differs from read_file",
                     file.name()
                 );

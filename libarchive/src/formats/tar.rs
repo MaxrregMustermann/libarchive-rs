@@ -99,7 +99,12 @@ impl<R: Read + Seek + Send + 'static> TarReader<R> {
         let source = crate::reader::share(source);
         let records = walk(&source, &options.limits)?;
         let entries = records.iter().map(|record| record.entry.clone()).collect();
-        Ok(Box::new(TarReader { source, entries, records, limits: options.limits.clone() }))
+        Ok(Box::new(TarReader {
+            source,
+            entries,
+            records,
+            limits: options.limits.clone(),
+        }))
     }
 }
 
@@ -149,7 +154,11 @@ struct BoundedReader<R: Read + Seek> {
 
 impl<R: Read + Seek + Send> BoundedReader<R> {
     fn new(source: Shared<R>, offset: u64, size: u64) -> BoundedReader<R> {
-        BoundedReader { source, offset, remaining: size }
+        BoundedReader {
+            source,
+            offset,
+            remaining: size,
+        }
     }
 }
 
@@ -263,7 +272,10 @@ fn walk<R: Read + Seek + Send>(source: &Shared<R>, limits: &Limits) -> Result<Ve
         pax.clear();
 
         let kind = header.kind();
-        let size = if matches!(kind, EntryKind::Directory | EntryKind::Symlink | EntryKind::HardLink) {
+        let size = if matches!(
+            kind,
+            EntryKind::Directory | EntryKind::Symlink | EntryKind::HardLink
+        ) {
             0
         } else {
             size
@@ -281,7 +293,11 @@ fn walk<R: Read + Seek + Send>(source: &Shared<R>, limits: &Limits) -> Result<Ve
         let entry = Entry {
             name: normalise_name(&name),
             kind,
-            size: if matches!(kind, EntryKind::Directory) { None } else { Some(size) },
+            size: if matches!(kind, EntryKind::Directory) {
+                None
+            } else {
+                Some(size)
+            },
             compressed_size: Some(size),
             last_modified: if size == 0 && header.mtime == 0 {
                 None
@@ -296,14 +312,22 @@ fn walk<R: Read + Seek + Send>(source: &Shared<R>, limits: &Limits) -> Result<Ve
             is_encrypted: false,
             block: None,
         };
-        records.push(TarRecord { entry, data_offset, size });
+        records.push(TarRecord {
+            entry,
+            data_offset,
+            size,
+        });
         offset = data_end;
     }
     Ok(records)
 }
 
 /// Reads one 512-byte header at `offset`.
-fn read_block<R: Read + Seek>(source: &Shared<R>, block: &mut [u8; BLOCK_SIZE], offset: u64) -> Result<()> {
+fn read_block<R: Read + Seek>(
+    source: &Shared<R>,
+    block: &mut [u8; BLOCK_SIZE],
+    offset: u64,
+) -> Result<()> {
     let mut guard = crate::reader::lock(source)?;
     guard.seek(SeekFrom::Start(offset))?;
     let read = guard.read(block).map_err(Error::io)?;
@@ -323,9 +347,13 @@ fn read_long_field<R: Read + Seek>(
     let end = offset
         .checked_add(size)
         .filter(|end| *end <= length)
-        .ok_or_else(|| Error::malformed("a GNU long-name header runs past the end of the archive"))?;
+        .ok_or_else(|| {
+            Error::malformed("a GNU long-name header runs past the end of the archive")
+        })?;
     if end - offset > 64 * 1024 {
-        return Err(Error::malformed("a GNU long-name header is implausibly long"));
+        return Err(Error::malformed(
+            "a GNU long-name header is implausibly long",
+        ));
     }
     let mut bytes = vec![0u8; (end - offset) as usize];
     let mut guard = crate::reader::lock(source)?;
@@ -367,11 +395,16 @@ fn parse_pax(bytes: &[u8]) -> Vec<(String, String)> {
         // Some writers prefix each record with its total length. Honour that when it is there,
         // because otherwise the real key is "<len> mtime" and the attribute is silently lost.
         let body = match text.split_once(' ') {
-            Some((length, rest_of)) if length.parse::<usize>().is_ok() && length.len() > 1 => rest_of,
+            Some((length, rest_of)) if length.parse::<usize>().is_ok() && length.len() > 1 => {
+                rest_of
+            }
             _ => &text,
         };
         if let Some((key, value)) = body.split_once('=') {
-            records.push((key.trim().to_owned(), value.trim_end_matches('\n').to_owned()));
+            records.push((
+                key.trim().to_owned(),
+                value.trim_end_matches('\n').to_owned(),
+            ));
         }
     }
     records
@@ -387,7 +420,10 @@ fn pax_attribute(records: &[(String, String)], key: &str) -> Option<String> {
 
 /// Drops the NUL padding a fixed-width TAR field ends with.
 fn trim_nul(bytes: &[u8]) -> &[u8] {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     &bytes[..end]
 }
 
@@ -451,7 +487,11 @@ impl Header {
 fn compute_checksum(block: &[u8; BLOCK_SIZE]) -> u32 {
     let mut sum = 0u32;
     for (index, byte) in block.iter().enumerate() {
-        let value = if (148..156).contains(&index) { b' ' } else { *byte };
+        let value = if (148..156).contains(&index) {
+            b' '
+        } else {
+            *byte
+        };
         sum += value as u32;
     }
     sum
@@ -646,7 +686,9 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for CompressedTarReader<R> 
     }
 
     fn into_source(self: Box<Self>) -> Result<R> {
-        let CompressedTarReader { source, decoder, .. } = *self;
+        let CompressedTarReader {
+            source, decoder, ..
+        } = *self;
         // The live decoder holds a handle on the source through its own input reader, so it has
         // to be unwrapped first. Failing here means an entry stream is still alive, which is the
         // one case the source cannot be taken back in.
@@ -684,7 +726,9 @@ impl Read for StreamRead {
                 "this entry's decoder was advanced by another entry; reopen the entry to read it",
             ));
         }
-        let want = output.len().min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
+        let want = output
+            .len()
+            .min(usize::try_from(self.remaining).unwrap_or(usize::MAX));
         let read = state.inner.read(&mut output[..want])?;
         self.offset = self.offset.saturating_add(read as u64);
         state.pos = state.pos.saturating_add(read as u64);
@@ -703,7 +747,11 @@ impl EntryRead for StreamRead {
 fn supported(compression: Compression) -> bool {
     matches!(
         compression,
-        Compression::Gzip | Compression::Bzip2 | Compression::Xz | Compression::Zstd | Compression::Lz4
+        Compression::Gzip
+            | Compression::Bzip2
+            | Compression::Xz
+            | Compression::Zstd
+            | Compression::Lz4
     )
 }
 
@@ -720,8 +768,7 @@ fn new_decoder<R: Read + Seek + Send + 'static>(
             "a TAR compressed with {compression} cannot be read by this build"
         )));
     }
-    let input: Box<dyn Read + Send> =
-        Box::new(RawReader::new(source.clone(), 0, None));
+    let input: Box<dyn Read + Send> = Box::new(RawReader::new(source.clone(), 0, None));
     // Every codec this crate can decode goes through one function, so adding a codec does not
     // mean finding the places that special-case the old ones.
     crate::compression::decode(compression, input).map_err(|_| {
@@ -834,20 +881,27 @@ fn walk_stream(input: &mut dyn Read, limits: &Limits) -> Result<Vec<StreamRecord
         pax.clear();
 
         let kind = header.kind();
-        let size = if matches!(kind, EntryKind::Directory | EntryKind::Symlink | EntryKind::HardLink) {
+        let size = if matches!(
+            kind,
+            EntryKind::Directory | EntryKind::Symlink | EntryKind::HardLink
+        ) {
             0
         } else {
             size
         };
         let data_offset = offset;
-        let data_end = data_offset.checked_add(padded_length(size)).ok_or_else(|| {
-            Error::malformed("a TAR entry runs past the end of the archive")
-        })?;
+        let data_end = data_offset
+            .checked_add(padded_length(size))
+            .ok_or_else(|| Error::malformed("a TAR entry runs past the end of the archive"))?;
 
         let entry = Entry {
             name: normalise_name(&name),
             kind,
-            size: if matches!(kind, EntryKind::Directory) { None } else { Some(size) },
+            size: if matches!(kind, EntryKind::Directory) {
+                None
+            } else {
+                Some(size)
+            },
             compressed_size: Some(size),
             last_modified: if size == 0 && header.mtime == 0 {
                 None
@@ -862,7 +916,11 @@ fn walk_stream(input: &mut dyn Read, limits: &Limits) -> Result<Vec<StreamRecord
             is_encrypted: false,
             block: None,
         };
-        records.push(StreamRecord { entry, data_offset, size });
+        records.push(StreamRecord {
+            entry,
+            data_offset,
+            size,
+        });
         discard_stream(input, padded_length(size), scratch.buffer(), &mut total)?;
         offset = data_end;
     }
@@ -886,7 +944,9 @@ fn read_block_stream(
                 if filled == 0 {
                     return Ok(false);
                 }
-                return Err(Error::malformed("a TAR header is cut short by the end of the archive"));
+                return Err(Error::malformed(
+                    "a TAR header is cut short by the end of the archive",
+                ));
             }
             Ok(read) => {
                 filled += read;
@@ -907,10 +967,12 @@ fn read_sized_stream(
     total: &mut Total,
 ) -> Result<String> {
     if size > cap {
-        return Err(Error::malformed("a GNU long-name header is implausibly long"));
+        return Err(Error::malformed(
+            "a GNU long-name header is implausibly long",
+        ));
     }
-    let length =
-        usize::try_from(size).map_err(|_| Error::malformed("a header field is larger than memory"))?;
+    let length = usize::try_from(size)
+        .map_err(|_| Error::malformed("a header field is larger than memory"))?;
     let mut bytes = vec![0u8; length];
     input.read_exact(&mut bytes).map_err(Error::io)?;
     total.charge(size)?;
@@ -918,12 +980,16 @@ fn read_sized_stream(
 }
 
 /// Reads a PAX extended header's contents, bounded like [`walk`].
-fn read_pax_stream(input: &mut dyn Read, size: u64, total: &mut Total) -> Result<Vec<(String, String)>> {
+fn read_pax_stream(
+    input: &mut dyn Read,
+    size: u64,
+    total: &mut Total,
+) -> Result<Vec<(String, String)>> {
     if size > 1024 * 1024 {
         return Err(Error::malformed("a PAX header is implausibly long"));
     }
-    let length =
-        usize::try_from(size).map_err(|_| Error::malformed("a header field is larger than memory"))?;
+    let length = usize::try_from(size)
+        .map_err(|_| Error::malformed("a header field is larger than memory"))?;
     let mut bytes = vec![0u8; length];
     input.read_exact(&mut bytes).map_err(Error::io)?;
     total.charge(size)?;
@@ -934,7 +1000,12 @@ fn read_pax_stream(input: &mut dyn Read, size: u64, total: &mut Total) -> Result
 ///
 /// A stream that ends first is truncated, not finished: stopping there would silently drop the
 /// rest of the archive.
-fn discard_stream(input: &mut dyn Read, length: u64, scratch: &mut [u8], total: &mut Total) -> Result<()> {
+fn discard_stream(
+    input: &mut dyn Read,
+    length: u64,
+    scratch: &mut [u8],
+    total: &mut Total,
+) -> Result<()> {
     let mut remaining = length;
     while remaining > 0 {
         let want = (scratch.len() as u64).min(remaining) as usize;
@@ -1001,12 +1072,21 @@ mod tests {
         // Both forms are in the wild. A reader that only handles one silently loses the attribute.
         let plain = b"path=some/long/name.txt\nmtime=1709209296.5\n";
         let parsed = parse_pax(plain);
-        assert_eq!(pax_attribute(&parsed, "path").as_deref(), Some("some/long/name.txt"));
-        assert_eq!(pax_attribute(&parsed, "mtime").as_deref(), Some("1709209296.5"));
+        assert_eq!(
+            pax_attribute(&parsed, "path").as_deref(),
+            Some("some/long/name.txt")
+        );
+        assert_eq!(
+            pax_attribute(&parsed, "mtime").as_deref(),
+            Some("1709209296.5")
+        );
 
         let length_prefixed = b"29 mtime=1709209296.5\n";
         let parsed = parse_pax(length_prefixed);
-        assert_eq!(pax_attribute(&parsed, "mtime").as_deref(), Some("1709209296.5"));
+        assert_eq!(
+            pax_attribute(&parsed, "mtime").as_deref(),
+            Some("1709209296.5")
+        );
     }
 
     #[test]
@@ -1048,7 +1128,11 @@ mod tests {
     fn a_non_octal_numeric_field_is_refused_rather_than_read_as_zero() {
         assert!(read_octal(b"999999999999").is_err());
         assert_eq!(read_octal(b"0000644\0 ").unwrap(), 0o644);
-        assert_eq!(read_octal(b"\0\0\0\0\0\0\0 ").unwrap(), 0, "an empty field is zero");
+        assert_eq!(
+            read_octal(b"\0\0\0\0\0\0\0 ").unwrap(),
+            0,
+            "an empty field is zero"
+        );
     }
 
     #[test]
@@ -1062,18 +1146,22 @@ mod tests {
                 crate::writer::ArchiveWriter::create(sink, crate::format::Format::Tar, &options)
                     .expect("a writer");
             let entry = crate::writer::NewEntry::file("hello.txt").with_size(11);
-            writer.write_entry(&entry, &mut &b"hello world"[..]).expect("write");
+            writer
+                .write_entry(&entry, &mut &b"hello world"[..])
+                .expect("write");
             let entry = crate::writer::NewEntry::directory("dir").with_size(0);
-            writer.write_entry(&entry, &mut std::io::empty()).expect("write");
+            writer
+                .write_entry(&entry, &mut std::io::empty())
+                .expect("write");
             let entry = crate::writer::NewEntry::symlink("link", "hello.txt").with_size(0);
-            writer.write_entry(&entry, &mut std::io::empty()).expect("write");
+            writer
+                .write_entry(&entry, &mut std::io::empty())
+                .expect("write");
             writer.finish_into().expect("finish").into_inner()
         };
-        let mut reader = ArchiveReader::open(
-            Cursor::new(bytes),
-            &crate::reader::OpenOptions::default(),
-        )
-        .expect("the archive this crate wrote must read back");
+        let mut reader =
+            ArchiveReader::open(Cursor::new(bytes), &crate::reader::OpenOptions::default())
+                .expect("the archive this crate wrote must read back");
         assert_eq!(reader.len(), 3);
         let mut got = Vec::new();
         std::io::Read::read_to_end(&mut reader.open_entry(0).expect("open 0"), &mut got)
@@ -1092,7 +1180,9 @@ mod tests {
     /// at the writer's 100-byte limit, and a timestamp with permission bits.
     fn sample_tar() -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
         use crate::writer::{ArchiveWriter, NewEntry, WriteOptions};
-        let binary: Vec<u8> = (0..1_048_576u32).map(|value| ((value / 97) % 256) as u8).collect();
+        let binary: Vec<u8> = (0..1_048_576u32)
+            .map(|value| ((value / 97) % 256) as u8)
+            .collect();
         let contents: Vec<(String, Vec<u8>)> = vec![
             ("hello.txt".to_owned(), b"hello world".to_vec()),
             ("data/blob.bin".to_owned(), binary),
@@ -1102,19 +1192,25 @@ mod tests {
         let bytes = {
             let options = WriteOptions::default();
             let sink = Cursor::new(Vec::new());
-            let mut writer =
-                ArchiveWriter::create(sink, crate::format::Format::Tar, &options).expect("a writer");
+            let mut writer = ArchiveWriter::create(sink, crate::format::Format::Tar, &options)
+                .expect("a writer");
             for (name, payload) in &contents {
                 let mut entry = NewEntry::file(name).with_size(payload.len() as u64);
                 entry.mode = Some(0o640);
                 entry.last_modified =
                     Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000));
-                writer.write_entry(&entry, &mut &payload[..]).expect("write a file");
+                writer
+                    .write_entry(&entry, &mut &payload[..])
+                    .expect("write a file");
             }
             let entry = NewEntry::directory("dir").with_size(0);
-            writer.write_entry(&entry, &mut std::io::empty()).expect("write a directory");
+            writer
+                .write_entry(&entry, &mut std::io::empty())
+                .expect("write a directory");
             let entry = NewEntry::symlink("link", "hello.txt").with_size(0);
-            writer.write_entry(&entry, &mut std::io::empty()).expect("write a symlink");
+            writer
+                .write_entry(&entry, &mut std::io::empty())
+                .expect("write a symlink");
             writer.finish_into().expect("finish").into_inner()
         };
         (bytes, contents)
@@ -1122,8 +1218,7 @@ mod tests {
 
     fn gzip_bytes(raw: &[u8]) -> Vec<u8> {
         use std::io::Write;
-        let mut encoder =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         encoder.write_all(raw).expect("compress");
         encoder.finish().expect("finish the gzip stream")
     }
@@ -1160,8 +1255,15 @@ mod tests {
             ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default())
                 .expect("a compressed TAR this crate wrote must open");
         assert_eq!(reader.format(), format);
-        assert_eq!(reader.len(), contents.len() + 2, "files plus a directory and a symlink");
-        assert!(reader.reuses_blocks(), "in-order reads must reuse the live decoder");
+        assert_eq!(
+            reader.len(),
+            contents.len() + 2,
+            "files plus a directory and a symlink"
+        );
+        assert!(
+            reader.reuses_blocks(),
+            "in-order reads must reuse the live decoder"
+        );
         for (index, (name, payload)) in contents.iter().enumerate() {
             let entry = reader.entry(index).expect("listed entry");
             assert_eq!(&entry.name, name);
@@ -1223,7 +1325,10 @@ mod tests {
                 &mut got,
             )
             .expect("read out of order");
-            assert_eq!(got, contents[index].1, "entry {index} must survive a restart");
+            assert_eq!(
+                got, contents[index].1,
+                "entry {index} must survive a restart"
+            );
         }
     }
 
@@ -1293,10 +1398,17 @@ mod tests {
         .expect("open");
         let mut first = reader.open_entry(0).expect("open the first entry");
         let mut probe = [0u8; 5];
-        assert_eq!(std::io::Read::read(&mut first, &mut probe).expect("read"), 5);
+        assert_eq!(
+            std::io::Read::read(&mut first, &mut probe).expect("read"),
+            5
+        );
         let _second = reader.open_entry(1).expect("open the second entry");
-        let error = std::io::Read::read(&mut first, &mut probe).expect_err("a stale stream must fail");
-        assert!(error.to_string().contains("reopen"), "unexpected message: {error}");
+        let error =
+            std::io::Read::read(&mut first, &mut probe).expect_err("a stale stream must fail");
+        assert!(
+            error.to_string().contains("reopen"),
+            "unexpected message: {error}"
+        );
     }
 
     #[test]
@@ -1305,12 +1417,16 @@ mod tests {
         use crate::writer::{ArchiveWriter, WriteOptions};
         let options = WriteOptions::default();
         let sink = Cursor::new(Vec::new());
-        let writer = ArchiveWriter::create(sink, crate::format::Format::Tar, &options).expect("a writer");
+        let writer =
+            ArchiveWriter::create(sink, crate::format::Format::Tar, &options).expect("a writer");
         let raw = writer.finish_into().expect("finish").into_inner();
         let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
-        let reader =
-            ArchiveReader::open_as(Cursor::new(gzip_bytes(&raw)), format, &OpenOptions::default())
-                .expect("an empty compressed TAR must open");
+        let reader = ArchiveReader::open_as(
+            Cursor::new(gzip_bytes(&raw)),
+            format,
+            &OpenOptions::default(),
+        )
+        .expect("an empty compressed TAR must open");
         assert!(reader.is_empty());
     }
 
@@ -1321,7 +1437,10 @@ mod tests {
         let mut compressed = gzip_bytes(&raw);
         compressed.truncate(compressed.len() / 2);
         let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
-        assert!(ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default()).is_err());
+        assert!(
+            ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default())
+                .is_err()
+        );
     }
 
     #[test]
@@ -1329,10 +1448,11 @@ mod tests {
         use crate::reader::OpenOptions;
         let garbage = gzip_bytes(&vec![b'x'; 4096]);
         let format = crate::format::Format::CompressedTar(crate::format::Compression::Gzip);
-        let error = match ArchiveReader::open_as(Cursor::new(garbage), format, &OpenOptions::default()) {
-            Ok(_) => panic!("garbage must not list"),
-            Err(error) => error,
-        };
+        let error =
+            match ArchiveReader::open_as(Cursor::new(garbage), format, &OpenOptions::default()) {
+                Ok(_) => panic!("garbage must not list"),
+                Err(error) => error,
+            };
         assert_eq!(error.kind(), crate::error::ErrorKind::Malformed);
     }
 
@@ -1340,7 +1460,10 @@ mod tests {
     fn a_compression_this_build_cannot_decode_says_so_rather_than_producing_garbage() {
         use crate::reader::OpenOptions;
         let (raw, _) = sample_tar();
-        for compression in [crate::format::Compression::Ppmd, crate::format::Compression::Z] {
+        for compression in [
+            crate::format::Compression::Ppmd,
+            crate::format::Compression::Z,
+        ] {
             let format = crate::format::Format::CompressedTar(compression);
             let error = match ArchiveReader::open_as(
                 Cursor::new(gzip_bytes(&raw)),
@@ -1350,7 +1473,11 @@ mod tests {
                 Ok(_) => panic!("an undecodable compression must not open"),
                 Err(error) => error,
             };
-            assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented, "{compression}");
+            assert_eq!(
+                error.kind(),
+                crate::error::ErrorKind::Unimplemented,
+                "{compression}"
+            );
         }
     }
 
@@ -1365,6 +1492,8 @@ mod tests {
         // Drain one entry so the live decoder has moved, then hand everything back.
         let mut sink = std::io::sink();
         std::io::copy(&mut reader.open_entry(0).expect("open"), &mut sink).expect("drain");
-        reader.into_inner().expect("the source comes back when nothing holds it");
+        reader
+            .into_inner()
+            .expect("the source comes back when nothing holds it");
     }
 }

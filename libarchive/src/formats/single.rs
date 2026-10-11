@@ -253,7 +253,9 @@ fn check_z_header<R: Read + Seek>(source: &Shared<R>) -> Result<()> {
     let _ = guard.seek(SeekFrom::Start(current));
     result?;
     if header[0..2] != [0x1F, 0x9D] {
-        return Err(Error::malformed("not a .Z stream: the magic is not 0x1f 0x9d"));
+        return Err(Error::malformed(
+            "not a .Z stream: the magic is not 0x1f 0x9d",
+        ));
     }
     let max_bits = header[2] & 0x1F;
     if !(9..=16).contains(&max_bits) {
@@ -294,9 +296,15 @@ mod tests {
     fn the_signatures_are_the_ones_each_format_defines() {
         assert_eq!(magic(Compression::Gzip), Some(&[0x1F, 0x8B, 0x08][..]));
         assert_eq!(magic(Compression::Bzip2), Some(&b"BZh"[..]));
-        assert_eq!(magic(Compression::Zstd), Some(&[0x28, 0xB5, 0x2F, 0xFD][..]));
+        assert_eq!(
+            magic(Compression::Zstd),
+            Some(&[0x28, 0xB5, 0x2F, 0xFD][..])
+        );
         assert_eq!(magic(Compression::Lz4), Some(&[0x04, 0x22, 0x4D, 0x18][..]));
-        assert_eq!(magic(Compression::Xz), Some(&[0xFD, b'7', b'z', b'X', b'Z', 0x00][..]));
+        assert_eq!(
+            magic(Compression::Xz),
+            Some(&[0xFD, b'7', b'z', b'X', b'Z', 0x00][..])
+        );
         assert_eq!(magic(Compression::Z), Some(&[0x1F, 0x9D][..]));
     }
 
@@ -352,7 +360,9 @@ mod tests {
     }
 
     fn payload() -> Vec<u8> {
-        (0..40_000u32).map(|value| ((value / 13) % 256) as u8).collect()
+        (0..40_000u32)
+            .map(|value| ((value / 13) % 256) as u8)
+            .collect()
     }
 
     #[test]
@@ -361,12 +371,9 @@ mod tests {
             let bytes = payload();
             let compressed = compress(method, &bytes);
             let format = crate::format::Format::SingleStream(method);
-            let mut reader = ArchiveReader::open_as(
-                Cursor::new(compressed),
-                format,
-                &OpenOptions::default(),
-            )
-            .unwrap_or_else(|error| panic!("{method} should open: {error}"));
+            let mut reader =
+                ArchiveReader::open_as(Cursor::new(compressed), format, &OpenOptions::default())
+                    .unwrap_or_else(|error| panic!("{method} should open: {error}"));
             assert_eq!(reader.len(), 1, "{method} is one entry");
             let mut got = Vec::new();
             reader
@@ -385,11 +392,9 @@ mod tests {
         let bytes = payload();
         let mut sink = SharedCell::default();
         {
-            let mut encoder = lzma_rust2::XzWriter::new(
-                Box::new(sink.clone()),
-                lzma_rust2::XzOptions::default(),
-            )
-            .expect("an xz writer");
+            let mut encoder =
+                lzma_rust2::XzWriter::new(Box::new(sink.clone()), lzma_rust2::XzOptions::default())
+                    .expect("an xz writer");
             encoder.write_all(&bytes).expect("write");
             encoder.finish().expect("finish");
         }
@@ -470,7 +475,10 @@ mod tests {
         ) {
             let mut got = Vec::new();
             let _ = reader.open_entry(0).expect("open").read_to_end(&mut got);
-            assert!(got.len() <= bytes.len(), "a truncated stream cannot produce more than the original");
+            assert!(
+                got.len() <= bytes.len(),
+                "a truncated stream cannot produce more than the original"
+            );
         }
     }
 

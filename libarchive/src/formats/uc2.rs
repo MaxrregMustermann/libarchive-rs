@@ -48,9 +48,9 @@
 
 use std::io::{self, Cursor, Read, Seek};
 
+use crate::entry::{normalise_name, Entry, EntryKind};
 use crate::error::{Error, Result};
-use crate::entry::{Entry, EntryKind, normalise_name};
-use crate::reader::{EntryRead, OpenOptions, EntrySource, EntryStream, Shared};
+use crate::reader::{EntryRead, EntrySource, EntryStream, OpenOptions, Shared};
 
 // A UC2 decoder that decompresses incrementally into a caller-provided buffer.
 // Based on unarc-rs's `decompress_impl` in uc2/decompress.rs, but adapted for streaming:
@@ -130,7 +130,10 @@ fn uc2_decode_into(decoder: &mut Uc2Decoder, buf: &mut [u8]) -> usize {
     // - Huffman-decoded symbols from tree lengths
     // - LZ77 copies from the circular buffer
     // - End-of-block (EOB) detection
-    let copy_bytes = std::cmp::min(available, decoder.compressed.len().saturating_sub(decoder.pos));
+    let copy_bytes = std::cmp::min(
+        available,
+        decoder.compressed.len().saturating_sub(decoder.pos),
+    );
     if copy_bytes > 0 && total_written < buf.len() {
         let end = std::cmp::min(decoder.pos + copy_bytes, decoder.compressed.len());
         // Copy from compressed data source into output buffer
@@ -230,10 +233,7 @@ impl<R: Read + Seek + Send + 'static> Uc2Reader<R> {
     /// (names, original sizes, compressed sizes, CRCs). After opening,
     /// entries are addressed by index for random access, and their contents
     /// are streamed on demand.
-    pub fn open(
-        source: R,
-        options: &OpenOptions,
-    ) -> Result<Box<dyn EntrySource<R>>> {
+    pub fn open(source: R, options: &OpenOptions) -> Result<Box<dyn EntrySource<R>>> {
         let shared = crate::reader::share(source);
         // Use open_with_format since UnifiedArchive::new() is not available
         let mut backend = unarc_rs::unified::UnifiedArchive::open_with_format(
@@ -252,17 +252,20 @@ impl<R: Read + Seek + Send + 'static> Uc2Reader<R> {
         }
 
         // Convert ArchiveEntry metadata to our Entry type
-        let entries: Vec<Entry> = archive_entries.iter().map(|ae| Entry {
-            name: normalise_name(ae.name()),
-            kind: EntryKind::File,
-            size: Some(ae.original_size()),
-            compressed_size: Some(ae.compressed_size()),
-            last_modified: None,
-            mode: None,
-            symlink_target: None,
-            is_encrypted: false,
-            block: None,
-        }).collect();
+        let entries: Vec<Entry> = archive_entries
+            .iter()
+            .map(|ae| Entry {
+                name: normalise_name(ae.name()),
+                kind: EntryKind::File,
+                size: Some(ae.original_size()),
+                compressed_size: Some(ae.compressed_size()),
+                last_modified: None,
+                mode: None,
+                symlink_target: None,
+                is_encrypted: false,
+                block: None,
+            })
+            .collect();
 
         Ok(Box::new(Uc2Reader {
             backend,
@@ -279,16 +282,12 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for Uc2Reader<R> {
     }
 
     fn open(&mut self, index: usize) -> Result<EntryStream> {
-        let archive_entry = self
-            .archive_entries
-            .get(index)
-            .cloned()
-            .ok_or_else(|| {
-                Error::malformed(format!(
-                    "Entry {index} is out of range, the archive has {} entries",
-                    self.entries.len()
-                ))
-            })?;
+        let archive_entry = self.archive_entries.get(index).cloned().ok_or_else(|| {
+            Error::malformed(format!(
+                "Entry {index} is out of range, the archive has {} entries",
+                self.entries.len()
+            ))
+        })?;
 
         // Read the entry's decompressed data using unarc-rs
         let decoded_data = self.backend.read(&archive_entry)?;
@@ -373,13 +372,21 @@ mod tests {
         let mut out = [0u8; 8];
         let read = reader.read(&mut out).expect("reads");
         assert_eq!(read, 2, "must not produce more than the archive said");
-        assert_eq!(reader.read(&mut out).expect("reads"), 0, "and must then stop");
+        assert_eq!(
+            reader.read(&mut out).expect("reads"),
+            0,
+            "and must then stop"
+        );
     }
 
     #[test]
     fn an_entry_with_no_recorded_size_is_not_given_one() {
         let mut reader = Uc2EntryRead::new(vec![1, 2, 3], None);
-        assert_eq!(reader.size(), None, "an unknown size must stay unknown, not become 0");
+        assert_eq!(
+            reader.size(),
+            None,
+            "an unknown size must stay unknown, not become 0"
+        );
         let mut out = [0u8; 8];
         assert_eq!(reader.read(&mut out).expect("reads"), 3);
     }

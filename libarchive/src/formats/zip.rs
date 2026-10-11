@@ -42,10 +42,15 @@ pub mod crypt;
 
 /// The four bytes every ZIP structure starts with.
 pub const LOCAL_FILE_HEADER: &[u8] = b"PK\x03\x04";
+/// Central directory file header signature.
 pub const CENTRAL_DIRECTORY_HEADER: &[u8] = b"PK\x01\x02";
+/// End of central directory record signature.
 pub const END_OF_CENTRAL_DIRECTORY: &[u8] = b"PK\x05\x06";
+/// ZIP64 end of central directory record signature.
 pub const ZIP64_END_OF_CENTRAL_DIRECTORY: &[u8] = b"PK\x06\x06";
+/// ZIP64 end of central directory locator signature.
 pub const ZIP64_END_LOCATOR: &[u8] = b"PK\x06\x07";
+/// Data descriptor signature (optional, follows entry data when bit 3 is set).
 pub const DATA_DESCRIPTOR: &[u8] = b"PK\x07\x08";
 
 /// The general purpose bit flag values this crate acts on.
@@ -273,7 +278,9 @@ impl<R: Read + Seek + Send + 'static> ZipReader<R> {
             .checked_add(LOCAL_FILE_HEADER_SIZE as u64)
             .and_then(|value| value.checked_add(name_length))
             .and_then(|value| value.checked_add(extra_length))
-            .ok_or_else(|| Error::malformed("an entry's local header runs past the end of the file"))?;
+            .ok_or_else(|| {
+                Error::malformed("an entry's local header runs past the end of the file")
+            })?;
 
         // The central directory's size wins over the local header's whenever it is usable, which
         // is the whole reason the central directory exists. It is only unusable when the entry
@@ -338,7 +345,9 @@ fn read_central_directory<R: Read + Seek + Send + 'static>(
         guard.seek(SeekFrom::End(0))?
     };
     if length < END_OF_CENTRAL_DIRECTORY_SIZE as u64 {
-        return Err(Error::malformed("a ZIP is at least 22 bytes long and this is shorter"));
+        return Err(Error::malformed(
+            "a ZIP is at least 22 bytes long and this is shorter",
+        ));
     }
 
     // One read of the last 64 KiB + 22 finds the end record wherever the comment put it.
@@ -356,14 +365,18 @@ fn read_central_directory<R: Read + Seek + Send + 'static>(
 
     limits.check_entry_count(end.entries as usize)?;
     if end.central_directory_offset > length {
-        return Err(Error::malformed("the central directory starts past the end of the file"));
+        return Err(Error::malformed(
+            "the central directory starts past the end of the file",
+        ));
     }
     let directory_end = end
         .central_directory_offset
         .checked_add(end.central_directory_size)
         .ok_or_else(|| Error::malformed("the central directory size overflows"))?;
     if directory_end > length {
-        return Err(Error::malformed("the central directory runs past the end of the file"));
+        return Err(Error::malformed(
+            "the central directory runs past the end of the file",
+        ));
     }
     limits.check_metadata_size(end.central_directory_size)?;
 
@@ -372,7 +385,11 @@ fn read_central_directory<R: Read + Seek + Send + 'static>(
     }
     // One read of the whole directory, then parse it in memory. This is the line that the
     // BufReader mistake made 54.6 MB worse, and it is the reason there is no BufReader here.
-    let bytes = read_at(source, end.central_directory_offset, end.central_directory_size)?;
+    let bytes = read_at(
+        source,
+        end.central_directory_offset,
+        end.central_directory_size,
+    )?;
     parse_central_directory(&bytes, limits)
 }
 
@@ -432,19 +449,29 @@ fn read_zip64_end<R: Read + Seek + Send + 'static>(
     let mut locator = [0u8; ZIP64_END_LOCATOR_SIZE];
     read_fully(&mut *guard, &mut locator)?;
     if !locator.starts_with(ZIP64_END_LOCATOR) {
-        return Err(Error::malformed("the ZIP64 locator does not start with its signature"));
+        return Err(Error::malformed(
+            "the ZIP64 locator does not start with its signature",
+        ));
     }
     let record_offset = u64_at(&locator, 8);
     guard.seek(SeekFrom::Start(record_offset))?;
     let mut fixed = [0u8; ZIP64_END_RECORD_SIZE];
     read_fully(&mut *guard, &mut fixed)?;
     if !fixed.starts_with(ZIP64_END_OF_CENTRAL_DIRECTORY) {
-        return Err(Error::malformed("the ZIP64 end record does not start with its signature"));
+        return Err(Error::malformed(
+            "the ZIP64 end record does not start with its signature",
+        ));
     }
     Ok(EndRecord {
         entries: replace_saturated(u64_at(&fixed, 32), fallback.entries),
-        central_directory_size: replace_saturated(u64_at(&fixed, 40), fallback.central_directory_size),
-        central_directory_offset: replace_saturated(u64_at(&fixed, 48), fallback.central_directory_offset),
+        central_directory_size: replace_saturated(
+            u64_at(&fixed, 40),
+            fallback.central_directory_size,
+        ),
+        central_directory_offset: replace_saturated(
+            u64_at(&fixed, 48),
+            fallback.central_directory_offset,
+        ),
     })
 }
 
@@ -512,7 +539,10 @@ fn parse_central_directory(bytes: &[u8], limits: &Limits) -> Result<Vec<CentralR
         let variable_start = at + CENTRAL_DIRECTORY_HEADER_SIZE;
         let variable_end = variable_start + name_length + extra_length + comment_length;
         let variable = bytes.get(variable_start..variable_end).ok_or_else(|| {
-            Error::malformed(format!("central directory record {} runs past the directory", records.len()))
+            Error::malformed(format!(
+                "central directory record {} runs past the directory",
+                records.len()
+            ))
         })?;
         let name = variable[..name_length].to_vec();
         let extra = &variable[name_length..name_length + extra_length];
@@ -561,9 +591,9 @@ fn parse_central_directory(bytes: &[u8], limits: &Limits) -> Result<Vec<CentralR
 /// Reads the next 64-bit value out of a ZIP64 extra field's payload.
 fn zip64_value(extra: &[u8], cursor: &mut usize) -> Result<u64> {
     let end = cursor.saturating_add(8);
-    let payload = extra
-        .get(*cursor..end)
-        .ok_or_else(|| Error::malformed("a ZIP64 extra field is shorter than the values it claims"))?;
+    let payload = extra.get(*cursor..end).ok_or_else(|| {
+        Error::malformed("a ZIP64 extra field is shorter than the values it claims")
+    })?;
     *cursor = end;
     Ok(u64_at(payload, 0))
 }
@@ -719,9 +749,9 @@ pub mod entry_reader {
             // An entry the archive gave a size for is never allowed to produce more than that,
             // even if the codec would happily keep going. A deflate stream with trailing garbage
             // would otherwise hand the caller the next entry's bytes.
-            let limit = self.remaining.map_or(output.len(), |left| {
-                (left as usize).min(output.len())
-            });
+            let limit = self
+                .remaining
+                .map_or(output.len(), |left| (left as usize).min(output.len()));
             if limit == 0 {
                 self.checked = true;
                 return Ok(0);
@@ -771,9 +801,14 @@ fn u64_at(bytes: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(buffer)
 }
 
-fn read_at<R: Read + Seek + Send + 'static>(source: &Shared<R>, at: u64, length: u64) -> Result<Vec<u8>> {
-    let length = usize::try_from(length)
-        .map_err(|_| Error::malformed("the central directory is larger than this machine can hold"))?;
+fn read_at<R: Read + Seek + Send + 'static>(
+    source: &Shared<R>,
+    at: u64,
+    length: u64,
+) -> Result<Vec<u8>> {
+    let length = usize::try_from(length).map_err(|_| {
+        Error::malformed("the central directory is larger than this machine can hold")
+    })?;
     let mut bytes = vec![0u8; length];
     let mut guard = lock(source)?;
     guard.seek(SeekFrom::Start(at))?;
@@ -800,22 +835,25 @@ fn decode_name(bytes: &[u8], flags: u16) -> String {
 /// CP437 to Unicode.
 fn cp437(byte: u8) -> char {
     const HIGH: [char; 128] = [
-        '\u{00c7}', '\u{00fc}', '\u{00e9}', '\u{00e2}', '\u{00e4}', '\u{00e0}', '\u{00e5}', '\u{00e7}',
-        '\u{00ea}', '\u{00eb}', '\u{00e8}', '\u{00ef}', '\u{00ee}', '\u{00ec}', '\u{00c4}', '\u{00c5}',
-        '\u{00c9}', '\u{00e6}', '\u{00c6}', '\u{00f4}', '\u{00f6}', '\u{00f2}', '\u{00fb}', '\u{00f9}',
-        '\u{00ff}', '\u{00d6}', '\u{00dc}', '\u{00a2}', '\u{00a3}', '\u{00a5}', '\u{03c0}', '\u{221f}',
-        '\u{00e1}', '\u{00ed}', '\u{00f3}', '\u{00fa}', '\u{00f1}', '\u{00d1}', '\u{00aa}', '\u{00ba}',
-        '\u{00bf}', '\u{2310}', '\u{00ac}', '\u{00bd}', '\u{00bc}', '\u{00a1}', '\u{00ab}', '\u{00bb}',
-        '\u{2591}', '\u{2592}', '\u{2593}', '\u{2502}', '\u{2524}', '\u{2561}', '\u{2562}', '\u{2556}',
-        '\u{2555}', '\u{2563}', '\u{2551}', '\u{2557}', '\u{255d}', '\u{255c}', '\u{255b}', '\u{2510}',
-        '\u{2514}', '\u{2534}', '\u{252c}', '\u{251c}', '\u{2500}', '\u{253c}', '\u{255e}', '\u{255f}',
-        '\u{255a}', '\u{2554}', '\u{2569}', '\u{2566}', '\u{2560}', '\u{2550}', '\u{256c}', '\u{2567}',
-        '\u{2568}', '\u{2564}', '\u{2565}', '\u{2559}', '\u{2558}', '\u{2552}', '\u{2553}', '\u{256b}',
-        '\u{256a}', '\u{2518}', '\u{250c}', '\u{2588}', '\u{2584}', '\u{258c}', '\u{2590}', '\u{2580}',
-        '\u{03b1}', '\u{00df}', '\u{0393}', '\u{03c0}', '\u{03a3}', '\u{03c3}', '\u{00b5}', '\u{03c4}',
-        '\u{03a6}', '\u{0398}', '\u{03a9}', '\u{03b4}', '\u{221e}', '\u{03c6}', '\u{03b5}', '\u{2229}',
-        '\u{2261}', '\u{00b1}', '\u{2265}', '\u{2264}', '\u{2320}', '\u{2321}', '\u{00f7}', '\u{2248}',
-        '\u{00b0}', '\u{2219}', '\u{00b7}', '\u{221a}', '\u{207f}', '\u{00b2}', '\u{25a0}', '\u{00a0}',
+        '\u{00c7}', '\u{00fc}', '\u{00e9}', '\u{00e2}', '\u{00e4}', '\u{00e0}', '\u{00e5}',
+        '\u{00e7}', '\u{00ea}', '\u{00eb}', '\u{00e8}', '\u{00ef}', '\u{00ee}', '\u{00ec}',
+        '\u{00c4}', '\u{00c5}', '\u{00c9}', '\u{00e6}', '\u{00c6}', '\u{00f4}', '\u{00f6}',
+        '\u{00f2}', '\u{00fb}', '\u{00f9}', '\u{00ff}', '\u{00d6}', '\u{00dc}', '\u{00a2}',
+        '\u{00a3}', '\u{00a5}', '\u{03c0}', '\u{221f}', '\u{00e1}', '\u{00ed}', '\u{00f3}',
+        '\u{00fa}', '\u{00f1}', '\u{00d1}', '\u{00aa}', '\u{00ba}', '\u{00bf}', '\u{2310}',
+        '\u{00ac}', '\u{00bd}', '\u{00bc}', '\u{00a1}', '\u{00ab}', '\u{00bb}', '\u{2591}',
+        '\u{2592}', '\u{2593}', '\u{2502}', '\u{2524}', '\u{2561}', '\u{2562}', '\u{2556}',
+        '\u{2555}', '\u{2563}', '\u{2551}', '\u{2557}', '\u{255d}', '\u{255c}', '\u{255b}',
+        '\u{2510}', '\u{2514}', '\u{2534}', '\u{252c}', '\u{251c}', '\u{2500}', '\u{253c}',
+        '\u{255e}', '\u{255f}', '\u{255a}', '\u{2554}', '\u{2569}', '\u{2566}', '\u{2560}',
+        '\u{2550}', '\u{256c}', '\u{2567}', '\u{2568}', '\u{2564}', '\u{2565}', '\u{2559}',
+        '\u{2558}', '\u{2552}', '\u{2553}', '\u{256b}', '\u{256a}', '\u{2518}', '\u{250c}',
+        '\u{2588}', '\u{2584}', '\u{258c}', '\u{2590}', '\u{2580}', '\u{03b1}', '\u{00df}',
+        '\u{0393}', '\u{03c0}', '\u{03a3}', '\u{03c3}', '\u{00b5}', '\u{03c4}', '\u{03a6}',
+        '\u{0398}', '\u{03a9}', '\u{03b4}', '\u{221e}', '\u{03c6}', '\u{03b5}', '\u{2229}',
+        '\u{2261}', '\u{00b1}', '\u{2265}', '\u{2264}', '\u{2320}', '\u{2321}', '\u{00f7}',
+        '\u{2248}', '\u{00b0}', '\u{2219}', '\u{00b7}', '\u{221a}', '\u{207f}', '\u{00b2}',
+        '\u{25a0}', '\u{00a0}',
     ];
     if byte < 0x80 {
         char::from(byte)
@@ -839,7 +877,12 @@ pub(crate) fn dos_time_to_system_time(time: u16, date: u16) -> Option<std::time:
     let day = (date & 0b1_1111) as u64;
     let month = ((date >> 5) as u64) & 0b1111;
     let year = (((date >> 9) as i64) & 0b111_1111) + 1980;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || minute > 59 || second > 59 {
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 59
+    {
         return None;
     }
     // Days from the civil date by Howard Hinnant's algorithm, rather than through a date crate.
@@ -904,7 +947,11 @@ mod tests {
         // list with mojibake names that then cannot be opened by name.
         assert_eq!(cp437(0x80), '\u{00c7}', "C with cedilla");
         assert_eq!(cp437(0x9b), '\u{00a2}', "cent sign");
-        assert_eq!(cp437(0x9e), '\u{03c0}', "pi, which is where a peso sign is not");
+        assert_eq!(
+            cp437(0x9e),
+            '\u{03c0}',
+            "pi, which is where a peso sign is not"
+        );
         assert_eq!(cp437(0xe1), '\u{00df}', "sharp s");
         assert_eq!(cp437(0xe6), '\u{00b5}', "micro sign");
         assert_eq!(cp437(0xff), '\u{00a0}', "non-breaking space");
@@ -926,7 +973,10 @@ mod tests {
         // that is what this returns.
         let first = dos_time_to_system_time(0, (1 << 5) | 1).expect("1980 is representable");
         assert_eq!(
-            first.duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_secs(),
+            first
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("after 1970")
+                .as_secs(),
             315_532_800
         );
         // 2024-02-29 12:34:56, a leap day, so the arithmetic is actually exercised rather than
@@ -935,15 +985,24 @@ mod tests {
         let time = ((12 << 11) | (34 << 5) | 28) as u16;
         let converted = dos_time_to_system_time(time, date).expect("a valid date");
         assert_eq!(
-            converted.duration_since(std::time::UNIX_EPOCH).expect("after 1970").as_secs(),
+            converted
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("after 1970")
+                .as_secs(),
             1_709_181_296
         );
     }
 
     #[test]
     fn an_impossible_dos_date_is_refused_rather_than_silently_wrong() {
-        assert!(dos_time_to_system_time(0, (13 << 5) | 1).is_none(), "month 13");
-        assert!(dos_time_to_system_time(0, (1 << 5) | 32).is_none(), "day 32");
+        assert!(
+            dos_time_to_system_time(0, (13 << 5) | 1).is_none(),
+            "month 13"
+        );
+        assert!(
+            dos_time_to_system_time(0, (1 << 5) | 32).is_none(),
+            "day 32"
+        );
         assert!(dos_time_to_system_time(0, 0).is_none(), "date zero");
     }
 
@@ -974,9 +1033,18 @@ mod tests {
     fn a_directory_is_only_read_from_the_attributes_when_the_archive_came_from_unix() {
         // A DOS archive's attribute byte read as a mode would make ordinary files look like
         // directories whenever the byte happened to have the 0x10 bit set.
-        assert!(is_directory_attributes(0x0300, 0o040755 << 16, 0), "unix directory");
-        assert!(!is_directory_attributes(0x0014, 0o040755 << 16, 0), "dos, attributes ignored");
-        assert!(!is_directory_attributes(0x0300, 0o100644 << 16, 0), "unix regular file");
+        assert!(
+            is_directory_attributes(0x0300, 0o040755 << 16, 0),
+            "unix directory"
+        );
+        assert!(
+            !is_directory_attributes(0x0014, 0o040755 << 16, 0),
+            "dos, attributes ignored"
+        );
+        assert!(
+            !is_directory_attributes(0x0300, 0o100644 << 16, 0),
+            "unix regular file"
+        );
         assert!(!is_directory_attributes(0x0300, 0, 0), "no attributes");
     }
 

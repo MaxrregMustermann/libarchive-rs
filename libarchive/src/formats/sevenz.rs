@@ -148,7 +148,10 @@ impl<R: Read + Seek + Send + 'static> SevenZReader<R> {
     }
 
     /// The cursor over `block_index`, starting one if the current folder is a different one.
-    fn cursor_for(&mut self, block_index: usize) -> Result<Arc<Mutex<BlockCursor<std::io::Cursor<Vec<u8>>>>>> {
+    fn cursor_for(
+        &mut self,
+        block_index: usize,
+    ) -> Result<Arc<Mutex<BlockCursor<std::io::Cursor<Vec<u8>>>>>> {
         if let Some(current) = &self.current {
             if current.block_index == block_index {
                 return Ok(Arc::clone(&current.cursor));
@@ -156,7 +159,11 @@ impl<R: Read + Seek + Send + 'static> SevenZReader<R> {
         }
         let cursor = self.build_cursor(block_index)?;
         let handle = Arc::clone(&cursor);
-        self.current = Some(CurrentFolder { block_index, cursor: handle, started: false });
+        self.current = Some(CurrentFolder {
+            block_index,
+            cursor: handle,
+            started: false,
+        });
         Ok(cursor)
     }
 
@@ -388,7 +395,12 @@ fn build_entries(
             if remaining == 0 {
                 break;
             }
-            if archive.stream_map.file_block_index.get(file_index).copied().flatten()
+            if archive
+                .stream_map
+                .file_block_index
+                .get(file_index)
+                .copied()
+                .flatten()
                 != Some(block_index)
             {
                 continue;
@@ -429,7 +441,9 @@ fn build_entries(
             } else {
                 None
             },
-            mode: options.expose_metadata.then(|| mode_from_windows(file.windows_attributes())),
+            mode: options
+                .expose_metadata
+                .then(|| mode_from_windows(file.windows_attributes())),
             windows_attributes: file.windows_attributes(),
             is_anti_item: file.is_anti_item(),
         };
@@ -490,8 +504,12 @@ fn read_all_bounded<R: Read + Seek>(source: &Shared<R>, limits: &Limits) -> Resu
     let length = guard.seek(SeekFrom::End(0))?;
     guard.seek(SeekFrom::Start(current))?;
     limits.check_metadata_size(length)?;
-    let mut bytes = vec![0u8; usize::try_from(length)
-        .map_err(|_| Error::malformed("the archive is larger than this machine can address"))?];
+    let mut bytes = vec![
+        0u8;
+        usize::try_from(length).map_err(|_| Error::malformed(
+            "the archive is larger than this machine can address"
+        ))?
+    ];
     guard.seek(SeekFrom::Start(0))?;
     read_fully(&mut *guard, &mut bytes)?;
     Ok(bytes)

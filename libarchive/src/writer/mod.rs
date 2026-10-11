@@ -78,11 +78,13 @@ impl Default for WriteOptions {
 }
 
 impl WriteOptions {
+    /// Sets the compression method for the archive.
     pub fn with_compression(mut self, compression: Compression) -> WriteOptions {
         self.compression = compression;
         self
     }
 
+    /// Sets the password for encrypted archive creation.
     pub fn with_password(mut self, password: impl Into<String>) -> WriteOptions {
         self.password = Some(password.into());
         self
@@ -94,8 +96,12 @@ impl WriteOptions {
         self
     }
 
+    /// Creates write options with no compression (store).
     pub fn stored() -> WriteOptions {
-        WriteOptions { compression: Compression::None, ..WriteOptions::default() }
+        WriteOptions {
+            compression: Compression::None,
+            ..WriteOptions::default()
+        }
     }
 
     /// Sets the deflate level for every ZIP entry, overriding the size-based choice.
@@ -153,13 +159,16 @@ pub fn default_deflate_level(size: u64) -> u32 {
 pub struct NewEntry {
     /// The path within the archive. Separators are normalised on the way in.
     pub name: String,
+    /// What kind of entry this is (file, directory, symlink).
     pub kind: crate::entry::EntryKind,
     /// The contents' uncompressed size, when the writer should declare it in advance.
     ///
     /// `None` is allowed and means "unknown", which forces a streaming form. Formats that cannot
     /// stream without a size say so rather than silently buffering.
     pub size: Option<u64>,
+    /// The last modification timestamp to write in the archive.
     pub last_modified: Option<std::time::SystemTime>,
+    /// The unix permission bits to write in the archive.
     pub mode: Option<u32>,
     /// For a symlink, the path it points at. Written as the entry's contents.
     pub symlink_target: Option<String>,
@@ -169,6 +178,7 @@ pub struct NewEntry {
 }
 
 impl NewEntry {
+    /// Creates a new file entry.
     pub fn file(name: impl Into<String>) -> NewEntry {
         NewEntry {
             name: name.into(),
@@ -181,10 +191,15 @@ impl NewEntry {
         }
     }
 
+    /// Creates a new directory entry.
     pub fn directory(name: impl Into<String>) -> NewEntry {
-        NewEntry { kind: crate::entry::EntryKind::Directory, ..NewEntry::file(name) }
+        NewEntry {
+            kind: crate::entry::EntryKind::Directory,
+            ..NewEntry::file(name)
+        }
     }
 
+    /// Creates a new symlink entry.
     pub fn symlink(name: impl Into<String>, target: impl Into<String>) -> NewEntry {
         NewEntry {
             kind: crate::entry::EntryKind::Symlink,
@@ -193,16 +208,19 @@ impl NewEntry {
         }
     }
 
+    /// Sets the declared size of the entry.
     pub fn with_size(mut self, size: u64) -> NewEntry {
         self.size = Some(size);
         self
     }
 
+    /// Sets the last modified timestamp.
     pub fn with_last_modified(mut self, time: std::time::SystemTime) -> NewEntry {
         self.last_modified = Some(time);
         self
     }
 
+    /// Marks the entry as stored (uncompressed).
     pub fn stored(mut self) -> NewEntry {
         self.compress = Some(false);
         self
@@ -226,8 +244,11 @@ pub trait EntryWriter<W: Write + Seek> {
     ///
     /// The returned value borrows this writer, so it must be dropped before the next entry or
     /// before [`EntryWriter::finish`]. [`ArchiveWriter::write_entry_with`] does that for a caller.
-    fn begin<'a>(&'a mut self, entry: &NewEntry, options: &WriteOptions)
-        -> Result<Box<dyn EntryWrite + 'a>>;
+    fn begin<'a>(
+        &'a mut self,
+        entry: &NewEntry,
+        options: &WriteOptions,
+    ) -> Result<Box<dyn EntryWrite + 'a>>;
 
     /// Finishes the archive, writing whatever directory or trailer the format needs.
     ///
@@ -294,6 +315,7 @@ impl<W: Write + Seek + 'static> ArchiveWriter<W> {
         })
     }
 
+    /// Returns the format of this archive writer.
     pub fn format(&self) -> Format {
         self.format
     }
@@ -537,8 +559,12 @@ mod what_can_be_written {
     use crate::format::{Compression, Format};
 
     fn creates(format: Format) -> Result<()> {
-        ArchiveWriter::create(std::io::Cursor::new(Vec::new()), format, &WriteOptions::default())
-            .map(|_| ())
+        ArchiveWriter::create(
+            std::io::Cursor::new(Vec::new()),
+            format,
+            &WriteOptions::default(),
+        )
+        .map(|_| ())
     }
 
     /// The formats the app can create. ZIP, TAR and 7Z are what a file manager offers today.
@@ -562,7 +588,8 @@ mod what_can_be_written {
     #[test]
     fn every_format_this_document_lists_as_writable_really_is() {
         for format in WRITABLE {
-            creates(*format).unwrap_or_else(|error| panic!("{format:?} is listed as writable: {error}"));
+            creates(*format)
+                .unwrap_or_else(|error| panic!("{format:?} is listed as writable: {error}"));
         }
     }
 
@@ -593,9 +620,9 @@ mod what_can_be_written {
     #[test]
     fn a_format_listed_as_read_only_says_so_rather_than_writing_a_broken_archive() {
         for (format, label) in READ_ONLY {
-            let error = creates(*format)
-                .err()
-                .unwrap_or_else(|| panic!("{label} is listed as read-only but just created a writer"));
+            let error = creates(*format).err().unwrap_or_else(|| {
+                panic!("{label} is listed as read-only but just created a writer")
+            });
             assert_eq!(
                 error.kind(),
                 ErrorKind::Unimplemented,
