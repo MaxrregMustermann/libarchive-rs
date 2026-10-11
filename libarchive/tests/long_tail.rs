@@ -9,7 +9,11 @@
 //!
 //! Each row checks three things, in this order:
 //!
-//! 1. **detect** — what `libarchive::detect_header` says the file is, from its first bytes.
+//! 1. **detect** — what `libarchive::detect_header_with_name` says the file is, given its first
+//!    bytes *and* the name the app already has. Two of the twelve have no bytes to identify them
+//!    with: an ICE file starts with its uncompressed length and an ARC file with the DOS
+//!    end-of-file marker. Those rows carry `needs_name: true`, and the harness asserts both halves
+//!    — that the name is what reaches them, and that the bytes alone still say nothing.
 //! 2. **open and list** — `ArchiveReader::open_as` succeeds and lists the recorded entry names.
 //! 3. **extract** — every entry is streamed out through the public `Read`, in chunks smaller than
 //!    the entry, and the CRC-32 of the bytes that came out is compared with the CRC-32 of a
@@ -36,7 +40,7 @@ use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use libarchive::{detect_header, ArchiveReader, ErrorKind, Format, OpenOptions};
+use libarchive::{detect_header, detect_header_with_name, ArchiveReader, ErrorKind, Format, OpenOptions};
 
 /// The chunk size extraction is measured in.
 ///
@@ -53,8 +57,11 @@ struct Row {
     fixture: &'static str,
     /// The password to open with, when the fixture is encrypted.
     password: Option<&'static str>,
-    /// What `detect_header` says this file is.
+    /// What detection says this file is, for a caller that has its name.
     detected: Format,
+    /// Whether only the name can reach it. The bytes of an ARC and of an ICE say nothing that any
+    /// signature can compare against, and this row records that rather than pretending otherwise.
+    needs_name: bool,
     /// One entry per listed entry, in listing order.
     entries: &'static [Entry],
 }
@@ -94,6 +101,7 @@ const TRUTH: &[Row] = &[
         fixture: "rar/multi/unarc.part1.rar",
         password: None,
         detected: Format::Rar,
+        needs_name: false,
         entries: &[Entry {
             name: "unarc",
             what: Outcome::Fails {
@@ -107,6 +115,7 @@ const TRUTH: &[Row] = &[
         fixture: "rar/multi/unarc.part2.rar",
         password: None,
         detected: Format::Rar,
+        needs_name: false,
         entries: &[Entry {
             name: "unarc",
             what: Outcome::Fails {
@@ -120,6 +129,7 @@ const TRUTH: &[Row] = &[
         fixture: "rar/multi/unarc.part3.rar",
         password: None,
         detected: Format::Rar,
+        needs_name: false,
         entries: &[Entry {
             name: "unarc",
             what: Outcome::Fails {
@@ -138,6 +148,7 @@ const TRUTH: &[Row] = &[
         fixture: "lzh/lha255e_lh5.lzh",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "GPL-2",
             what: Outcome::Fails {
@@ -151,6 +162,7 @@ const TRUTH: &[Row] = &[
         fixture: "lzh/lha_unix114i_h0_lh0.lzh",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "gpl-2.gz",
             what: Outcome::Fails {
@@ -164,6 +176,7 @@ const TRUTH: &[Row] = &[
         fixture: "lzh/lha_unix114i_h0_lh5.lzh",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
             what: Outcome::Fails {
@@ -177,6 +190,7 @@ const TRUTH: &[Row] = &[
         fixture: "lzh/lha_unix114i_h1_lh5.lzh",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
             what: Outcome::Fails {
@@ -190,6 +204,7 @@ const TRUTH: &[Row] = &[
         fixture: "lzh/lha_unix114i_h2_lh5.lzh",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
             what: Outcome::Fails {
@@ -205,6 +220,7 @@ const TRUTH: &[Row] = &[
         fixture: "ace/license1.ace",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -215,6 +231,7 @@ const TRUTH: &[Row] = &[
         fixture: "ace/license2.ace",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -225,6 +242,7 @@ const TRUTH: &[Row] = &[
         fixture: "ace/multi/unarc.ace",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "UNARC",
             what: Outcome::Fails {
@@ -238,6 +256,7 @@ const TRUTH: &[Row] = &[
         fixture: "ace/multi/unarc.c00",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "UNARC",
             what: Outcome::Fails {
@@ -251,6 +270,7 @@ const TRUTH: &[Row] = &[
         fixture: "ace/multi/unarc.c01",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "UNARC",
             what: Outcome::Fails {
@@ -265,7 +285,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/cpm.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[
             Entry {
                 name: "DDTZ.COM",
@@ -287,7 +308,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/store.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -300,7 +322,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/squashed.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -313,7 +336,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/crunch.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -326,7 +350,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/crunch2.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -341,7 +366,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/wrongcrc16.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -358,7 +384,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/license_cypted.arc",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -371,7 +398,8 @@ const TRUTH: &[Row] = &[
         format: Format::Arc,
         fixture: "arc/license_cypted.arc",
         password: Some("SECRET"),
-        detected: Format::Zip,
+        detected: Format::Arc,
+        needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -387,6 +415,7 @@ const TRUTH: &[Row] = &[
         fixture: "zoo/store.zoo",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -397,6 +426,7 @@ const TRUTH: &[Row] = &[
         fixture: "zoo/default.zoo",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -407,6 +437,7 @@ const TRUTH: &[Row] = &[
         fixture: "zoo/high_per.zoo",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -417,6 +448,7 @@ const TRUTH: &[Row] = &[
         fixture: "zoo/wrongcrc16.zoo",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Fails {
@@ -432,6 +464,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/stored.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -445,6 +478,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/method1.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -458,6 +492,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/method2.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -471,6 +506,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/method3.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -484,6 +520,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/method4.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -497,6 +534,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/wrongcrc32.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -512,6 +550,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/license_crypted.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -525,6 +564,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/multi/test_file.arj",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "TEST.ICY",
             what: Outcome::Fails {
@@ -538,6 +578,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/multi/test_file.a01",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "TEST.ICY",
             what: Outcome::Fails {
@@ -551,6 +592,7 @@ const TRUTH: &[Row] = &[
         fixture: "arj/multi/test_file.a02",
         password: None,
         detected: Format::Arj,
+        needs_name: false,
         entries: &[Entry {
             name: "TEST.ICY",
             what: Outcome::Fails {
@@ -567,6 +609,7 @@ const TRUTH: &[Row] = &[
         fixture: "sq/license.sq",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Short {
@@ -580,6 +623,7 @@ const TRUTH: &[Row] = &[
         fixture: "sq/license.sq2",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: ".LIC",
             what: Outcome::Short {
@@ -600,6 +644,7 @@ const TRUTH: &[Row] = &[
         fixture: "uc2/fast.uc2",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -610,6 +655,7 @@ const TRUTH: &[Row] = &[
         fixture: "uc2/normal.uc2",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -620,6 +666,7 @@ const TRUTH: &[Row] = &[
         fixture: "uc2/stight.uc2",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -630,6 +677,7 @@ const TRUTH: &[Row] = &[
         fixture: "uc2/tight.uc2",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -641,6 +689,7 @@ const TRUTH: &[Row] = &[
         fixture: "ha/copy.ha",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Fails {
@@ -654,6 +703,7 @@ const TRUTH: &[Row] = &[
         fixture: "ha/asc.ha",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Fails {
@@ -667,6 +717,7 @@ const TRUTH: &[Row] = &[
         fixture: "ha/hsc.ha",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "license",
             what: Outcome::Fails {
@@ -682,6 +733,7 @@ const TRUTH: &[Row] = &[
         fixture: "hyp/license.hyp",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
             what: Outcome::Fails {
@@ -695,6 +747,7 @@ const TRUTH: &[Row] = &[
         fixture: "hyp/stored.hyp",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[
             Entry {
                 name: "A",
@@ -724,6 +777,7 @@ const TRUTH: &[Row] = &[
         fixture: "hyp/invalid.hyp",
         password: None,
         detected: Format::Zip,
+        needs_name: false,
         entries: &[Entry {
             name: "A",
             what: Outcome::Fails {
@@ -738,7 +792,8 @@ const TRUTH: &[Row] = &[
         format: Format::Ice,
         fixture: "ice/license_lha.ice",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ice,
+        needs_name: true,
         entries: &[Entry {
             name: "compressed",
             what: Outcome::Plaintext("plaintext/license.txt"),
@@ -1063,12 +1118,30 @@ fn long_tail_truth_table() {
             None => row.fixture.to_owned(),
         };
 
-        // 1. What the bytes at the front of the file say this file is.
-        let detected = detect_header(&bytes);
+        // 1. What the file is, for a caller that has both the bytes and the name.
+        let name = fixtures().join(row.fixture);
+        let detected = detect_header_with_name(&bytes, Some(&name));
         if detected != row.detected {
             failures.push(format!(
-                "{label}: detect says {detected:?}, the table records {:?}",
+                "{label}: detect says {detected:?} with the file's name, the table records {:?}",
                 row.detected
+            ));
+        }
+
+        // And the half that is easy to forget: for the two formats the bytes cannot identify,
+        // the name really is all of it. Asserted rather than assumed, because a signature for
+        // either would be a guess.
+        let by_content = detect_header(&bytes);
+        let expected_by_content = if row.needs_name { Format::Zip } else { row.detected };
+        if by_content != expected_by_content {
+            failures.push(format!(
+                "{label}: detect from the bytes alone says {by_content:?}, the table records \
+                 {expected_by_content:?}{}",
+                if row.needs_name {
+                    " -- this format has no signature, so the name is the only way to it"
+                } else {
+                    " -- this format is reachable from the bytes and must stay so"
+                }
             ));
         }
 
@@ -1174,7 +1247,7 @@ fn long_tail_truth_table() {
         }
 
         println!(
-            "{label:34} detect={detected:?} n={} | {}",
+            "{label:34} detect={detected:?} (bytes alone: {by_content:?}) n={} | {}",
             listed.len(),
             observed.join(" | ")
         );
