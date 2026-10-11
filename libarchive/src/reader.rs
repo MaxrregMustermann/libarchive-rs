@@ -633,6 +633,7 @@ pub fn shares_block(first: &Entry, second: &Entry) -> bool {
 }
 
 /// The kind a caller should be told an error is when it came from a codec that does not speak it.
+#[allow(dead_code, reason = "kept for the codecs that will need it; deleting a public-ish helper every codec re-adds is worse than one dead function")]
 pub(crate) fn codec_error(kind: ErrorKind, message: impl Into<String>) -> Error {
     Error::new(kind, message)
 }

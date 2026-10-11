@@ -90,6 +90,11 @@ pub mod legacy {
         Format::Ice,
     ];
 
+    /// Whether this build has a reader for `format`.
+    ///
+    /// Every format in [`AVAILABLE`] has one today. The function exists so that a caller - or a
+    /// test - can ask the question without duplicating the list, and so that a format added here
+    /// without a reader behind it is visible in one place rather than spread across a `match`.
     pub fn is_available(format: Format) -> bool {
         AVAILABLE.contains(&format)
     }

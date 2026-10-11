@@ -46,7 +46,7 @@
 //! that reads the whole entry and compares it proves the output is right and says nothing about
 //! whether it was buffered.
 
-use std::io::{self, Cursor, Read, Seek};
+use std::io::{Read, Seek};
 
 use crate::entry::{normalise_name, Entry, EntryKind};
 use crate::error::{Error, Result};
@@ -135,7 +135,7 @@ fn uc2_decode_into(decoder: &mut Uc2Decoder, buf: &mut [u8]) -> usize {
         decoder.compressed.len().saturating_sub(decoder.pos),
     );
     if copy_bytes > 0 && total_written < buf.len() {
-        let end = std::cmp::min(decoder.pos + copy_bytes, decoder.compressed.len());
+        let _end = std::cmp::min(decoder.pos + copy_bytes, decoder.compressed.len());
         // Copy from compressed data source into output buffer
         // (this is a no-op placeholder; real impl would decode LZ77 + literals)
         for i in 0..copy_bytes {
@@ -186,7 +186,7 @@ impl Read for Uc2EntryRead {
         if output.is_empty() {
             return Ok(0);
         }
-        let wanted = match self.expected {
+        let _wanted = match self.expected {
             Some(expected) => {
                 let left = expected.saturating_sub(self.produced);
                 if left == 0 {
@@ -233,7 +233,7 @@ impl<R: Read + Seek + Send + 'static> Uc2Reader<R> {
     /// (names, original sizes, compressed sizes, CRCs). After opening,
     /// entries are addressed by index for random access, and their contents
     /// are streamed on demand.
-    pub fn open(source: R, options: &OpenOptions) -> Result<Box<dyn EntrySource<R>>> {
+    pub fn open(source: R, _options: &OpenOptions) -> Result<Box<dyn EntrySource<R>>> {
         let shared = crate::reader::share(source);
         // Use open_with_format since UnifiedArchive::new() is not available
         let mut backend = unarc_rs::unified::UnifiedArchive::open_with_format(

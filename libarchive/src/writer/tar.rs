@@ -104,6 +104,11 @@ pub struct CompressedTarWriter<W: Write + Seek + 'static> {
 }
 
 impl<W: Write + Seek + 'static> CompressedTarWriter<W> {
+    /// Creates a TAR writer for the whole-archive compression named in `options.compression`.
+    ///
+    /// The compression is read here rather than per entry, because a compressed TAR is one
+    /// compression stream wrapped around the whole archive: the first byte of the file belongs to
+    /// the compressor, so there is nowhere to write a per-entry method later.
     pub fn create(sink: W, options: &WriteOptions) -> Result<Box<dyn EntryWriter<W>>> {
         // None of these formats has anywhere to put a password: refusing is the difference
         // between "cannot encrypt" and an archive that silently drops the encryption.
