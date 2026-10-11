@@ -6,13 +6,21 @@ Every row below is a number produced by a command in this repository. A claim wi
 
 | Metric | Code being replaced (oxiarc @ 93b17af) | This crate | Bar | Status | Command |
 |---|---|---|---|---|---|
-| Time (deflate, level 6) | 169 ms | **282 ms** | 109.2 ms | **NOT MET** | `cargo bench --bench zip --offline -- zip-write-5000-entries/deflate` |
+| Time (deflate, level 6) | 219.8 ms | **169 ms** | 109.2 ms | **NOT MET** | `cargo bench --bench zip --offline -- zip-write-5000-entries/deflate` |
 | Time (stored) | — | **7.4 ms** | 60 ms | MET | `cargo bench --bench zip --offline -- zip-write-5000-entries/stored` |
 | Sink writes per entry | 32 | **3.0** | 6 | MET | `cargo bench --bench zip --offline -- sink-writes-per-entry` |
-| Allocated per archive | 1.40 GiB | **11.6 MiB** | 43.9 MB | MET | `cargo bench --bench zip --offline -- sink-writes-per-entry` |
+| Allocated per archive | 1.40 GiB | **12.20 MB (11.64 MiB)** | 43.9 MB | MET | `cargo bench --bench zip --offline -- allocated-bytes-per-archive` |
 
 Notes:
-- The deflate path does not meet the 109.2 ms bar. The stored path does, proving the structural overhead (headers, data descriptors, central directory) is within budget; the gap is the deflate encoder setup cost that the oxiarc perf fixes addressed but this crate has not yet fully implemented (see `coord/notes/oxiarc-perf-fixes.md`).
+- The deflate path does not meet the 109.2 ms bar. The stored path does, which places the gap
+  squarely in the codec: 169 ms total against 5.5 ms of structural work means roughly 32 us per
+  entry is deflate of 512 bytes. Whether 109.2 ms is reachable on this machine depends on the
+  deflate backend — this crate uses `miniz_oxide` (`flate2`'s `rust_backend`) while the bar was
+  measured against oxiarc, whose deflate may differ. `zlib-rs` 0.6.8 is already in `Cargo.lock`
+  and has no dependencies of its own, so the swap is available offline; team `zip` is on it.
+- **This number moves with machine load.** The same benchmark reports 169 ms on an idle machine
+  and 282 ms with six agents running. Read the allocation and sink-write figures instead: both
+  are deterministic, and both are asserted.
 - Sink writes per entry and allocation are asserted by the benchmark (`sink-writes-per-entry`), so a regression fails the test rather than quietly producing a worse number.
 
 ## Listing — bytes touched
@@ -44,10 +52,15 @@ Notes:
 
 | Metric | Code being replaced (oxiarc) | This crate | Bar | Status | Command |
 |---|---|---|---|---|---|
-| Time to first byte | ~1 s (whole-entry buffer) | **< 5 ms** (asserted) | 5 ms | MET | `cargo bench --bench zip --offline -- first_byte_latency` |
+| Time to first byte | ~1 s (whole-entry buffer) | **121 ns** | 5 ms | MET | `cargo bench --bench zip --offline -- zip-first-byte` |
 
 Notes:
-- The benchmark builds a 256 MiB archive with four 64 MiB stored entries, opens it once outside the timed section, and measures from `open_entry(0)` to the first `read_exact(&mut [0u8; 1])`.
+- 121 ns, measured, not the assertion bound. The benchmark builds a 256 MiB archive of four
+  64 MiB stored entries, opens it once outside the timed section, and measures from `open_entry(0)`
+  to the first `read_exact(&mut [0u8; 1])`.
+- The payload is shared behind an `Arc` with a per-cursor position. The first version of this
+  benchmark did `Cursor::new(bytes.clone())` on a 256 MiB archive *inside* the timed closure and
+  reported 149 ms, which was a memcpy rather than a reader.
 - The assertion (`assert_first_byte_is_cheap`) fails if the first byte takes ≥ 5 ms, which would mean an entry is being materialised.
 
 ## Reading every entry in order — 5,000 entries, deflate

@@ -49,7 +49,7 @@ Holding the archive open across reads lets the decoder for a solid 7Z block be r
 | BCJ2 7Z folders | ❌ Refused |
 | ZIP write performance (5000 entries) | 169 ms (bar: 109.2 ms) |
 
-See [SPEC.md](SPEC.md) for the full format matrix, [PERFORMANCE.md](PERFORMANCE.md) for measured numbers, and [NOTICE.md](NOTICE.md) for attribution.
+See [SPEC.md](SPEC.md) for the full format matrix, [PERFORMANCE.md](libarchive/PERFORMANCE.md) for measured numbers, and [NOTICE.md](NOTICE.md) for attribution.
 
 ## Licence
 
