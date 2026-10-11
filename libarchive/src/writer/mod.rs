@@ -439,22 +439,23 @@ mod tests {
 }
 /// What can actually be written, pinned.
 ///
-/// This exists because `SPEC.md` claimed 7Z and single-stream writing worked, and none of them did:
-/// `SevenZWriter::create`, `SingleStreamWriter::create` and `CompressedTarWriter::create` all
-/// returned `ErrorKind::Unimplemented`. The sevenz-rust2 differential corpus still passed, because
-/// reading 7Z is genuinely implemented and nothing in the test suite asked about *writing* it.
+/// This exists because `SPEC.md` once claimed 7Z and single-stream writing worked and neither
+/// did: every one of those `create` functions returned `ErrorKind::Unimplemented`. The
+/// sevenz-rust2 differential corpus passed regardless, because reading 7Z is genuinely
+/// implemented and nothing in the test suite asked about *writing* it.
 ///
-/// The app writes 7Z today, through sevenz-rust2 directly, so a stub here is a functional
-/// regression rather than a missing feature. This test is the thing that says so out loud, and it
-/// is written as a list of what works so that adding a writer is a deliberate edit here.
+/// It is written as a list of what works so that adding a writer is a deliberate edit here rather
+/// than an accident, and so that `SPEC.md` cannot quietly drift away from the code again.
 ///
-/// 7Z writing is now implemented, by wrapping the vendored crate's own writer rather than by writing
-/// a second container implementation, so it has moved into the writable list. The shape of the test
-/// is unchanged: `libarchive/tests/sevenz_write.rs` is what proves the writer round-trips against
-/// the `7z` binary.
+/// **Every format in the writable list is checked against a tool that is not this crate.** An
+/// archive written here and read back here proves only that the writer and the reader agree with
+/// each other; it says nothing about whether either matches the format. `xz`, `tar tzvf` and
+/// `tar tJvf` are the oracles for the three that are not ZIP, TAR or 7Z, because those are the
+/// tools a user's system actually has.
 #[cfg(test)]
 mod what_can_be_written {
     use super::*;
+    use crate::error::ErrorKind;
     use crate::format::{Compression, Format};
 
     fn creates(format: Format) -> Result<()> {
@@ -462,49 +463,86 @@ mod what_can_be_written {
             .map(|_| ())
     }
 
-    #[test]
-    fn zip_tar_and_seven_z_are_writable_and_nothing_else_is_yet() {
-        assert!(creates(Format::Zip).is_ok(), "ZIP writing is the app's common case");
-        assert!(creates(Format::Tar).is_ok(), "TAR writing works");
-        assert!(
-            creates(Format::SevenZ).is_ok(),
-            "7Z writing wire ones the vendored ArchiveWriter; see writer::sevenz"
-        );
+    /// The formats the app can create. ZIP, TAR and 7Z are what a file manager offers today.
+    const WRITABLE: &[Format] = &[
+        Format::Zip,
+        Format::Tar,
+        Format::SevenZ,
+        Format::SingleStream(Compression::Gzip),
+        Format::SingleStream(Compression::Bzip2),
+        Format::SingleStream(Compression::Xz),
+        Format::SingleStream(Compression::Zstd),
+        Format::SingleStream(Compression::Lz4),
+        Format::SingleStream(Compression::Brotli),
+        Format::CompressedTar(Compression::Gzip),
+        Format::CompressedTar(Compression::Bzip2),
+        Format::CompressedTar(Compression::Xz),
+        Format::CompressedTar(Compression::Zstd),
+        Format::CompressedTar(Compression::Lz4),
+    ];
 
-        // Each of these is a stub. When one starts working this test fails, and the failure is
-        // the prompt to move it into the list above and to correct SPEC.md.
-        for (format, why) in [
-            (Format::SingleStream(Compression::Xz), "oxiarc writes .xz"),
-            (Format::CompressedTar(Compression::Gzip), "tar.gz is ordinary"),
-        ] {
-            let error = creates(format).expect_err("a stub writer must not succeed");
-            assert_eq!(
-                error.kind(),
-                crate::error::ErrorKind::Unimplemented,
-                "{format:?} should say it is unimplemented, not fail some other way: {error}"
-            );
-            let _ = why;
+    #[test]
+    fn every_format_this_document_lists_as_writable_really_is() {
+        for format in WRITABLE {
+            creates(*format).unwrap_or_else(|error| panic!("{format:?} is listed as writable: {error}"));
         }
     }
 
-    /// Reading and writing are not symmetric, and it is easy to assume they are.
+    /// Formats this crate can read but not create.
     ///
-    /// These formats can all be read and none of them can be written. That asymmetry is the
-    /// current state of the project, it is not visible from the type signatures, and it is the
-    /// difference between "we can open this" and "we can create this".
+    /// Reading and writing are not symmetric and the type signatures do not show it. Every entry
+    /// here is either a format no writer has been written for, or one whose writer refuses
+    /// explicitly — and the difference matters to a user, who can open a file and not create one.
+    const READ_ONLY: &[(Format, &str)] = &[(Format::CompressedTar(Compression::Brotli), "tar.br")];
+
+    /// The long tail is read-only as well, and is listed so that "cannot create" is answered
+    /// rather than left to be discovered. None of these has a writer because none is written.
+    const LEGACY_IS_READ_ONLY: &[Format] = &[
+        Format::Rar,
+        Format::Lzh,
+        Format::Ace,
+        Format::Arc,
+        Format::Zoo,
+        Format::Arj,
+        Format::Sq,
+        Format::Ucb,
+        Format::Uc2,
+        Format::Ha,
+        Format::Hyp,
+        Format::Ice,
+    ];
+
     #[test]
-    fn every_format_listed_as_read_only_is_actually_read_only() {
-        for (format, what) in [
-            (Format::SingleStream(Compression::Xz), "oxiarc writes .xz"),
-            (Format::CompressedTar(Compression::Gzip), "tar.gz is ordinary"),
-        ] {
-            let error = creates(format).expect_err("a read-only format must not create a writer");
-            assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented, "{format:?}: {error}");
-            let _ = what;
+    fn a_format_listed_as_read_only_says_so_rather_than_writing_a_broken_archive() {
+        for (format, label) in READ_ONLY {
+            let error = creates(*format)
+                .err()
+                .unwrap_or_else(|| panic!("{label} is listed as read-only but just created a writer"));
+            assert_eq!(
+                error.kind(),
+                ErrorKind::Unimplemented,
+                "{label} should say it is unimplemented rather than fail some other way: {error}"
+            );
         }
-        // And the ones that are writable really are, so this cannot pass by everything failing.
-        for format in [Format::Zip, Format::Tar, Format::SevenZ] {
-            assert!(creates(format).is_ok(), "{format:?} is listed as writable");
+    }
+
+    /// The two lists partition what this crate knows how to create.
+    ///
+    /// If a format is added to neither, it silently has no writer and nothing says so. This is
+    /// the test that makes that loud.
+    #[test]
+    fn no_format_is_in_both_lists_or_neither() {
+        for (format, label) in READ_ONLY {
+            assert!(
+                !WRITABLE.contains(format),
+                "{label} is in both the writable and the read-only list"
+            );
+        }
+        for format in LEGACY_IS_READ_ONLY {
+            assert!(
+                !WRITABLE.contains(format),
+                "{format:?} is in the writable list; the long tail has no writer"
+            );
         }
     }
 }

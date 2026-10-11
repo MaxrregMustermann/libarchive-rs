@@ -42,12 +42,17 @@ Holding the archive open across reads lets the decoder for a solid 7Z block be r
 | Compressed TAR (.tar.gz, .tar.bz2, .tar.xz, .tar.zst, .tar.lz4) | ✅ Working, tested |
 | Single-stream (gz, bz2, xz, zst, br, lz4) | ✅ Working, tested |
 | Single-stream `.Z` (Unix compress / LZW) | ❌ Refused — no decoder is wired |
-| Long tail (RAR, LZH, ACE, ARC, Zoo, ARJ, SQ, UCB, UC2, Ha, Hyp, Ice) | ❌ Stub — returns `Unsupported` |
+| Long tail (RAR, LZH, ACE, ARC, Zoo, ARJ, SQ, UCB, UC2, Ha, Hyp, Ice) | ❌ Eleven of twelve return `Unsupported`. UC2 opens and reads, but still materialises each entry rather than streaming it — see the module doc for why, and what is left |
 | JNI bridge | ❌ Scaffolding only |
 | Encrypted ZIP | ❌ Refused |
 | Encrypted 7Z (AES-256) | ✅ Working |
 | BCJ2 7Z folders | ❌ Refused |
-| ZIP write performance (5000 entries) | 169 ms (bar: 109.2 ms) |
+| Compressed TAR (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`, `.tar.lz4`) | ✅ Working, tested (`.tar.br` refused) |
+| Single-stream writing (gz, bz2, xz, zst, br, lz4) | ✅ Working, tested |
+| Encrypted ZIP (ZipCrypto and WinZip-AES) | ✅ Reads with a password; writing not implemented |
+| `.Z` (Unix compress / LZW) | ✅ Working, tested |
+| BCJ2 7Z folders | ✅ Working, tested |
+| ZIP write performance (5000 entries) | 169 ms (bar: 109.2 ms — see PERFORMANCE.md) |
 
 See [SPEC.md](SPEC.md) for the full format matrix, [PERFORMANCE.md](libarchive/PERFORMANCE.md) for measured numbers, and [NOTICE.md](NOTICE.md) for attribution.
 
