@@ -688,7 +688,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ha,
         fixture: "ha/copy.ha",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ha,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -702,7 +702,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ha,
         fixture: "ha/asc.ha",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ha,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -716,7 +716,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ha,
         fixture: "ha/hsc.ha",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ha,
         needs_name: false,
         entries: &[Entry {
             name: "license",
