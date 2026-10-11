@@ -1,12 +1,21 @@
 //! Does writing an archive of 5,000 entries hold the numbers the crate is measured against?
 //!
+//! # Methodology, printed at every run
+//!
+//! The payload is a repeating 251-byte cycle on a 512-byte window, 5,000 entries, written with no
+//! declared size (so every entry streams and carries a data descriptor, which is the path the app
+//! uses). The default deflate level is **chosen from the entry size**: entries under
+//! [`DEFLATE_LEVEL_THRESHOLD`] (8 KiB) go at [`FAST_DEFLATE_LEVEL`] (1), anything larger at
+//! [`BEST_DEFLATE_LEVEL`] (6). These 512-byte entries therefore run at **level 1** unless a level
+//! is pinned. Every run prints the level it used and the options that produced it.
+//!
 //! The structural numbers are asserted, so a regression fails `cargo bench` rather than quietly
 //! producing a slightly worse number that nobody reads:
 //!
 //! | | code being replaced | this crate | bar |
 //! |---|---|---|---|
 //! | sink writes per entry | 32 | **3.00** | 6 |
-//! | allocated per archive | 1.40 GiB | **11.64 MiB** (12,202,175 B) | 43.9 MB |
+//! | allocated per archive | 1.40 GiB | **11.64 MiB** | 43.9 MB |
 //!
 //! The sink counts writes rather than being a file, because every write is a crossing into Java in
 //! the app and a file's page cache would hide exactly the cost being measured.
@@ -18,29 +27,19 @@
 //! counter is process-wide but is only sampled around the writer, so criterion's own allocations
 //! are not attributed to the archive.
 //!
-//! # The 109.2 ms time bar, and why it is not asserted here
+//! # Time, and why the level is the number that matters
 //!
-//! The bar is 109.2 ms for the same 5,000 entries. It cannot be reproduced on this machine, and
-//! the reason is the deflate codec, not this writer:
+//! On this payload a level-6 deflate stream costs 2-4x the level-1 stream for output that is
+//! essentially the same size (1,357,311 bytes against 1,357,171, 0.01%). That was the whole
+//! writer gap: the old writer pinned every entry at level 6. The default now picks the fast level
+//! for small entries; `timing_report` prints both the old fixed-6 behaviour and the new default,
+//! so this benchmark is its own before/after.
 //!
-//! * One deflated entry holding all 5,000 payloads (2.56 MiB, a single deflate stream) costs about
-//!   **10 ms of CPU** — that is the codec's floor for the bytes themselves.
-//! * The same bytes as 5,000 separate streams cost about **190-270 ms of CPU**, because each tiny
-//!   stream builds its own dynamic Huffman tree over a ~250-symbol alphabet.
-//! * The writer's own non-codec overhead, measured with the stored path, is about **11-40 ms**; a
-//!   writer that did nothing at all would still be bounded by the ~160 ms of per-stream deflate.
-//!
-//! So even a zero-overhead writer cannot reach 109.2 ms on this payload. The reference
-//! implementation agrees: `oxiarc-archive` at 93b17af, run in this same process on the same
-//! payload at the same level 6, costs more than this crate does (about 220-300 ms CPU against this
-//! crate's 190-270 ms). The bar is a function of the payload's alphabet as much as of the writer —
-//! on an 18-byte-cycle payload this crate measures about 90-100 ms CPU and meets the bar, while
-//! `oxiarc` measures about 40-50 ms.
-//! [`timing_report`] prints all of these; `cargo bench --bench zip -- zip-write-5000-entries`.
-//!
-//! The time is therefore reported, with a min-of-N and a CPU-time figure that survive the machine
-//! being busy, and not asserted: a wall-clock threshold would fail on a loaded machine and pass on
-//! an idle one without anything about the code having changed.
+//! The numbers are not asserted, because a wall-clock threshold fails on a loaded machine and
+//! passes on an idle one without anything about the code having changed. Instead they are reported
+//! with a min-of-N and a CPU-time figure (from `/proc/self/stat`) that survive the machine being
+//! busy. The writer's own non-codec overhead, measured with the stored path, is the floor any
+//! deflate work sits on top of.
 //!
 //! # The deflate backend is already zlib-rs
 //!
@@ -56,6 +55,7 @@ use std::time::Instant;
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 
+use libarchive::writer::{BEST_DEFLATE_LEVEL, DEFLATE_LEVEL_THRESHOLD};
 use libarchive::{ArchiveReader, ArchiveWriter, NewEntry, OpenOptions, WriteOptions};
 
 /// Total bytes requested from the allocator since process start.
@@ -188,9 +188,11 @@ fn measure_with(
         let contents = contents_for(index);
         // No declared size, so every entry goes through the streaming path with a data
         // descriptor: the path the app uses, because the app does not know a file's size before
-        // it has read it.
+        // it has read it. `write_entry_with` carries the caller's options into each entry: what
+        // `ArchiveWriter::create` is given sets the archive-level compression method, and the
+        // level the bench is measuring is a per-entry `WriteOptions` field.
         writer
-            .write_entry(&NewEntry::file(&name), &mut &contents[..])
+            .write_entry_with(&NewEntry::file(&name), &mut &contents[..], options)
             .expect("write an entry");
     }
     let sink = writer.finish_into().expect("the sink");
@@ -282,13 +284,33 @@ fn cpu_millis() -> u64 {
 /// over; the CPU time is what the code costs regardless of who else is running.
 fn timing_report() {
     const RUNS: usize = 12;
+    // The default `WriteOptions` choose the level from the entry size, and a 512-byte entry is
+    // below the threshold, so the default archive runs at the fast level. The level-6 lines are
+    // the writer's old hardcoded behaviour, measured so this bench is its own before/after.
+    let default_level = WriteOptions::default().deflate_level_for(ENTRY_BYTES as u64);
+    eprintln!(
+        "methodology zip-write: {ENTRIES} entries x {ENTRY_BYTES} B per entry, from the 251-byte \
+         cycle, and the same on the 18-byte low-alphabet cycle; no declared size, so every entry \
+         streams and carries a data descriptor. The sink counts writes; wall is the min of {RUNS} \
+         runs; cpu is utime+stime from /proc/self/stat. Default WriteOptions picks the deflate \
+         level from the entry size: level {default_level} for {ENTRY_BYTES} B (under the \
+         {DEFLATE_LEVEL_THRESHOLD}-byte threshold), level {BEST_DEFLATE_LEVEL} at or above; \
+         'level-6' lines pin the old fixed level, and oxiarc runs its own level 6."
+    );
     let mut ours_wall = Vec::with_capacity(RUNS);
     let mut ours_cpu = Vec::with_capacity(RUNS);
+    let mut ours6_wall = Vec::with_capacity(RUNS);
+    let mut ours6_cpu = Vec::with_capacity(RUNS);
     let mut theirs_wall = Vec::with_capacity(RUNS);
     let mut theirs_cpu = Vec::with_capacity(RUNS);
     let our_run = || {
         let cpu = cpu_millis();
         let wall = measure(&WriteOptions::default()).1;
+        (wall, cpu_millis().saturating_sub(cpu))
+    };
+    let our6_run = || {
+        let cpu = cpu_millis();
+        let wall = measure(&WriteOptions::default().with_deflate_level(6)).1;
         (wall, cpu_millis().saturating_sub(cpu))
     };
     let their_run = || {
@@ -300,6 +322,9 @@ fn timing_report() {
         let (wall, cpu) = our_run();
         ours_wall.push(wall);
         ours_cpu.push(cpu);
+        let (wall, cpu) = our6_run();
+        ours6_wall.push(wall);
+        ours6_cpu.push(cpu);
         let (wall, cpu) = their_run();
         theirs_wall.push(wall);
         theirs_cpu.push(cpu);
@@ -311,10 +336,20 @@ fn timing_report() {
         floor_wall.push(wall);
         floor_cpu.push(cpu);
     }
-    // The same two writers on a low-alphabet payload. If the bar moves a long way here, it was
-    // measured on different data rather than against a different backend.
+    let mut stored_wall = Vec::with_capacity(RUNS);
+    let mut stored_cpu = Vec::with_capacity(RUNS);
+    for _ in 0..RUNS {
+        let cpu = cpu_millis();
+        let wall = measure(&WriteOptions::stored()).1;
+        stored_wall.push(wall);
+        stored_cpu.push(cpu_millis().saturating_sub(cpu));
+    }
+    // The same two writers on a low-alphabet payload, the data the old bar was most likely
+    // measured against.
     let mut ours_simple = Vec::with_capacity(RUNS);
     let mut ours_simple_cpu = Vec::with_capacity(RUNS);
+    let mut ours_simple6 = Vec::with_capacity(RUNS);
+    let mut ours_simple6_cpu = Vec::with_capacity(RUNS);
     let mut theirs_simple = Vec::with_capacity(RUNS);
     let mut theirs_simple_cpu = Vec::with_capacity(RUNS);
     for _ in 0..RUNS {
@@ -323,15 +358,57 @@ fn timing_report() {
         ours_simple.push(wall);
         ours_simple_cpu.push(cpu_millis().saturating_sub(cpu));
         let cpu = cpu_millis();
+        let wall = measure_with(
+            &WriteOptions::default().with_deflate_level(6),
+            &payload_simple,
+        )
+        .1;
+        ours_simple6.push(wall);
+        ours_simple6_cpu.push(cpu_millis().saturating_sub(cpu));
+        let cpu = cpu_millis();
         let wall = measure_oxiarc_with(&payload_simple);
         theirs_simple.push(wall);
         theirs_simple_cpu.push(cpu_millis().saturating_sub(cpu));
     }
-    report_times("libarchive-rs", &mut ours_wall, &mut ours_cpu);
+    let label = format!("libarchive-rs by-size (level {default_level})");
+    report_times(&label, &mut ours_wall, &mut ours_cpu);
+    report_times(
+        "libarchive-rs level-6 (old fixed)",
+        &mut ours6_wall,
+        &mut ours6_cpu,
+    );
     report_times("oxiarc-93b17af", &mut theirs_wall, &mut theirs_cpu);
     report_times("libarchive-1-entry", &mut floor_wall, &mut floor_cpu);
-    report_times("libarchive-rs/simple", &mut ours_simple, &mut ours_simple_cpu);
-    report_times("oxiarc-93b17af/simple", &mut theirs_simple, &mut theirs_simple_cpu);
+    report_times(
+        "libarchive-rs stored structural",
+        &mut stored_wall,
+        &mut stored_cpu,
+    );
+    report_times(
+        "libarchive-rs/simple by-size",
+        &mut ours_simple,
+        &mut ours_simple_cpu,
+    );
+    report_times(
+        "libarchive-rs/simple level-6",
+        &mut ours_simple6,
+        &mut ours_simple6_cpu,
+    );
+    report_times(
+        "oxiarc-93b17af/simple",
+        &mut theirs_simple,
+        &mut theirs_simple_cpu,
+    );
+    // The size at each level, so "level 6 buys nothing on small entries" is a number in the same
+    // run as the times rather than a claim in a document. Default picks level 1 for 512 B.
+    let (by_size_sink, _) = measure(&WriteOptions::default());
+    let (six_sink, _) = measure(&WriteOptions::default().with_deflate_level(6));
+    eprintln!(
+        "zip-write output bytes for {ENTRIES} x {ENTRY_BYTES} B 251-cycle: by-size (level \
+         {default_level}) {}; level 6 {}",
+        by_size_sink.bytes.len(),
+        six_sink.bytes.len()
+    );
 }
 
 fn report_times(label: &str, wall: &mut [std::time::Duration], cpu: &mut [u64]) {
@@ -352,9 +429,17 @@ fn writing(criterion: &mut Criterion) {
     timing_report();
     let mut group = criterion.benchmark_group("zip-write-5000-entries");
     group.throughput(Throughput::Elements(ENTRIES as u64));
-    group.bench_function("deflate", |bencher| {
+    // Two deflate rows so the bench is its own before/after: the default (level chosen from the
+    // entry size, which for these 512-byte entries is level 1) and the old hardcoded level 6.
+    group.bench_function("deflate-by-size", |bencher| {
         bencher.iter(|| {
             let (sink, elapsed) = measure(&WriteOptions::default());
+            std::hint::black_box((sink.bytes.len(), elapsed))
+        })
+    });
+    group.bench_function("deflate-level-6", |bencher| {
+        bencher.iter(|| {
+            let (sink, elapsed) = measure(&WriteOptions::default().with_deflate_level(6));
             std::hint::black_box((sink.bytes.len(), elapsed))
         })
     });
