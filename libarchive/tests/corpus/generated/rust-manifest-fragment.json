@@ -97,7 +97,7 @@
       "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
       "expect": {
         "kind": "error",
-        "error_kind": "Unsupported"
+        "error_kind": null
       },
       "entries": [
         {
@@ -128,7 +128,7 @@
       "oracles": [
         "oxiarc"
       ],
-      "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+      "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
     },
     {
       "path": "generated/lzh/lh5.lzh",
@@ -139,7 +139,7 @@
       "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
       "expect": {
         "kind": "error",
-        "error_kind": "Unsupported"
+        "error_kind": null
       },
       "entries": [
         {
@@ -170,18 +170,18 @@
       "oracles": [
         "oxiarc"
       ],
-      "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+      "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
     },
     {
       "path": "generated/rar/rar15.rar",
       "format": "rar",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 1.5)",
       "expect": {
-        "kind": "error",
-        "error_kind": "Unsupported"
+        "kind": "ok",
+        "error_kind": null
       },
       "entries": [
         {
@@ -212,18 +212,18 @@
       "oracles": [
         "unarc"
       ],
-      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+      "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
     },
     {
       "path": "generated/rar/rar29.rar",
       "format": "rar",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9)",
       "expect": {
-        "kind": "error",
-        "error_kind": "Unsupported"
+        "kind": "ok",
+        "error_kind": null
       },
       "entries": [
         {
@@ -254,18 +254,18 @@
       "oracles": [
         "unarc"
       ],
-      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+      "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
     },
     {
       "path": "generated/rar/rar50.rar",
       "format": "rar",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0)",
       "expect": {
-        "kind": "error",
-        "error_kind": "Unsupported"
+        "kind": "ok",
+        "error_kind": null
       },
       "entries": [
         {
@@ -296,18 +296,18 @@
       "oracles": [
         "unarc"
       ],
-      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+      "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
     },
     {
       "path": "generated/rar/rar50-solid.rar",
       "format": "rar",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0 solid)",
       "expect": {
-        "kind": "error",
-        "error_kind": "Unsupported"
+        "kind": "ok",
+        "error_kind": null
       },
       "entries": [
         {
@@ -338,7 +338,7 @@
       "oracles": [
         "unarc"
       ],
-      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+      "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
     },
     {
       "path": "generated/rar/rar29-encrypted.rar",
@@ -349,7 +349,7 @@
       "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9, entry encryption)",
       "expect": {
         "kind": "error",
-        "error_kind": "Unsupported"
+        "error_kind": "Password"
       },
       "entries": [
         {
@@ -380,7 +380,7 @@
       "oracles": [
         "unarc"
       ],
-      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+      "notes": "legacy::open does not pass OpenOptions through to unarc, so the password never reaches the backend: Err(Password) even with the right one. Owner: legacy."
     }
   ]
 }

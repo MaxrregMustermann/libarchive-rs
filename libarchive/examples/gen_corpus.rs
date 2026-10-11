@@ -15,7 +15,6 @@
 use std::io::Write;
 use std::path::Path;
 
-use libarchive::compression;
 use serde::Serialize;
 
 /// The same plaintext `generate.py` stages, in the same order. The CRCs in the fragment are
@@ -108,8 +107,12 @@ fn main() {
         status: "gate".to_owned(),
         owner: None,
         password: None,
-        made_with: "cargo run -p libarchive --example gen_corpus (lz4_flex frame encoder)".to_owned(),
-        expect: Expect { kind: "ok".to_owned(), error_kind: None },
+        made_with: "cargo run -p libarchive --example gen_corpus (lz4_flex frame encoder)"
+            .to_owned(),
+        expect: Expect {
+            kind: "ok".to_owned(),
+            error_kind: None,
+        },
         entries: Some(single.clone()),
         oracles: vec!["oxiarc".to_owned()],
         notes: String::new(),
@@ -128,20 +131,24 @@ fn main() {
         status: "gate".to_owned(),
         owner: None,
         password: None,
-        made_with: "cargo run -p libarchive --example gen_corpus (brotli CompressorWriter)".to_owned(),
-        expect: Expect { kind: "ok".to_owned(), error_kind: None },
+        made_with: "cargo run -p libarchive --example gen_corpus (brotli CompressorWriter)"
+            .to_owned(),
+        expect: Expect {
+            kind: "ok".to_owned(),
+            error_kind: None,
+        },
         entries: Some(single.clone()),
         // oxiarc reads brotli too; unarc-rs has no brotli at all.
         oracles: vec!["oxiarc".to_owned()],
         notes: String::from(
             "brotli has no magic of its own; the manifest's format drives open_as, and \
              detect() cannot find it in the wild.",
-        )
+        ),
     });
 
     // --- tar.lz4: the ustar.tar generate.py already wrote, wrapped in an lz4 frame. ---
-    let tar_bytes =
-        std::fs::read(generated.join("tar/ustar.tar")).expect("generate.py must run first: tar/ustar.tar");
+    let tar_bytes = std::fs::read(generated.join("tar/ustar.tar"))
+        .expect("generate.py must run first: tar/ustar.tar");
     let mut tar_lz4 = lz4_flex::frame::FrameEncoder::new(Vec::new());
     tar_lz4.write_all(&tar_bytes).expect("lz4 compress the tar");
     let tar_lz4_bytes = tar_lz4.finish().expect("lz4 finish");
@@ -161,20 +168,33 @@ fn main() {
         status: "gate".to_owned(),
         owner: None,
         password: None,
-        made_with: "cargo run -p libarchive --example gen_corpus (lz4_flex frame over tar/ustar.tar)".to_owned(),
-        expect: Expect { kind: "ok".to_owned(), error_kind: None },
+        made_with:
+            "cargo run -p libarchive --example gen_corpus (lz4_flex frame over tar/ustar.tar)"
+                .to_owned(),
+        expect: Expect {
+            kind: "ok".to_owned(),
+            error_kind: None,
+        },
         entries: Some(tar_entries.clone()),
         oracles: Vec::new(),
         notes: String::from(
             "no oracle here reads tar.lz4: unarc has no lz4, oxiarc has no compressed-TAR \
              wrapper. The manifest's plaintext CRCs are the ground truth.",
-        )
+        ),
     });
 
     // --- LZH: oxiarc's LzhWriter, stored and LH5, the writer the app itself used. ---
     for (file_name, level, label) in [
-        ("stored.lzh", oxiarc_archive::lzh::LzhCompressionLevel::Store, "lh0 (store)"),
-        ("lh5.lzh", oxiarc_archive::lzh::LzhCompressionLevel::Lh5, "lh5"),
+        (
+            "stored.lzh",
+            oxiarc_archive::lzh::LzhCompressionLevel::Store,
+            "lh0 (store)",
+        ),
+        (
+            "lh5.lzh",
+            oxiarc_archive::lzh::LzhCompressionLevel::Lh5,
+            "lh5",
+        ),
     ] {
         let mut writer = oxiarc_archive::lzh::LzhWriter::new(Vec::new());
         writer.set_compression(level);
@@ -201,14 +221,15 @@ fn main() {
             ),
             expect: Expect {
                 kind: "error".to_owned(),
-                error_kind: Some("Unsupported".to_owned()),
+                error_kind: None,
             },
             entries: Some(entries),
             oracles: vec!["oxiarc".to_owned()],
             notes: String::from(
-                "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader \
-                 is the second oracle here because it is the writer too — self-round-trip \
-                 plus cross-reader.",
+                "LZH lists through the legacy path, but streaming any entry fails \
+                 \"while decompressing: unsupported compression method\" — including the \
+                 stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. \
+                 oxiarc is the second oracle because it is the writer too.",
             ),
         });
     }
@@ -228,11 +249,41 @@ fn main() {
         })
         .collect();
     let rar_cases: Vec<(&str, rars::ArchiveVersion, bool, bool, &str)> = vec![
-        ("rar15.rar", rars::ArchiveVersion::Rar15, false, false, "RAR 1.5"),
-        ("rar29.rar", rars::ArchiveVersion::Rar29, false, false, "RAR 2.9"),
-        ("rar50.rar", rars::ArchiveVersion::Rar50, false, false, "RAR 5.0"),
-        ("rar50-solid.rar", rars::ArchiveVersion::Rar50, true, false, "RAR 5.0 solid"),
-        ("rar29-encrypted.rar", rars::ArchiveVersion::Rar29, false, true, "RAR 2.9, entry encryption"),
+        (
+            "rar15.rar",
+            rars::ArchiveVersion::Rar15,
+            false,
+            false,
+            "RAR 1.5",
+        ),
+        (
+            "rar29.rar",
+            rars::ArchiveVersion::Rar29,
+            false,
+            false,
+            "RAR 2.9",
+        ),
+        (
+            "rar50.rar",
+            rars::ArchiveVersion::Rar50,
+            false,
+            false,
+            "RAR 5.0",
+        ),
+        (
+            "rar50-solid.rar",
+            rars::ArchiveVersion::Rar50,
+            true,
+            false,
+            "RAR 5.0 solid",
+        ),
+        (
+            "rar29-encrypted.rar",
+            rars::ArchiveVersion::Rar29,
+            false,
+            true,
+            "RAR 2.9, entry encryption",
+        ),
     ];
     for (file_name, version, solid, encrypted, label) in rar_cases {
         let mut builder = rars::Builder::new(version).solid(solid);
@@ -246,27 +297,51 @@ fn main() {
         }
         let bytes = builder.to_bytes().expect("rars to_bytes");
         std::fs::write(generated.join("rar").join(file_name), &bytes).expect("write the rar");
-        let encrypted_flag = encrypted;
+        // Measured by the sweep on 2026-10-11: the unencrypted fixtures read here exactly as
+        // unarc reads them, so they gate. The encrypted one cannot: formats::legacy::open drops
+        // OpenOptions on the floor (it calls unarc's open_with_format, not
+        // open_with_format_and_options), so the password never reaches the backend and the read
+        // fails Err(Password) even with the right password.
+        let (status, expect, notes) =
+            if encrypted {
+                (
+                "pending",
+                Expect { kind: "error".to_owned(), error_kind: Some("Password".to_owned()) },
+                "legacy::open does not pass OpenOptions through to unarc, so the password never \
+                 reaches the backend: Err(Password) even with the right one. Owner: legacy.",
+            )
+            } else {
+                (
+                    "gate",
+                    Expect {
+                        kind: "ok".to_owned(),
+                        error_kind: None,
+                    },
+                    "this crate reads it; the differential sweep compares name, size and bytes \
+                 against unarc",
+                )
+            };
         records.push(Record {
             path: format!("generated/rar/{file_name}"),
             format: "rar".to_owned(),
-            status: "pending".to_owned(),
-            owner: Some("legacy".to_owned()),
-            password: if encrypted_flag { Some("secret".to_owned()) } else { None },
+            status: status.to_owned(),
+            owner: if encrypted {
+                Some("legacy".to_owned())
+            } else {
+                None
+            },
+            password: if encrypted {
+                Some("secret".to_owned())
+            } else {
+                None
+            },
             made_with: format!(
                 "cargo run -p libarchive --example gen_corpus (rars Builder, {label})"
             ),
-            expect: Expect {
-                kind: "error".to_owned(),
-                error_kind: Some("Unsupported".to_owned()),
-            },
+            expect,
             entries: Some(rar_entries.clone()),
             oracles: vec!["unarc".to_owned()],
-            notes: String::from(
-                "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so \
-                 the oracle is guaranteed to read these; when the RAR reader lands, flip to \
-                 gate and the entries above are the ground truth.",
-            ),
+            notes: notes.to_owned(),
         });
     }
 

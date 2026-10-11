@@ -4,86 +4,36 @@
   {
    "path": "generated/7z/aes256-header.7z",
    "format": "7z",
-   "status": "gate",
-   "owner": null,
+   "status": "pending",
+   "owner": "codecs",
    "password": "secret",
    "made_with": "7z a -t7z -bso0 -bsp0 -psecret -mhe=on /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256-header.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
-    "kind": "ok",
+    "kind": "error",
     "error_kind": null
    },
-   "entries": [
-    {
-     "name": "hello.txt",
-     "size": 22,
-     "crc32": 2800458935,
-     "dir": false
-    },
-    {
-     "name": "data.bin",
-     "size": 4096,
-     "crc32": 1562136291,
-     "dir": false
-    },
-    {
-     "name": "empty.txt",
-     "size": 0,
-     "crc32": 0,
-     "dir": false
-    },
-    {
-     "name": "nested/inner.txt",
-     "size": 13,
-     "crc32": 2367766211,
-     "dir": false
-    }
-   ],
+   "entries": null,
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256 with header encryption: opening itself needs the password. Random salt: not byte-reproducible."
+   "notes": "AES-256 with header encryption: opening itself needs the password. sevenz-rust2 0.23.0 reports MaybeBadPassword on open with the correct password ('range decoder first byte is not zero'), and our wrapper inherits that exact failure. Owner: codecs (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/aes256.7z",
    "format": "7z",
-   "status": "gate",
-   "owner": null,
+   "status": "pending",
+   "owner": "codecs",
    "password": "secret",
    "made_with": "7z a -t7z -bso0 -bsp0 -psecret /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
-    "kind": "ok",
+    "kind": "error",
     "error_kind": null
    },
-   "entries": [
-    {
-     "name": "hello.txt",
-     "size": 22,
-     "crc32": 2800458935,
-     "dir": false
-    },
-    {
-     "name": "data.bin",
-     "size": 4096,
-     "crc32": 1562136291,
-     "dir": false
-    },
-    {
-     "name": "empty.txt",
-     "size": 0,
-     "crc32": 0,
-     "dir": false
-    },
-    {
-     "name": "nested/inner.txt",
-     "size": 13,
-     "crc32": 2367766211,
-     "dir": false
-    }
-   ],
+   "entries": null,
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256, data encrypted only; listing works without the password. Random salt: not byte-reproducible."
+   "notes": "AES-256, data encrypted only; the 7z CLI writes it, but vendored sevenz-rust2 0.23.0 itself reports MaybeBadPassword with the correct password ('invalid LZMA2 control byte'), so both our wrapper and the oracle fail identically. Owner: codecs (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/lzma.7z",
@@ -5059,7 +5009,7 @@
    "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": [
     {
@@ -5090,7 +5040,7 @@
    "oracles": [
     "oxiarc"
    ],
-   "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+   "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
   },
   {
    "path": "generated/lzh/stored.lzh",
@@ -5101,7 +5051,7 @@
    "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": [
     {
@@ -5132,18 +5082,18 @@
    "oracles": [
     "oxiarc"
    ],
-   "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+   "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
   },
   {
    "path": "generated/rar/rar15.rar",
    "format": "rar",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 1.5)",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": [
     {
@@ -5174,7 +5124,7 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
   },
   {
    "path": "generated/rar/rar29-encrypted.rar",
@@ -5185,7 +5135,7 @@
    "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9, entry encryption)",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": "Password"
    },
    "entries": [
     {
@@ -5216,18 +5166,18 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+   "notes": "legacy::open does not pass OpenOptions through to unarc, so the password never reaches the backend: Err(Password) even with the right one. Owner: legacy."
   },
   {
    "path": "generated/rar/rar29.rar",
    "format": "rar",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9)",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": [
     {
@@ -5258,18 +5208,18 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
   },
   {
    "path": "generated/rar/rar50-solid.rar",
    "format": "rar",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0 solid)",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": [
     {
@@ -5300,18 +5250,18 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
   },
   {
    "path": "generated/rar/rar50.rar",
    "format": "rar",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0)",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": [
     {
@@ -5342,13 +5292,13 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against unarc"
   },
   {
    "path": "generated/streams/multimember.gz",
    "format": "gz",
-   "status": "gate",
-   "owner": null,
+   "status": "pending",
+   "owner": "codecs",
    "password": null,
    "made_with": "two gzip members concatenated (member one + member two)",
    "expect": {
@@ -5364,7 +5314,7 @@
     }
    ],
    "oracles": [],
-   "notes": "oxiarc's gzip decompressor reads only the first member, so the generic oracle comparison would be wrong here; the manifest alone owns this record."
+   "notes": "Known gap, found by the differential sweep on 2026-10-11: our single-stream gzip reader stops after the first member — it streams 11 bytes with crc 7f1df3dd where the plaintext is 22 bytes with crc 0652e70a. The fix is a multi-member path (flate2's MultiGzDecoder) in formats/single.rs. oxiarc's gzip has the same first-member-only bug, so it cannot be the oracle here."
   },
   {
    "path": "generated/streams/payload.br",
@@ -5671,9 +5621,7 @@
      "dir": false
     }
    ],
-   "oracles": [
-    "unarc"
-   ],
+   "oracles": [],
    "notes": ""
   },
   {
@@ -5713,9 +5661,7 @@
      "dir": false
     }
    ],
-   "oracles": [
-    "unarc"
-   ],
+   "oracles": [],
    "notes": ""
   },
   {
@@ -6259,41 +6205,41 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "Listing works and marks the entries; reading needs the password. Encrypted ZIP is currently refused by this crate — the dedicated test in differential.rs pins Err(Password) without a password; with one, this record flips to gate once the ZipCrypto reader lands."
+   "notes": "Listing works and marks the entries; reading needs the password. With one, this crate and unarc both decode it and the differential compares them; without one, differential.rs pins Err(Password)."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z",
    "format": "z",
-   "status": "pending",
-   "owner": "codecs",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/Z/LICENSE.Z, sha256=39bdb89bbd77db37…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unimplemented"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "Unix compress (.Z): detection works, listing works, decompression is Unimplemented — `compress` is LZW with a twist and has no crate here (src/compression.rs:71). Flip to gate when a Z codec lands."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ace/license1.ace",
    "format": "ace",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/ace/license1.ace, sha256=c457c207063a9194…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arc/crunch.arc",
@@ -6304,13 +6250,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arc/crunch.arc, sha256=bdd0fdc6500d0717…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arc/license_cypted.arc",
@@ -6321,13 +6267,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arc/license_cypted.arc, sha256=838d6c67e805f310…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arc/store.arc",
@@ -6338,13 +6284,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arc/store.arc, sha256=3e3272f20848b95e…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/method1.arj",
@@ -6355,13 +6301,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method1.arj, sha256=a610180da1a37246…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/method4.arj",
@@ -6372,13 +6318,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method4.arj, sha256=3a1e1ebcf4cdc3dd…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/stored.arj",
@@ -6389,13 +6335,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/stored.arj, sha256=3108cf45a88a657c…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/bz2/LICENSE.bz2",
@@ -6413,7 +6359,7 @@
     "unarc",
     "oxiarc"
    ],
-   "notes": "unarc-rs's own bzip2 fixture"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/gz/LICENSE.gz",
@@ -6431,7 +6377,7 @@
     "unarc",
     "oxiarc"
    ],
-   "notes": "unarc-rs's own gzip fixture; the plaintext is the repo LICENSE, 11357 bytes"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ha/copy.ha",
@@ -6442,13 +6388,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/ha/copy.ha, sha256=3655b396502df3d4…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ha/hsc.ha",
@@ -6459,13 +6405,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/ha/hsc.ha, sha256=cf860a56029e89a1…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/hyp/license.hyp",
@@ -6476,13 +6422,13 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/license.hyp, sha256=82d9980aad1fcc81…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/hyp/stored.hyp",
@@ -6493,34 +6439,34 @@
    "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/stored.hyp, sha256=5c2ab9ae603dd0c5…",
    "expect": {
     "kind": "error",
-    "error_kind": "Unsupported"
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ice/license_lha.ice",
    "format": "ice",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/ice/license_lha.ice, sha256=833616ba837b2413…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/jar/license_m1.j",
-   "format": "zip",
+   "format": "jar",
    "status": "pending",
    "owner": "codecs",
    "password": null,
@@ -6533,11 +6479,11 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "JAR method 1: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+   "notes": "JAR method 1: our ZIP reader cannot list the file at all (\"no end-of-central-directory record\"); unarc's Jar reader decodes it. Owner: codecs."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/jar/license_m2.j",
-   "format": "zip",
+   "format": "jar",
    "status": "pending",
    "owner": "codecs",
    "password": null,
@@ -6550,11 +6496,11 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "JAR method 2: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+   "notes": "JAR method 2: our ZIP reader cannot list the file at all (\"no end-of-central-directory record\"); unarc's Jar reader decodes it. Owner: codecs."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/jar/license_m3.j",
-   "format": "zip",
+   "format": "jar",
    "status": "pending",
    "owner": "codecs",
    "password": null,
@@ -6567,11 +6513,11 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "JAR method 3: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+   "notes": "JAR method 3: our ZIP reader cannot list the file at all (\"no end-of-central-directory record\"); unarc's Jar reader decodes it. Owner: codecs."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/jar/license_m4.j",
-   "format": "zip",
+   "format": "jar",
    "status": "pending",
    "owner": "codecs",
    "password": null,
@@ -6584,7 +6530,7 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "JAR method 4: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+   "notes": "JAR method 4: our ZIP reader cannot list the file at all (\"no end-of-central-directory record\"); unarc's Jar reader decodes it. Owner: codecs."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar",
@@ -6594,14 +6540,14 @@
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/acid-70a.rar, sha256=47aa19cd9d075741…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "lists and extracts all 28 entries, but the legacy adapter hard-codes EntryKind::File (formats/mod.rs): \"AcidView\" is a directory and unarc reports it as one. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/sq/license.sq",
@@ -6611,14 +6557,14 @@
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/qqq/license.sq, sha256=462ae8d1f91ece5a…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "opens and streams, but every entry comes out 0 bytes where unarc produces 11357; silent empty contents, not an Err. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/sq/license.sq2",
@@ -6628,48 +6574,48 @@
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/qqq/license.sq2, sha256=4c6ba4cbafb082e5…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "opens and streams, but every entry comes out 0 bytes where unarc produces 11357; silent empty contents, not an Err. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/sqz/license_m1.sqz",
-   "format": "sq",
+   "format": "sqz",
    "status": "pending",
    "owner": "legacy",
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/sqz/license_m1.sqz, sha256=a4f69ae03670aa7d…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "SQZ via the legacy Sq path; pending until the sweep compares it clean. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/sqz/store.sqz",
-   "format": "sq",
+   "format": "sqz",
    "status": "pending",
    "owner": "legacy",
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/sqz/store.sqz, sha256=29e80f956d560ecf…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "SQZ via the legacy Sq path; pending until the sweep compares it clean. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/tar/license.tar",
@@ -6687,24 +6633,24 @@
     "unarc",
     "oxiarc"
    ],
-   "notes": "unarc-rs's own TAR fixture"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/tarz/license.tar.Z",
    "format": "z",
-   "status": "pending",
-   "owner": "codecs",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/tarz/license.tar.Z, sha256=16cb633a90575970…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unimplemented"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "tar.Z: a Unix-compress stream wrapping a TAR. Read at the stream level (format z); reading it as a compressed TAR needs the Z codec first."
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/tbz/license.tar.bz2",
@@ -6721,7 +6667,7 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "tar.bz2; unarc's Tbz reader is the oracle"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/tgz/license.tgz",
@@ -6738,41 +6684,41 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "tar.gz; unarc's Tgz reader is the oracle"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/uc2/normal.uc2",
    "format": "uc2",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/uc2/normal.uc2, sha256=ad341656c3447f94…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/uc2/tight.uc2",
    "format": "uc2",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/uc2/tight.uc2, sha256=19d34d9a60f75af5…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ue2/license.ue2",
@@ -6786,44 +6732,42 @@
     "error_kind": "Unsupported"
    },
    "entries": null,
-   "oracles": [
-    "unarc"
-   ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "oracles": [],
+   "notes": "encrypted UC2 (UCRYPT): this crate and unarc both refuse it with the identical Unsupported message; it must be decrypted externally first. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/zoo/default.zoo",
    "format": "zoo",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/zoo/default.zoo, sha256=ae45e8abe3e36bc0…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   },
   {
    "path": "vendor/unarc-rs-0.7.2/zoo/store.zoo",
    "format": "zoo",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/zoo/store.zoo, sha256=27cd5b07007167ee…",
    "expect": {
-    "kind": "error",
-    "error_kind": "Unsupported"
+    "kind": "ok",
+    "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+   "notes": "this crate reads it; the differential sweep compares name, size and bytes against the oracle(s)"
   }
  ],
  "malformed": [
@@ -7110,7 +7054,7 @@
   {
    "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "truncated",
-   "format": "zip",
+   "format": "jar",
    "expect": "err",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 0 of 3624 bytes"
@@ -7310,7 +7254,7 @@
   {
    "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "truncated",
-   "format": "zip",
+   "format": "jar",
    "expect": "err",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 1 of 3624 bytes"
@@ -7438,7 +7382,7 @@
   {
    "path": "generated/malformed/trunc-1812-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "truncated",
-   "format": "zip",
+   "format": "jar",
    "expect": "open_no_panic",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 1812 of 3624 bytes"
@@ -7582,7 +7526,7 @@
   {
    "path": "generated/malformed/trunc-3623-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "truncated",
-   "format": "zip",
+   "format": "jar",
    "expect": "open_no_panic",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 3623 of 3624 bytes"
@@ -7766,7 +7710,7 @@
   {
    "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "truncated",
-   "format": "zip",
+   "format": "jar",
    "expect": "err",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 512 of 3624 bytes"
@@ -8078,7 +8022,7 @@
   {
    "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_jar_license_m1_j",
    "case": "wrong_magic",
-   "format": "zip",
+   "format": "jar",
    "expect": "err",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j with its first byte XOR 0xFF"

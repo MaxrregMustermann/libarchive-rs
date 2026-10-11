@@ -193,24 +193,6 @@ HARVEST = [
     ("corrupt/invalid.hyp", "hyp/invalid.hyp"),
 ]
 
-# Every vendored record: format, oracles, status. The long tail is pending on the legacy team;
-# the expectation is today's honest Unsupported error, and the oracle proves the fixture valid.
-LEGACY_PENDING = {
-    "arc": ("arc", ["unarc"], "SECRET" if False else None),
-    "arj": ("arj", ["unarc"], None),
-    "ace": ("ace", ["unarc"], None),
-    "zoo": ("zoo", ["unarc"], None),
-    "ha": ("ha", ["unarc"], None),
-    "hyp": ("hyp", ["unarc"], None),
-    "ice": ("ice", ["unarc"], None),
-    "sq": ("sq", ["unarc"], None),
-    "sqz": ("sq", ["unarc"], None),  # unarc folds SQZ into its Sq reader
-    "uc2": ("uc2", ["unarc"], None),
-    "ue2": ("uc2", ["unarc"], None),
-    "rar": ("rar", ["unarc"], None),
-    "jar": ("zip", ["unarc"], None),
-}
-
 
 def find_unarc_tests():
     """The unpacked unarc-rs 0.7.2 sources, where the harvest comes from."""
@@ -338,7 +320,10 @@ def gen_zip(tmp: Path):
                           0xFFFFFFFF, len(zname), len(extra64), 0, 0, 0, 0, 0) + zname + extra64
     zip64_eocd = struct.pack("<IQHHIIQQQQ", 0x06064B50, 44, 45, 45, 0, 0, 1, 1,
                              len(central), len(local))
-    zip64_locator = struct.pack("<IIQI", 0x07064B50, 0, 0, 1)
+    # The locator's third field is the offset of the ZIP64 EOCD, which follows the central
+    # directory — not zero. A zero here was found by the differential harness: our reader
+    # sought to offset 0 and reported "the ZIP64 end record does not start with its signature".
+    zip64_locator = struct.pack("<IIQI", 0x07064B50, 0, len(local) + len(central), 1)
     eocd = struct.pack("<IHHHHIIH", 0x06054B50, 45, 45, 0xFFFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0)
     (GENERATED / "zip" / "zip64.zip").write_bytes(local + central + zip64_eocd + zip64_locator + eocd)
     add_file(zip_path("zip64.zip"), "zip",
@@ -365,16 +350,17 @@ def gen_zip(tmp: Path):
                    "comparison.")
 
     # ZipCrypto encryption, via zip -P. The password check bytes carry a random salt, so this
-    # archive is not byte-reproducible; its entry plaintext is.
+    # archive is not byte-reproducible; its entry plaintext is. With the password this crate
+    # reads it (measured: the differential sweep compares it against unarc, gate); without one
+    # differential.rs pins Err(Password).
     subprocess.run(["zip", "-q", "-P", "secret", str(GENERATED / "zip" / "zipcrypto.zip")] +
                    [e[0] for e in PLAINTEXT],
                    cwd=tree, check=True)
     add_file(zip_path("zipcrypto.zip"), "zip", "zip -P secret (traditional PKWARE encryption)",
              password="secret", entries=entries_of(), oracles=["unarc"],
-             notes="Listing works and marks the entries; reading needs the password. Encrypted "
-                   "ZIP is currently refused by this crate — the dedicated test in "
-                   "differential.rs pins Err(Password) without a password; with one, this "
-                   "record flips to gate once the ZipCrypto reader lands.")
+             notes="Listing works and marks the entries; reading needs the password. With one, "
+                   "this crate and unarc both decode it and the differential compares them; "
+                   "without one, differential.rs pins Err(Password).")
 
 
 def gen_7z(tmp: Path):
@@ -399,14 +385,24 @@ def gen_7z(tmp: Path):
 
     enc = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret",
                str(GENERATED / "7z" / "aes256.7z"), *files], cwd=tree)
-    add_file("generated/7z/aes256.7z", "7z", enc, password="secret", entries=entries_of(),
-             oracles=["sevenz"], notes="AES-256, data encrypted only; listing works without the "
-                                       "password. Random salt: not byte-reproducible.")
+    add_file("generated/7z/aes256.7z", "7z", enc, password="secret", entries=None,
+             status="pending", owner="codecs", expect_kind="error",
+             oracles=["sevenz"],
+             notes="AES-256, data encrypted only; the 7z CLI writes it, but vendored "
+                   "sevenz-rust2 0.23.0 itself reports MaybeBadPassword with the correct "
+                   "password ('invalid LZMA2 control byte'), so both our wrapper and the "
+                   "oracle fail identically. Owner: codecs (vendored sevenz-rust2 AES). "
+                   "Random salt: not byte-reproducible.")
     enc_h = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret", "-mhe=on",
                  str(GENERATED / "7z" / "aes256-header.7z"), *files], cwd=tree)
-    add_file("generated/7z/aes256-header.7z", "7z", enc_h, password="secret", entries=entries_of(),
-             oracles=["sevenz"], notes="AES-256 with header encryption: opening itself needs the "
-                                       "password. Random salt: not byte-reproducible.")
+    add_file("generated/7z/aes256-header.7z", "7z", enc_h, password="secret", entries=None,
+             status="pending", owner="codecs", expect_kind="error",
+             oracles=["sevenz"],
+             notes="AES-256 with header encryption: opening itself needs the password. "
+                   "sevenz-rust2 0.23.0 reports MaybeBadPassword on open with the correct "
+                   "password ('range decoder first byte is not zero'), and our wrapper "
+                   "inherits that exact failure. Owner: codecs (vendored sevenz-rust2 AES). "
+                   "Random salt: not byte-reproducible.")
 
     # The 400-entry solid pair behind the 15.5 s vs 204 ms measurement in lib.rs — correctness
     # input today, benchmark input for whoever writes the solid benchmark.
@@ -481,22 +477,25 @@ def gen_tar(tmp: Path):
 
     # Compressed tars. The tar is built once and piped through each compressor from python, so
     # gzip gets -n: the CLI's tar -czf embeds the tar's mtime in the gzip header.
+    # Oracle note: unarc-rs has no xz and no zstd at all, and oxiarc has no compressed-TAR
+    # wrapper, so the xz/zst records have no second reader; their plaintext CRCs are the
+    # ground truth the differential harness checks.
     streams = [
-        ("tar.gz", ["gzip", "-n", "-c"], "tar --format=ustar | gzip -n"),
-        ("tar.bz2", ["bzip2", "-c"], "tar --format=ustar | bzip2"),
-        ("tar.xz", ["xz", "-c"], "tar --format=ustar | xz"),
-        ("tar.zst", ["zstd", "-q", "-c"], "tar --format=ustar | zstd -q"),
+        ("tar.gz", ["gzip", "-n", "-c"], "tar --format=ustar | gzip -n", ["unarc"]),
+        ("tar.bz2", ["bzip2", "-c"], "tar --format=ustar | bzip2", ["unarc"]),
+        ("tar.xz", ["xz", "-c"], "tar --format=ustar | xz", []),
+        ("tar.zst", ["zstd", "-q", "-c"], "tar --format=ustar | zstd -q", []),
     ]
     tar_bytes = subprocess.run(
         ["tar", "--format=ustar", "-cf", "-", "-T", str(listing)],
         cwd=tree, check=True, capture_output=True,
     ).stdout
-    for name, argv, label in streams:
+    for name, argv, label, oracles in streams:
         out = GENERATED / "streams" / f"plain.{name}"  # plain.tar.gz, plain.tar.bz2, …
         out.write_bytes(subprocess.run(argv, input=tar_bytes, check=True, capture_output=True).stdout)
         add_file(f"generated/streams/plain.{name}", name,
                  f"{label} over the standard plaintext tree",
-                 entries=entries_of(), oracles=["unarc"])
+                 entries=entries_of(), oracles=oracles)
 
 
 def gen_streams(tmp: Path):
@@ -527,11 +526,15 @@ def gen_streams(tmp: Path):
     joined = part1 + part2
     add_file("generated/streams/multimember.gz", "gz",
              "two gzip members concatenated (member one + member two)",
+             status="pending", owner="codecs",
              entries=[{"name": "content", "size": len(joined),
                        "crc32": zlib.crc32(joined) & 0xFFFFFFFF, "dir": False}],
              oracles=[],
-             notes="oxiarc's gzip decompressor reads only the first member, so the generic "
-                   "oracle comparison would be wrong here; the manifest alone owns this record.")
+             notes="Known gap, found by the differential sweep on 2026-10-11: our single-stream "
+                   "gzip reader stops after the first member — it streams 11 bytes with crc "
+                   "7f1df3dd where the plaintext is 22 bytes with crc 0652e70a. The fix is a "
+                   "multi-member path (flate2's MultiGzDecoder) in formats/single.rs. oxiarc's "
+                   "gzip has the same first-member-only bug, so it cannot be the oracle here.")
 
     # The multi-member case as a compressed TAR: gzip(ustar.tar) via the CLI, plus the
     # concatenation of two separately-gzipped tars is not a thing any tool writes — skip.
@@ -581,7 +584,7 @@ MUTATION_SOURCES = [
     ("vendor/unarc-rs-0.7.2/sqz/store.sqz", "sq"),
     ("vendor/unarc-rs-0.7.2/uc2/normal.uc2", "uc2"),
     ("vendor/unarc-rs-0.7.2/ue2/license.ue2", "uc2"),
-    ("vendor/unarc-rs-0.7.2/jar/license_m1.j", "zip"),
+    ("vendor/unarc-rs-0.7.2/jar/license_m1.j", "jar"),
     ("vendor/unarc-rs-0.7.2/Z/LICENSE.Z", "z"),
 ]
 
@@ -792,9 +795,15 @@ def main():
 
 
 def add_vendor_manifest(harvest):
-    """The vendored records: long tail pending on the legacy team, streams gate."""
+    """The vendored records, written from what this build measured on 2026-10-11.
+
+    `gate` means: this crate opens, lists and extracts the archive, and the differential sweep
+    compares its bytes against the named oracles. `pending` means: a named owner has a named
+    gap; the sweep counts and prints the gap instead of failing. The statuses are not
+    aspirations — every one of them is what `cargo test --test differential` did on the day the
+    corpus was generated.
+    """
     hashes = {dest: digest for dest, _src, digest in harvest}
-    notes_by_path = {}
 
     def vend(dest, format_, status, owner, password, oracles, notes, expect_kind="ok", error_kind=None):
         add_file(f"vendor/unarc-rs-0.7.2/{dest}", format_,
@@ -807,67 +816,88 @@ def add_vendor_manifest(harvest):
     global HARVEST_SRC
     HARVEST_SRC = {dest: src for dest, src in HARVEST}
 
-    # The long tail. Every record is pending on team legacy; the expectation is the Err this
-    # build produces today (Unsupported), and the unarc oracle proves the fixture is valid, so
-    # a broken harvest cannot masquerade as a legacy gap.
-    pending = [
+    # ---- Gate: open, list and extract, with the sweep comparing bytes against the oracles. ----
+    for dest, format_, oracles in [
+        ("tar/license.tar", "tar", ["unarc", "oxiarc"]),
+        ("gz/LICENSE.gz", "gz", ["unarc", "oxiarc"]),
+        ("bz2/LICENSE.bz2", "bz2", ["unarc", "oxiarc"]),
+        ("tgz/license.tgz", "tar.gz", ["unarc"]),
+        ("tbz/license.tar.bz2", "tar.bz2", ["unarc"]),
+        ("Z/LICENSE.Z", "z", ["unarc"]),
+        ("tarz/license.tar.Z", "z", ["unarc"]),
+        ("ace/license1.ace", "ace", ["unarc"]),
+        ("zoo/default.zoo", "zoo", ["unarc"]),
+        ("zoo/store.zoo", "zoo", ["unarc"]),
+        ("ice/license_lha.ice", "ice", ["unarc"]),
+        ("uc2/normal.uc2", "uc2", ["unarc"]),
+        ("uc2/tight.uc2", "uc2", ["unarc"]),
+    ]:
+        vend(dest, format_, "gate", None, None, oracles,
+             "this crate reads it; the differential sweep compares name, size and bytes "
+             "against the oracle(s)")
+
+    # ---- Pending, owner legacy: the archive lists, and reading an entry fails. ----
+    #
+    # formats::legacy::open walks next_entry()+skip() to build the list, which leaves unarc's
+    # backend at the end of the archive; unarc's read() then reads from the current stream
+    # position instead of seeking to the entry's data offset, so every entry read fails
+    # "unexpected end of file" (unarc-rs-0.7.2/src/hyp/hyp_archive.rs:33 is one instance).
+    # ACE, Zoo, Ice and UC2 do not have the problem and are gate above.
+    cursor_note = ("lists, but reading an entry fails: legacy::open's next_entry()+skip() walk "
+                   "leaves unarc's backend at the end of the archive and unarc's read() starts "
+                   "from the current position, not the entry's data offset. Owner: legacy.")
+    for dest, format_, password in [
         ("arc/store.arc", "arc", None),
         ("arc/crunch.arc", "arc", None),
         ("arc/license_cypted.arc", "arc", "SECRET"),
         ("arj/stored.arj", "arj", None),
         ("arj/method1.arj", "arj", None),
         ("arj/method4.arj", "arj", None),
-        ("ace/license1.ace", "ace", None),
-        ("zoo/default.zoo", "zoo", None),
-        ("zoo/store.zoo", "zoo", None),
         ("ha/copy.ha", "ha", None),
         ("ha/hsc.ha", "ha", None),
         ("hyp/license.hyp", "hyp", None),
         ("hyp/stored.hyp", "hyp", None),
-        ("ice/license_lha.ice", "ice", None),
-        ("sq/license.sq", "sq", None),
-        ("sq/license.sq2", "sq", None),
-        ("sqz/store.sqz", "sq", None),
-        ("sqz/license_m1.sqz", "sq", None),
-        ("uc2/normal.uc2", "uc2", None),
-        ("uc2/tight.uc2", "uc2", None),
-        ("ue2/license.ue2", "uc2", None),
-        ("rar/acid-70a.rar", "rar", None),
-    ]
-    for dest, format_, password in pending:
-        vend(dest, format_, "pending", "legacy", password, ["unarc"],
-             "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands",
-             expect_kind="error", error_kind="Unsupported")
-
-    # JAR: a ZIP with the four JAR compression methods (1-4). Listing must work today (the
-    # central directory is ordinary ZIP); reading a method-1..4 entry must Err rather than
-    # produce wrong bytes.
-    for method in 1, 2, 3, 4:
-        vend(f"jar/license_m{method}.j", "zip", "pending", "codecs", None, ["unarc"],
-             f"JAR method {method}: listing works, reading must Err (Unsupported) until the "
-             "method lands; unarc's jar reader decodes it",
+    ]:
+        vend(dest, format_, "pending", "legacy", password, ["unarc"], cursor_note,
              expect_kind="error", error_kind=None)
 
-    # Streams and TARs the app ships today: these gate.
-    vend("tar/license.tar", "tar", "gate", None, None, ["unarc", "oxiarc"],
-         "unarc-rs's own TAR fixture")
-    vend("gz/LICENSE.gz", "gz", "gate", None, None, ["unarc", "oxiarc"],
-         "unarc-rs's own gzip fixture; the plaintext is the repo LICENSE, 11357 bytes")
-    vend("bz2/LICENSE.bz2", "bz2", "gate", None, None, ["unarc", "oxiarc"],
-         "unarc-rs's own bzip2 fixture")
-    vend("Z/LICENSE.Z", "z", "pending", "codecs", None, ["unarc"],
-         "Unix compress (.Z): detection works, listing works, decompression is "
-         "Unimplemented — `compress` is LZW with a twist and has no crate here "
-         "(src/compression.rs:71). Flip to gate when a Z codec lands.",
-         expect_kind="error", error_kind="Unimplemented")
-    vend("tgz/license.tgz", "tar.gz", "gate", None, None, ["unarc"],
-         "tar.gz; unarc's Tgz reader is the oracle")
-    vend("tbz/license.tar.bz2", "tar.bz2", "gate", None, None, ["unarc"],
-         "tar.bz2; unarc's Tbz reader is the oracle")
-    vend("tarz/license.tar.Z", "z", "pending", "codecs", None, ["unarc"],
-         "tar.Z: a Unix-compress stream wrapping a TAR. Read at the stream level (format z); "
-         "reading it as a compressed TAR needs the Z codec first.",
-         expect_kind="error", error_kind="Unimplemented")
+    # SQ: opens and streams, but every entry comes out empty (0 bytes) where unarc streams the
+    # full 11357. Silent wrong bytes, not an Err — the worst shape of the three.
+    for dest in ["sq/license.sq", "sq/license.sq2"]:
+        vend(dest, "sq", "pending", "legacy", None, ["unarc"],
+             "opens and streams, but every entry comes out 0 bytes where unarc produces 11357; "
+             "silent empty contents, not an Err. Owner: legacy.",
+             expect_kind="ok")
+
+    # SQZ: behaviour measured per file by the sweep; both fixtures are pending until the sweep
+    # compares them clean.
+    for dest in ["sqz/store.sqz", "sqz/license_m1.sqz"]:
+        vend(dest, "sqz", "pending", "legacy", None, ["unarc"],
+             "SQZ via the legacy Sq path; pending until the sweep compares it clean. Owner: legacy.",
+             expect_kind="ok")
+
+    # RAR: the WinRAR-5 real-world fixture lists and extracts, but our legacy adapter builds
+    # every entry as EntryKind::File — "AcidView" is a directory and unarc says so.
+    vend("rar/acid-70a.rar", "rar", "pending", "legacy", None, ["unarc"],
+         "lists and extracts all 28 entries, but the legacy adapter hard-codes EntryKind::File "
+         "(formats/mod.rs): \"AcidView\" is a directory and unarc reports it as one. Owner: legacy.",
+         expect_kind="ok")
+
+    # UE2 is UC2 with UCRYPT encryption; this crate and unarc refuse it with the same message,
+    # so there is no second reader to compare against.
+    vend("ue2/license.ue2", "uc2", "pending", "legacy", None, [],
+         "encrypted UC2 (UCRYPT): this crate and unarc both refuse it with the identical "
+         "Unsupported message; it must be decrypted externally first. Owner: legacy.",
+         expect_kind="error", error_kind="Unsupported")
+
+    # JAR: methods 1-4. Our ZIP reader cannot even list them ("no end-of-central-directory
+    # record"); unarc's dedicated Jar reader reads them.
+    for method in 1, 2, 3, 4:
+        vend(f"jar/license_m{method}.j", "jar", "pending", "codecs", None, ["unarc"],
+             f"JAR method {method}: our ZIP reader cannot list the file at all "
+             "(\"no end-of-central-directory record\"); unarc's Jar reader decodes it. "
+             "Owner: codecs.",
+             expect_kind="error", error_kind=None)
 
 
 HARVEST_SRC = {}
