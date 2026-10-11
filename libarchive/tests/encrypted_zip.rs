@@ -16,7 +16,7 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use libarchive::{ArchiveReader, ErrorKind, OpenOptions};
+use libarchive::{ArchiveReader, ArchiveWriter, ErrorKind, Format, NewEntry, OpenOptions, WriteOptions};
 
 const PASSWORD: &str = "s3cret-password-42";
 
@@ -165,6 +165,59 @@ fn encrypted_entries_list_without_a_password_and_read_with_one() {
             assert_eq!(got, plain, "{name}: {} did not decrypt", entry.name);
         }
     }
+}
+
+/// Writing an encrypted ZIP must not return `Ok` on an unencrypted archive.
+///
+/// This build reads ZipCrypto and WinZip AES but writes no encryption, so a password passed to
+/// `create` is refused before a byte is written. A silent `Ok` here is how a file manager with an
+/// "encrypt" toggle ships plaintext while believing it shipped a secret.
+#[test]
+fn writing_an_encrypted_zip_is_refused_rather_than_written_in_plaintext() {
+    let options = WriteOptions::default().with_password(PASSWORD);
+    let error = match ArchiveWriter::create(std::io::Cursor::new(Vec::new()), Format::Zip, &options)
+    {
+        Ok(_) => panic!("a ZIP writer that cannot encrypt accepted a password"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), ErrorKind::Unimplemented, "{error}");
+}
+
+/// A password supplied per entry, through `write_entry_with`, is refused too.
+///
+/// `create` with no password is legal, and the entry options are the other place a caller could
+/// slip a secret past the check and get an unencrypted archive back.
+#[test]
+fn a_password_passed_to_write_entry_with_is_refused_too() {
+    let sink = std::io::Cursor::new(Vec::new());
+    let mut writer = ArchiveWriter::create(sink, Format::Zip, &WriteOptions::default())
+        .expect("a plain ZIP writer");
+    let options = WriteOptions::default().with_password(PASSWORD);
+    let error = match writer.write_entry_with(
+        &NewEntry::file("secret.txt"),
+        &mut &b"plaintext"[..],
+        &options,
+    ) {
+        Ok(()) => panic!("writing an entry with a password must not succeed unencrypted"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), ErrorKind::Unimplemented, "{error}");
+}
+
+/// Encrypted 7Z writing is refused as well, and this test is the guard on that.
+///
+/// The wrapper refuses a password at `create` because the vendored writer it adapts is not wired
+/// for encryption here (see `writer/sevenz.rs`). Whatever the eventual decision, the one outcome
+/// that is not allowed is `Ok` on a plaintext archive, so that is what is pinned.
+#[test]
+fn writing_an_encrypted_seven_z_is_refused_rather_than_written_in_plaintext() {
+    let options = WriteOptions::default().with_password(PASSWORD);
+    let error =
+        match ArchiveWriter::create(std::io::Cursor::new(Vec::new()), Format::SevenZ, &options) {
+            Ok(_) => panic!("a 7Z writer that cannot encrypt accepted a password"),
+            Err(error) => error,
+        };
+    assert_eq!(error.kind(), ErrorKind::Unimplemented, "{error}");
 }
 
 #[test]

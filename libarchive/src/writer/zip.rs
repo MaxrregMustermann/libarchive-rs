@@ -131,6 +131,24 @@ struct CentralRecord {
     is_directory: bool,
 }
 
+/// Refuses a password, because this writer cannot encrypt.
+///
+/// A ZIP writer here writes no ZipCrypto and no WinZip AES, so a caller that passes a password and
+/// gets `Ok` back would ship an unencrypted archive while believing it shipped a secret. That is
+/// the one outcome not allowed: the error is returned before any byte is written. Encrypted ZIP
+/// *reading* is implemented (`libarchive/tests/encrypted_zip.rs`); writing is not, and `SPEC.md`
+/// says so. Called from both [`ZipWriter::new`] and [`EntryWriter::begin`] so a password cannot slip
+/// in through `write_entry_with` after a `create` that had none.
+fn ensure_no_password(options: &WriteOptions) -> Result<()> {
+    if options.password.is_some() {
+        return Err(Error::unimplemented(
+            "ZIP writing cannot encrypt: this build writes neither ZipCrypto nor WinZip AES, \
+             so it refuses the password rather than writing an unencrypted archive",
+        ));
+    }
+    Ok(())
+}
+
 impl<W: Write + Seek> ZipWriter<W> {
     /// Creates a ZIP writer over `sink`. Nothing is written until the first entry.
     pub fn create<W2: Write + Seek + 'static>(sink: W2, options: &WriteOptions) -> Result<Box<dyn EntryWriter<W2>>> {
@@ -143,6 +161,7 @@ impl<W: Write + Seek> ZipWriter<W> {
     /// wrong for a test that wants to assert on what the writer did internally. The construction
     /// lives here so both get exactly the same writer.
     pub fn new(sink: W, options: &WriteOptions) -> Result<ZipWriter<W>> {
+        ensure_no_password(options)?;
         // A method this build cannot write falls back to deflate rather than to an error, because
         // refusing here would mean the app cannot create a ZIP at all with an unusual default.
         let compression = match options.compression {
@@ -517,6 +536,7 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
         entry: &NewEntry,
         options: &WriteOptions,
     ) -> Result<Box<dyn EntryWrite + 'a>> {
+        ensure_no_password(options)?;
         let mut name = normalise_name(&entry.name);
         if name.is_empty() {
             return Err(Error::malformed("An entry with an empty name cannot be written"));
