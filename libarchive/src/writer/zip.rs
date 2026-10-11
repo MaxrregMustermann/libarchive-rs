@@ -51,9 +51,11 @@
 //! exists to remove — or to write zeros in the header and put the real values in a *data
 //! descriptor* after the data, setting bit 3 of the general purpose flags.
 //!
-//! This writer uses the data descriptor whenever the caller did not declare a size, which is the
-//! streaming case. A caller that already knows the size gets a plain header, which is friendlier
-//! to older tools.
+//! This writer uses the data descriptor for every entry, because the CRC and the compressed size
+//! are not knowable before the data has streamed through the writer, and a header that claims
+//! whatever it likes without a descriptor to correct it is not a valid archive to a tool that
+//! reads the local header. A caller that declares a size gets it written into the header as a
+//! hint, which is friendlier to tools that peek.
 
 use std::io::{self, Seek, Write};
 
@@ -543,13 +545,14 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
             0
         };
 
-        // A declared size can go in the header, which is friendlier to old tools. An undeclared
-        // one cannot, so it goes in a trailing data descriptor instead.
+        // A declared size can go in the header as a hint. The CRC and the compressed size cannot,
+        // because this writer streams an entry's data through without seeing it first, so every
+        // entry carries a trailing data descriptor with the real values (general purpose flag
+        // bit 3). That is what makes the archive valid to a tool that reads the local header: a
+        // header claiming crc 0 and no descriptor to correct it is an archive that `unzip -t`
+        // rejects, which the round-trip tests in `tests/zip_write_levels.rs` check.
         let declare_in_header = entry.size.is_some();
-        let mut flags = flag::UTF8;
-        if !declare_in_header {
-            flags |= flag::DATA_DESCRIPTOR;
-        }
+        let flags = flag::UTF8 | flag::DATA_DESCRIPTOR;
 
         // The level is chosen from the entry's size, or pinned by the caller. An undeclared size
         // counts as small: the streaming path that cannot declare a size is the fast one.
@@ -692,9 +695,13 @@ mod tests {
     }
 
     #[test]
-    fn an_entry_with_a_declared_size_gets_a_plain_header_and_still_reads_back() {
-        // The other branch of the header decision: a known size goes in the header and no data
-        // descriptor is written. Both forms have to produce a readable archive.
+    fn an_entry_with_a_declared_size_still_gets_a_data_descriptor_and_reads_back() {
+        // A declared size goes in the local header as a hint, but the CRC is unknown until the
+        // data has streamed through, so the entry still carries a data descriptor. Before the
+        // descriptor, a declared-size entry had crc 0 in its header and nothing to correct it —
+        // `unzip -t` rejected it, which `tests/zip_write_levels.rs` checks. The crate's own reader
+        // reads the central directory, so it cannot see this class of bug; only an external tool
+        // can.
         let options = WriteOptions::default();
         let sink = Cursor::new(Vec::new());
         let mut writer = ArchiveWriter::create(sink, Format::Zip, &options).expect("a writer");
