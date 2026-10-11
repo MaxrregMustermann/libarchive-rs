@@ -44,12 +44,14 @@ encrypted 7Z is refused with `Unimplemented` rather than written without its enc
 These are the twelve formats in `formats::legacy::AVAILABLE`. `unarc-rs` also reads JAR, SQZ and
 Pack-Ice; JAR is a solid ZIP and SQZ and Pack-Ice are not in `Format`, so they are not claimed here.
 
-**None of the twelve is refused.** Every one dispatches to `unarc-rs` in `formats::legacy::open` and
-opens. What differs is what happens *after* that: the table below is what the crate does with the
-real archives `unarc-rs` 0.7.2 ships (plus five LZH archives, because it ships none). An earlier
-version of this document said "Refused" for all twelve, and said encrypted ZIP was refused too.
-Both were wrong; the code was right about opening and wrong about nothing else, and this table is
-what it actually does.
+**None of the twelve is refused.** `open` returns a reader for all of them, not
+`ErrorKind::Unsupported`. Eleven dispatch to `unarc-rs` through `formats::legacy::open`; UC2 is this
+crate's own reader in `formats/uc2.rs`; UCB dispatches to `unarc-rs`'s Unix-compress (`Z`) reader,
+which is not a UCB decoder and has no fixture to try it on. What differs between them is what
+happens *after* that. The table below is what the crate does with the real archives `unarc-rs` 0.7.2
+ships, plus five LZH archives, because it ships no LZH fixture. An earlier version of this document
+said "Refused" for all twelve and said encrypted ZIP was refused too; both were wrong, and this
+table is what the code does.
 
 | Format | Opens | Lists | Extracts bytes matching the plaintext | Why not, where it does not |
 |--------|-------|-------|--------------------------------------|---------------------------|
