@@ -98,14 +98,19 @@ say "run on device"
 "$ADB" shell "cd $REMOTE && LIBARCHIVE_REVISION=$REVISION ./bench_workloads \
     $REMOTE/bench/big.zip $REMOTE/bench/solid400big.7z" | tr -d '\r'
 
-say "the same binary on the host, for comparison"
-# Run the host build last so a device number is never taken without its host counterpart to
-# sit next to it in the same report.
-LIBARCHIVE_REVISION="$REVISION" "$BINARY_FOR_HOST" 2>/dev/null || \
+say "the same source on the host, for comparison"
+# Run the host build last, so a device number is never reported without its host counterpart
+# sitting next to it. It is rebuilt here rather than reused, because a stale host binary next
+# to a fresh device binary is exactly the comparison that produces a confident wrong answer.
+HOST_TARGET="${HOST_TARGET:-/home/user/cargo-target-host}"
+printf '  target        %s\n' "$HOST_TARGET"
+if CARGO_TARGET_DIR="$HOST_TARGET" cargo build --release --offline --example bench_workloads >/dev/null 2>&1; then
     LIBARCHIVE_REVISION="$REVISION" \
-    /home/user/cargo-target-libarchive/release/examples/bench_workloads \
-    "$CORPUS/big.zip" "$CORPUS/solid400big.7z" 2>/dev/null || \
-    echo "  (no host build; run: cargo run --release --offline --example bench_workloads -- $CORPUS/big.zip $CORPUS/solid400big.7z)"
+        "$HOST_TARGET/release/examples/bench_workloads" \
+        "$CORPUS/big.zip" "$CORPUS/solid400big.7z" | tr -d '\r'
+else
+    echo "  (the host build failed; run it by hand to get the other half of this comparison)"
+fi
 
-printf '\nRead the two blocks above together. Where they disagree by more than the build\n'
-printf 'explains, that difference is the thing worth investigating.\n'
+printf '\nRead the two blocks above together. The device here is x86 on the same silicon as\n'
+printf 'the host, so these ratios are about 32-bit Android and not about a phone.\n'
