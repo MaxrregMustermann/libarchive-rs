@@ -608,7 +608,7 @@ const TRUTH: &[Row] = &[
         format: Format::Sq,
         fixture: "sq/license.sq",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Sq,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -622,7 +622,7 @@ const TRUTH: &[Row] = &[
         format: Format::Sq,
         fixture: "sq/license.sq2",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Sq,
         needs_name: false,
         entries: &[Entry {
             name: ".LIC",
