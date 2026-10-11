@@ -80,7 +80,10 @@ pub struct Expect {
 
 impl Default for Expect {
     fn default() -> Expect {
-        Expect { kind: "ok".to_owned(), error_kind: None }
+        Expect {
+            kind: "ok".to_owned(),
+            error_kind: None,
+        }
     }
 }
 
@@ -127,8 +130,9 @@ pub fn load_manifest() -> Manifest {
     let path = corpus_root().join("manifest.json");
     let text = fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("the corpus manifest at {path:?} is unreadable: {error}"));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|error| panic!("the corpus manifest at {path:?} is not valid JSON: {error}"))
+    serde_json::from_str(&text).unwrap_or_else(|error| {
+        panic!("the corpus manifest at {path:?} is not valid JSON: {error}")
+    })
 }
 
 /// Maps the manifest's format string to `libarchive`'s `Format`. `None` means auto-detect.
@@ -157,8 +161,10 @@ pub fn parse_format(format: &str) -> Option<Format> {
         "zoo" => Format::Zoo,
         "arj" => Format::Arj,
         "sq" => Format::Sq,
+        "sqz" => Format::Sq,
         "ucb" => Format::Ucb,
         "uc2" => Format::Uc2,
+        "jar" => Format::Zip,
         "ha" => Format::Ha,
         "hyp" => Format::Hyp,
         "ice" => Format::Ice,
@@ -192,8 +198,10 @@ pub fn all_format_strings() -> &'static [(&'static str, Format)] {
         ("zoo", Format::Zoo),
         ("arj", Format::Arj),
         ("sq", Format::Sq),
+        ("sqz", Format::Sq),
         ("ucb", Format::Ucb),
         ("uc2", Format::Uc2),
+        ("jar", Format::Zip),
         ("ha", Format::Ha),
         ("hyp", Format::Hyp),
         ("ice", Format::Ice),
@@ -273,7 +281,12 @@ pub fn read_ours(
 
 /// Reads a whole archive with this crate in one call, used by the malformed suite where the
 /// point is "no panic, and an Err where the record promises one".
-pub fn slurp_ours(path: &Path, format: &str, password: Option<&str>, limits: Limits) -> Result<(), String> {
+pub fn slurp_ours(
+    path: &Path,
+    format: &str,
+    password: Option<&str>,
+    limits: Limits,
+) -> Result<(), String> {
     let entries = read_ours(path, format, password, limits)?;
     // Reading is the second half of the contract: a malformed *entry* must Err too, and only
     // streaming every entry gets there. Reading is done inside read_ours.
@@ -283,7 +296,17 @@ pub fn slurp_ours(path: &Path, format: &str, password: Option<&str>, limits: Lim
 
 /// Opens with `unarc-rs` 0.7.2 — the crate the app uses today for the long tail, ZIP, TAR and
 /// the single streams it covers.
-pub fn read_unarc(path: &Path, format: &str, password: Option<&str>) -> Result<Vec<Observed>, String> {
+///
+/// The walk is forward-only on purpose: `next_entry` positions the backend at an entry's data
+/// and `read` consumes it, which is the only order several formats (SQZ, ARC, ARJ, HA, Hyp)
+/// support. Listing everything first and reading later — the shape `formats::legacy::open` uses —
+/// leaves those backends unreadable, and an *oracle* that failed on archives unarc's own tests
+/// read would be worse than no oracle.
+pub fn read_unarc(
+    path: &Path,
+    format: &str,
+    password: Option<&str>,
+) -> Result<Vec<Observed>, String> {
     use unarc_rs::unified::{ArchiveFormat, ArchiveOptions, UnifiedArchive};
     let unarc_format = match format {
         "zip" => ArchiveFormat::Zip,
@@ -301,7 +324,9 @@ pub fn read_unarc(path: &Path, format: &str, password: Option<&str>) -> Result<V
         "zoo" => ArchiveFormat::Zoo,
         "arj" => ArchiveFormat::Arj,
         "sq" => ArchiveFormat::Sq,
+        "sqz" => ArchiveFormat::Sqz,
         "uc2" => ArchiveFormat::Uc2,
+        "jar" => ArchiveFormat::Jar,
         "ha" => ArchiveFormat::Ha,
         "hyp" => ArchiveFormat::Hyp,
         "ice" => ArchiveFormat::Ice,
@@ -315,28 +340,58 @@ pub fn read_unarc(path: &Path, format: &str, password: Option<&str>) -> Result<V
     let mut archive =
         UnifiedArchive::open_with_format_and_options(BufReader::new(file), unarc_format, options)
             .map_err(|error| format!("unarc open: {error}"))?;
-    let entries = archive.entries().map_err(|error| format!("unarc entries: {error}"))?;
-    let mut observed = Vec::with_capacity(entries.len());
-    for entry in entries {
+    let mut observed = Vec::new();
+    while let Some(entry) = archive
+        .next_entry()
+        .map_err(|error| format!("unarc next_entry: {error}"))?
+    {
         let is_dir = entry.is_directory();
         let contents = if is_dir {
+            // TAR's next_entry does not advance by itself: an entry must be read or skipped.
+            // Our dir entries carry no contents, so skip them or the loop never ends.
+            archive
+                .skip(&entry)
+                .map_err(|error| format!("unarc skip [{}]: {error}", entry.name()))?;
             Vec::new()
         } else {
-            archive.read(&entry).map_err(|error| {
-                format!("unarc read [{}]: {error}", entry.name())
-            })?
+            archive
+                .read(&entry)
+                .map_err(|error| format!("unarc read [{}]: {error}", entry.name()))?
         };
         let stored = entry.crc();
+        // unarc reports 0 when the format records no CRC, which is what TAR does — and 0 for
+        // original_size on the single-stream formats, which do not carry the plaintext size up
+        // front. Ours says None there, so the oracle must too or every gzip would "disagree".
+        let size = entry.original_size();
+        let size = if size == 0 && matches!(format, "gz" | "bz2" | "z" | "ice") {
+            None
+        } else {
+            Some(size)
+        };
         observed.push(Observed {
             name: normalise_name(entry.name()),
-            size: Some(entry.original_size()),
+            size,
             crc32: crc(&contents),
             is_dir,
             is_encrypted: entry.is_encrypted(),
             // unarc reports 0 when the format records no CRC, which is what TAR does.
-            stored_crc: if stored == 0 { None } else { Some(stored as u32) },
+            stored_crc: if stored == 0 {
+                None
+            } else {
+                Some(stored as u32)
+            },
             contents,
         });
+    }
+    if matches!(
+        unarc_format,
+        ArchiveFormat::Gz | ArchiveFormat::Bz2 | ArchiveFormat::Z
+    ) {
+        // A single stream has no entry name of its own; ours calls its one entry "content", so
+        // the oracle is given the same name rather than inventing a disagreement.
+        for entry in &mut observed {
+            entry.name = "content".to_owned();
+        }
     }
     Ok(observed)
 }
@@ -403,11 +458,14 @@ fn non_zero_crc(crc: u64) -> Option<u32> {
 /// Reads with `oxiarc` at 93b17af — the fork whose ZIP/TAR/LZH/XZ readers the app shipped and
 /// whose performance fixes this project has to carry forward.
 pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
-    use oxiarc_archive::{BrotliReader, Bzip2Reader, LzhReader, Lz4Reader, TarReader, ZipReader, ZstdReader};
+    use oxiarc_archive::{
+        BrotliReader, Bzip2Reader, Lz4Reader, LzhReader, TarReader, ZipReader, ZstdReader,
+    };
     let file = fs::File::open(path).map_err(|error| format!("opening {path:?}: {error}"))?;
     match format {
         "zip" => {
-            let mut reader = ZipReader::new(BufReader::new(file)).map_err(|e| format!("oxiarc zip open: {e}"))?;
+            let mut reader = ZipReader::new(BufReader::new(file))
+                .map_err(|e| format!("oxiarc zip open: {e}"))?;
             let entries = reader.entries().to_vec();
             let mut observed = Vec::with_capacity(entries.len());
             for entry in entries {
@@ -415,7 +473,9 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
                 let contents = if is_dir {
                     Vec::new()
                 } else {
-                    reader.extract(&entry).map_err(|e| format!("oxiarc zip extract [{}]: {e}", entry.name))?
+                    reader
+                        .extract(&entry)
+                        .map_err(|e| format!("oxiarc zip extract [{}]: {e}", entry.name))?
                 };
                 observed.push(Observed {
                     name: normalise_name(&entry.name),
@@ -430,7 +490,8 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
             Ok(observed)
         }
         "tar" => {
-            let mut reader = TarReader::new(BufReader::new(file)).map_err(|e| format!("oxiarc tar open: {e}"))?;
+            let mut reader = TarReader::new(BufReader::new(file))
+                .map_err(|e| format!("oxiarc tar open: {e}"))?;
             let entries = reader.entries().to_vec();
             let mut observed = Vec::with_capacity(entries.len());
             for entry in entries {
@@ -438,7 +499,9 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
                 let contents = if is_dir {
                     Vec::new()
                 } else {
-                    reader.extract_to_vec(&entry).map_err(|e| format!("oxiarc tar extract [{}]: {e}", entry.name))?
+                    reader
+                        .extract_to_vec(&entry)
+                        .map_err(|e| format!("oxiarc tar extract [{}]: {e}", entry.name))?
                 };
                 observed.push(Observed {
                     name: normalise_name(&entry.name),
@@ -453,7 +516,8 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
             Ok(observed)
         }
         "lzh" => {
-            let mut reader = LzhReader::new(BufReader::new(file)).map_err(|e| format!("oxiarc lzh open: {e}"))?;
+            let mut reader = LzhReader::new(BufReader::new(file))
+                .map_err(|e| format!("oxiarc lzh open: {e}"))?;
             let entries = reader.entries();
             let mut observed = Vec::with_capacity(entries.len());
             for entry in entries {
@@ -461,7 +525,9 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
                 let contents = if is_dir {
                     Vec::new()
                 } else {
-                    reader.extract_to_vec(&entry).map_err(|e| format!("oxiarc lzh extract [{}]: {e}", entry.name))?
+                    reader
+                        .extract_to_vec(&entry)
+                        .map_err(|e| format!("oxiarc lzh extract [{}]: {e}", entry.name))?
                 };
                 observed.push(Observed {
                     name: normalise_name(&entry.name),
@@ -476,13 +542,19 @@ pub fn read_oxiarc(path: &Path, format: &str) -> Result<Vec<Observed>, String> {
             Ok(observed)
         }
         "gz" => single_stream(oxiarc_archive::gzip::decompress(&mut BufReader::new(file))),
-        "bz2" => single_stream(
-            Bzip2Reader::new(BufReader::new(file)).and_then(|mut r| r.decompress()),
-        ),
+        "bz2" => {
+            single_stream(Bzip2Reader::new(BufReader::new(file)).and_then(|mut r| r.decompress()))
+        }
         "xz" => single_stream(oxiarc_archive::xz::decompress(&mut BufReader::new(file))),
-        "zst" => single_stream(ZstdReader::new(BufReader::new(file)).and_then(|mut r| r.decompress())),
-        "lz4" => single_stream(Lz4Reader::new(BufReader::new(file)).and_then(|mut r| r.decompress())),
-        "br" => single_stream(BrotliReader::new(BufReader::new(file)).and_then(|mut r| r.decompress())),
+        "zst" => {
+            single_stream(ZstdReader::new(BufReader::new(file)).and_then(|mut r| r.decompress()))
+        }
+        "lz4" => {
+            single_stream(Lz4Reader::new(BufReader::new(file)).and_then(|mut r| r.decompress()))
+        }
+        "br" => {
+            single_stream(BrotliReader::new(BufReader::new(file)).and_then(|mut r| r.decompress()))
+        }
         other => Err(format!("oxiarc has no mapping for format {other}")),
     }
 }
@@ -525,7 +597,16 @@ pub fn run_oracles(
         .collect()
 }
 
-/// Compares our observations against the manifest's plaintext ground truth, in index order.
+/// Compares our observations against the manifest's plaintext ground truth, matched by name.
+///
+/// Index order is not compared: 7Z stores entries in block order (a no-stream empty file first,
+/// then the folder's members), which is neither the name order the plaintext was listed in nor
+/// anything any reader promises. The set of names, sizes and CRCs is the ground truth; the count
+/// check keeps a dropped or invented entry visible.
+///
+/// Size is compared only when we report one. A single-stream reader legitimately does not know
+/// the decompressed size before decoding — xz keeps it in the trailing index, zstd may omit the
+/// frame field, brotli has no length at all — and `None` is an answer where a wrong `Some` is not.
 pub fn compare_against_manifest(
     ours: &[Observed],
     expected: &[ManifestEntry],
@@ -540,43 +621,75 @@ pub fn compare_against_manifest(
         ));
         return failures;
     }
-    for (index, (got, want)) in ours.iter().zip(expected.iter()).enumerate() {
-        if got.name != normalise_name(&want.name) {
-            failures.push(format!(
-                "{label}: entry {index} is named {:?}, manifest says {:?}",
-                got.name, want.name
-            ));
-        }
+    let by_name: HashMap<&str, &Observed> = ours
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry))
+        .collect();
+    let mut wanted_names = Vec::with_capacity(expected.len());
+    for want in expected {
+        let name = normalise_name(&want.name);
+        wanted_names.push(name.clone());
+        let Some(got) = by_name.get(name.as_str()) else {
+            failures.push(format!("{label}: the manifest lists {name:?}, we do not"));
+            continue;
+        };
         if got.is_dir != want.dir {
             failures.push(format!(
-                "{label}: entry {index} [{}] dir-ness {} != manifest {}",
-                got.name, got.is_dir, want.dir
+                "{label}: {name:?} dir-ness {} != manifest {}",
+                got.is_dir, want.dir
             ));
         }
-        if !want.dir && got.size != Some(want.size) {
+        if want.dir {
+            continue;
+        }
+        if let Some(size) = got.size {
+            if size != want.size {
+                failures.push(format!(
+                    "{label}: {name:?} size {size} != manifest {}",
+                    want.size
+                ));
+            }
+        }
+        if got.crc32 != want.crc32 {
             failures.push(format!(
-                "{label}: entry {index} [{}] size {:?} != manifest {}",
-                got.name, got.size, want.size
+                "{label}: {name:?} crc {:08x} != manifest {:08x}",
+                got.crc32, want.crc32
             ));
         }
-        if !want.dir && got.crc32 != want.crc32 {
-            failures.push(format!(
-                "{label}: entry {index} [{}] crc {:08x} != manifest {:08x}",
-                got.name, got.crc32, want.crc32
-            ));
+    }
+    for got in ours {
+        let name = got.name.clone();
+        if !wanted_names.contains(&name) {
+            failures.push(format!("{label}: we list {name:?}, the manifest does not"));
         }
     }
     failures
 }
 
 /// Compares our observations against an oracle's, matched **by name** (oracle order is free — 7Z
-/// block order is not name order; the manifest alone owns index order).
-pub fn compare_against_oracle(ours: &[Observed], theirs: &[Observed], label: &str) -> Vec<String> {
+/// block order is not name order; the manifest alone owns which names exist).
+///
+/// `check_stored_crc` turns on the one check a same-bytes differential cannot make on its own:
+/// the CRC the archive itself records must equal what we computed by actually streaming the
+/// bytes. It is a parameter because not every format's `crc` field is a CRC-32 of the
+/// contents — unarc reports ACE's and Zoo's and UC2's header checksums there — and a check that
+/// fires on a field that means something else is noise, not signal. ZIP, 7Z, RAR and JAR record
+/// exactly the CRC-32 the bytes hash to.
+pub fn compare_against_oracle(
+    ours: &[Observed],
+    theirs: &[Observed],
+    label: &str,
+    check_stored_crc: bool,
+) -> Vec<String> {
     let mut failures = Vec::new();
-    let our_by_name: HashMap<&str, &Observed> =
-        ours.iter().map(|entry| (entry.name.as_str(), entry)).collect();
-    let their_by_name: HashMap<&str, &Observed> =
-        theirs.iter().map(|entry| (entry.name.as_str(), entry)).collect();
+    let our_by_name: HashMap<&str, &Observed> = ours
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry))
+        .collect();
+    let their_by_name: HashMap<&str, &Observed> = theirs
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry))
+        .collect();
 
     for name in their_by_name.keys() {
         if !our_by_name.contains_key(name) {
@@ -642,12 +755,14 @@ pub fn compare_against_oracle(ours: &[Observed], theirs: &[Observed], label: &st
         // The stored CRC is the archive's own claim about its contents. When the format records
         // one and the oracle exposes it, it must equal what we computed by actually streaming the
         // bytes — that is the check a same-bytes differential cannot make on its own.
-        if let Some(stored) = theirs_entry.stored_crc {
-            if stored != mine.crc32 {
-                failures.push(format!(
-                    "{label}: {name:?} computed crc {:08x} != the archive's stored crc {stored:08x}",
-                    mine.crc32
-                ));
+        if check_stored_crc {
+            if let Some(stored) = theirs_entry.stored_crc {
+                if stored != mine.crc32 {
+                    failures.push(format!(
+                        "{label}: {name:?} computed crc {:08x} != the archive's stored crc {stored:08x}",
+                        mine.crc32
+                    ));
+                }
             }
         }
         match (mine.size, theirs_entry.size) {
@@ -672,7 +787,12 @@ pub fn check_record(record: &ManifestFile) -> Vec<String> {
     }
     match record.expect.kind.as_str() {
         "error" => {
-            let result = read_ours(&path, &record.format, record.password.as_deref(), Limits::default());
+            let result = read_ours(
+                &path,
+                &record.format,
+                record.password.as_deref(),
+                Limits::default(),
+            );
             match result {
                 Ok(entries) => vec![format!(
                     "{label}: expected an Err, but the archive opened and listed {} entries",
@@ -685,9 +805,7 @@ pub fn check_record(record: &ManifestFile) -> Vec<String> {
                         if error_kind_named(&message, wanted) {
                             Vec::new()
                         } else {
-                            vec![format!(
-                                "{label}: expected Err({kind}), got: {message}"
-                            )]
+                            vec![format!("{label}: expected Err({kind}), got: {message}")]
                         }
                     }
                 },
@@ -695,8 +813,12 @@ pub fn check_record(record: &ManifestFile) -> Vec<String> {
         }
         "ok" => {
             let mut failures = Vec::new();
-            let ours = match read_ours(&path, &record.format, record.password.as_deref(), Limits::default())
-            {
+            let ours = match read_ours(
+                &path,
+                &record.format,
+                record.password.as_deref(),
+                Limits::default(),
+            ) {
                 Ok(entries) => entries,
                 Err(message) => return vec![format!("{label}: {message}")],
             };
@@ -705,7 +827,12 @@ pub fn check_record(record: &ManifestFile) -> Vec<String> {
             }
             for (oracle, result) in run_oracles(&path, record) {
                 match result {
-                    Ok(theirs) => failures.extend(compare_against_oracle(&ours, &theirs, &label)),
+                    Ok(theirs) => failures.extend(compare_against_oracle(
+                        &ours,
+                        &theirs,
+                        &label,
+                        stored_crc_is_content_crc(&record.format),
+                    )),
                     // A missing mapping is recorded, not fatal: the manifest's `oracles` list is
                     // meant to name every oracle that *has* a mapping, and a typo in it should
                     // show up here rather than silently skip a comparison.
@@ -714,13 +841,22 @@ pub fn check_record(record: &ManifestFile) -> Vec<String> {
             }
             failures
         }
-        other => vec![format!("{label}: manifest expect.kind {other:?} is not ok|error")],
+        other => vec![format!(
+            "{label}: manifest expect.kind {other:?} is not ok|error"
+        )],
     }
+}
+
+/// Whether the format's recorded CRC field is a CRC-32 of the entry's contents, which is what
+/// makes the stored-CRC check meaningful. ZIP, 7Z, RAR and JAR say so; ACE, Zoo and UC2 put a
+/// header checksum in the field unarc exposes as `crc()`.
+pub fn stored_crc_is_content_crc(format: &str) -> bool {
+    matches!(format, "zip" | "7z" | "rar" | "jar")
 }
 
 /// Whether an error message from `read_ours` carries the expected kind. The message is built with
 /// `{error:?}`, which prints the `ErrorKind` variant name.
-fn error_kind_named(message: &str, kind: ErrorKind) -> bool {
+pub fn error_kind_named(message: &str, kind: ErrorKind) -> bool {
     let needle = format!("{kind:?}");
     message.contains(&needle)
 }
@@ -738,7 +874,11 @@ where
 /// A 1 MiB ceiling, for the oversized-header and bomb cases: small enough that a hostile header is
 /// refused before anything is allocated, large enough that no legitimate corpus file trips it.
 pub fn tight_limits() -> Limits {
-    Limits { max_entry_size: 1024 * 1024, max_total_size: 4 * 1024 * 1024, ..Limits::default() }
+    Limits {
+        max_entry_size: 1024 * 1024,
+        max_total_size: 4 * 1024 * 1024,
+        ..Limits::default()
+    }
 }
 
 /// A wall-clock guard used by nothing today and kept for the cases where a hang is the failure
