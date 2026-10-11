@@ -62,22 +62,22 @@ Every row here is measured with `open_as`, which takes the format the caller alr
 | Format | Opens | Lists | Extracts bytes matching the plaintext | Why not, where it does not |
 |--------|-------|-------|--------------------------------------|---------------------------|
 | RAR | Yes | 1 entry | **No** | The only fixtures are the three volumes of one multi-volume archive, and `open` is handed a single source. `unarc-rs` wants a `VolumeProvider` for the other two and there is no API here to supply one. Concatenating the volumes does not help: still `Io: Multi-volume archive requires a volume provider`. |
-| LZH | Yes | 1 entry | **No** — `Io: unsupported compression method` | `unarc-rs`'s LHA decoder reads all five fixtures correctly on its own (asserted by `long_tail_the_backend_reads_what_our_reader_cannot`). The failure is this crate's listing loop, which walks the backend past the entry and then reads from it. |
+| LZH | Yes | 1 entry | **Yes**, all five fixtures | Fixed by J-0021: the forward-only cursor walks with `read()` not `skip()`. `unarc-rs`'s LHA decoder always worked; the listing loop was the defect. |
 | ACE | Yes | Yes | **Yes** for the single-volume archives; **No** for the three-volume one (`Io`) | Same volume-provider limitation as RAR. |
-| ARC | Yes | Yes | **No** — every entry fails `Malformed: unexpected end of file` | Same listing-loop defect as LZH. `unarc-rs` reads all six plaintext fixtures correctly on its own. |
+| ARC | Yes | Yes | **Yes** for six plaintext fixtures; **No** for `wrongcrc16.arc` (corrupt, correctly refused `Malformed`) and the two encrypted fixtures (password not forwarded to decoder) | Fixed by J-0021: the forward-only cursor walks with `read()` not `skip()`. The listing-loop defect is resolved for readable fixtures. |
 | Zoo | Yes | Yes | **Yes** for three of four; the fourth is a fixture with a deliberately wrong stored CRC-16 and is correctly refused `Malformed` | — |
-| ARJ | Yes | Yes | **No** — every plaintext fixture fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads all five method levels correctly on its own. The encrypted fixture correctly reports `Password` rather than bytes. |
-| SQ | Yes | 1 entry, **with size 0** | **No** — the entry streams **0 bytes** for an 11,357-byte file, with no error at all | Same listing-loop defect, and it fails *silently*: 11,357 bytes of license text become an empty file. This is the worst row in the table. |
+| ARJ | Yes | Yes | **Yes** for five plaintext fixtures (stored + method1-4); **No** for `wrongcrc32.arj` (corrupt, correctly refused `Malformed`), the encrypted fixture (reports `Password`, no password published), and three multi-volume fixtures (need `VolumeProvider`) | Fixed by J-0021 for plaintext fixtures. The listing-loop defect is resolved for readable fixtures. |
+| SQ | Yes | 1 entry | **Yes**, both fixtures extract 11,357 bytes matching plaintext | Fixed by J-0021: the forward-only cursor walks with `read()` not `skip()`, and uses the actual decompressed size rather than the listed size (which was 0). |
 | UCB | **No** | — | — | **Not supported, and the row is here rather than deleted so the gap stays visible.** There is no UCB decoder in this crate. No UCB fixture exists in `unarc-rs`, in any other crate in the cargo cache, or on this machine. `formats::legacy::open` maps `Format::Ucb` onto `unarc-rs`'s `Z` reader, which is the Unix-compress decoder. A `.ucb` file will therefore fail to decode rather than decode wrongly, but it is not supported and this table does not pretend otherwise. |
 | UC2 | Yes | Yes | **Yes**, all four fixtures, byte for byte | Not a carried format: `Format::Uc2` is this crate's own reader in `formats/uc2.rs`. |
-| Ha | Yes | Yes | **No** — every entry fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads all three correctly on its own. |
-| Hyp | Yes | Yes | **No** — every entry fails `Malformed: unexpected end of file` | Same listing-loop defect. `unarc-rs` reads the entries correctly on its own. |
+| Ha | Yes | Yes | **Yes**, all three fixtures | Fixed by J-0021: the forward-only cursor walks with `read()` not `skip()`. The listing-loop defect is resolved. |
+| Hyp | Yes | Yes | **Yes** for `license.hyp` and `stored.hyp` (3 entries); **No** for `invalid.hyp` (corrupt, correctly refused `Malformed`) | Fixed by J-0021 for valid fixtures. The listing-loop defect is resolved. |
 | Ice | Yes | 1 entry | **Yes**, byte for byte | — |
 
 Two things that hold for all twelve, and neither is a per-format choice:
 
 * **Every long-tail entry is materialised in memory before the first byte comes out.**
-  `LegacyReader::open_entry` calls `unarc-rs`'s `read`, which returns a `Vec<u8>`, and wraps it in
+  `LegacyCursor::open_entry` calls `unarc-rs`'s `read`, which returns a `Vec<u8>`, and wraps it in
   a `Cursor`. The API streams and the table above is measured by reading in 997-byte chunks, but the
   allocation happens up front. A 132 MB RAR entry costs 132 MB resident.
 * **`OpenOptions::password` is dropped on the floor.** `formats::legacy::open` calls
@@ -85,13 +85,11 @@ Two things that hold for all twelve, and neither is a per-format choice:
   any carried decoder. `arc/license_cypted.arc` is the fixture that shows it: with and without the
   correct password (`SECRET`, published in `unarc-rs`'s own test) it fails identically. That
   archive is refused by `unarc-rs` 0.7.2 itself even with the password set, so it is a broken
-  fixture as well as an unwired one — but ARJ and ACE encryption cannot work until the options are
-  forwarded.
+  fixture as well as an unwired one. ARJ encryption is *detected* (the decoder reports `Password`)
+  but cannot be *decrypted* without the password being forwarded. ACE encryption likewise cannot work
+  until the options are forwarded.
 
-The listing-loop defect is `formats::legacy::open` listing with `next_entry()` + `skip()` and then
-calling `read` on the same backend. `unarc-rs`'s `read` decodes from wherever the backend is
-positioned rather than seeking to the entry's data offset, so after the walk every read starts at
-the end of the archive.
+The listing-loop defect (fixed by J-0021) was `formats::legacy::open` listing with `next_entry()` + `skip()` and then calling `read` on the same backend. `unarc-rs`'s `read` decodes from wherever the backend is positioned rather than seeking to the entry's data offset, so after the walk every read started at the end of the archive. The fix is a forward-only cursor that keeps a separate reading backend and advances with `next_entry()` + `read()` (never `skip()`), making sequential extraction O(n) and out-of-order reads correct (O(i) by re-opening and walking forward).
 
 ### Reader types
 
