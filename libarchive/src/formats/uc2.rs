@@ -1,21 +1,50 @@
 //! UC2 (UltraCrypt 2) archive format adapter.
 //! Wraps unarc-rs to provide EntrySource for .uc2 archives.
 //!
-//! # Streaming
-//!
-//! `Uc2EntryRead` now uses a `Uc2Decoder` struct with `decode_into` that fills the caller's
-//! buffer without materialising the entire decompressed entry. The compressed slice stays whole;
-//! only incremental decoding into the caller's buffer happens.
+//! # This still does not stream, and the difference from the last attempt matters
 //!
 //! Two of the three properties this crate exists for are here:
 //!
 //! - **The archive stays open.** The `UnifiedArchive` backend is built once and held, so the
-//!   central directory is parsed once rather than once per entry.
+//!   central directory is parsed once rather than once per entry. An earlier version of this file
+//!   called `open_with_format` inside `open`, which re-parsed the directory for every entry read.
+//!   That is invisible in a test that reads one entry and quadratic in the app's real access
+//!   pattern, which is one archive and many files from it.
 //! - **Entries are addressed by index** into an archive held open, not looked up by name.
 //!
-//! The third property - streaming without materialising the entry - is addressed by the
-//! `Uc2Decoder`/`decode_into` below, which decompresses incrementally rather than returning
-//! a `Vec<u8>` of the whole entry.
+//! **The third property is not here.** `open` still calls unarc-rs's `read`, which decompresses
+//! the whole entry and hands back a `Vec<u8>`. That `Vec` is what `Uc2EntryRead` is constructed
+//! from, so the entry is fully materialised before the caller sees a byte — the thing this crate
+//! was built to remove, inherited from the crate it replaces.
+//!
+//! ## `uc2_decode_into` is not a UC2 decompressor
+//!
+//! There is a function called `uc2_decode_into` and a struct called `Uc2Decoder`, and **neither
+//! decodes anything**. `uc2_decode_into` copies bytes out of `Uc2Decoder::source` into the
+//! caller's buffer without decompressing them. It appears to work only because the one thing
+//! constructed from it is handed bytes that unarc-rs has *already* decompressed — so a copy of
+//! correct data is a copy of correct data.
+//!
+//! That is an accident of wiring, not a property of the code, and it is exactly the kind of
+//! accident that produces correct output on the developer's fixture and garbage in the field.
+//! `Uc2Decoder::source` is named `source` rather than `compressed` precisely because of this: the
+//! name `compressed` is what makes the placeholder look like it might one day be wired to the
+//! real compressed bytes, and at that moment every UC2 read would silently start returning
+//! ciphertext-as-plaintext with no test failing.
+//!
+//! Neither symbol is a public API and neither is reachable from anything but this module.
+//!
+//! ## What remains
+//!
+//! Replace `backend.read` with a port of unarc-rs's `decompress_impl` (`uc2/decompress.rs:392`)
+//! as a struct: it is already a loop over blocks whose only obstacle is that its output
+//! accumulator is a `Vec`. Hold that struct in `Uc2EntryRead`, feed it the entry's *compressed*
+//! bytes, and delete the placeholder.
+//!
+//! The test that decides whether it is done is an allocation assertion — build a UC2 with a
+//! large entry, read one byte, and assert the process did not grow by the entry's size. A test
+//! that reads the whole entry and compares it proves the output is right and says nothing about
+//! whether it was buffered.
 
 use std::io::{self, Cursor, Read, Seek};
 
@@ -311,19 +340,30 @@ mod tests {
         );
     }
 
-    /// What the adapter actually does today, so that changing it is a deliberate act.
+    /// What the adapter actually does today, stated as a fact rather than a hope.
     ///
-    /// The tripwire is a type annotation, so it is checked by the compiler rather than at run
-    /// time: this stops compiling the moment `Uc2EntryRead` stops being a `Cursor<Vec<u8>>`. When
-    /// that happens someone is making UC2 actually stream, and this test and the module doc both
-    /// have to change in the same commit.
+    /// This replaced a tripwire whose type annotation stopped compiling once `Uc2EntryRead` grew
+    /// a decoder field, after which it sat under a name — "the entry is still materialised" — that
+    /// no longer described anything it did. A test that outlives the thing it was written for is
+    /// worse than no test, because it keeps reading as evidence.
+    ///
+    /// What is true now: `open` hands `Uc2EntryRead` bytes that unarc-rs has already decompressed,
+    /// so what it returns is correct, and the entry is still fully materialised before the first
+    /// read. The allocation assertion that would decide otherwise is the work that is left.
     #[test]
-    fn the_entry_is_still_materialised_and_this_test_says_so() {
+    fn the_entry_is_materialised_upstream_of_this_reader_and_this_test_says_so() {
         let mut reader = Uc2EntryRead::new(vec![7u8; 64], Some(64));
-        let mut one = [0u8; 1];
-        reader.read(&mut one).expect("a byte");
-        assert_eq!(reader.produced, 1);
-        eprintln!("entry produced 1 byte, total produced: {}", reader.produced);
+        let mut out = [0u8; 64];
+        let read = reader.read(&mut out).expect("reads");
+        assert_eq!(read, 64);
+        assert!(
+            out.iter().all(|byte| *byte == 7),
+            "this reader is a pass-through; the test must not imply otherwise"
+        );
+        assert_eq!(
+            reader.decoder.produced, 64,
+            "the placeholder counts bytes copied, not bytes decoded"
+        );
     }
 
     /// Reading past the recorded size stops rather than handing back whatever the codec produced.
