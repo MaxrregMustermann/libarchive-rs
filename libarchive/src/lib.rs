@@ -74,7 +74,7 @@ pub mod reader;
 pub mod writer;
 mod zlzw;
 
-pub use detect::{detect, detect_header};
+pub use detect::{detect, detect_header, detect_header_with_name, detect_with_name};
 pub use entry::{BlockPlacement, Entry, EntryKind, EntrySpecial};
 pub use error::{Error, ErrorKind, Result};
 pub use format::{Compression, Format};

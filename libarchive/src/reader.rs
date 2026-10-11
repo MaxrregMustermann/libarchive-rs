@@ -313,6 +313,21 @@ impl<R: Read + Seek + Send + 'static> ArchiveReader<R> {
         Self::open_as(source, format, options)
     }
 
+    /// [`Self::open`], with the name the caller already has as a fallback.
+    ///
+    /// Detection reads signatures, and two of the formats this crate reads cannot be identified by
+    /// one: an ICE file begins with its uncompressed length and an ARC file with the DOS
+    /// end-of-file marker. The name settles those, and is ignored for anything the bytes already
+    /// identified. `ArchiveReader::open` is `open_named(source, None, options)`.
+    pub fn open_named(
+        mut source: R,
+        name: Option<&std::path::Path>,
+        options: &OpenOptions,
+    ) -> Result<ArchiveReader<R>> {
+        let format = crate::detect::detect_with_name(&mut source, name)?;
+        Self::open_as(source, format, options)
+    }
+
     /// Opens `source` as a format the caller already knows, skipping detection.
     ///
     /// Worth it when detection is the expensive part, such as probing a file with no signature in

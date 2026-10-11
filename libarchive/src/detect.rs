@@ -9,16 +9,34 @@
 //! [`Format::Zip`], because ZIP is the only format whose central directory is found by scanning
 //! back from the end, which makes it the one that can produce a useful error for a file that is not
 //! an archive at all.
+//!
+//! ## Every constant below was read out of the decoder that reads the format
+//!
+//! An earlier version of this file had signatures for eight of the twelve long-tail formats that
+//! were written from the published description rather than from the bytes, and not one of the eight
+//! matched a real archive. The table below says where each constant comes from; every one is a
+//! literal in `unarc-rs` 0.7.2, the crate that actually decodes these formats, with the file and
+//! line it was copied from. `tests/detect_signatures.rs` checks each one against the vendored
+//! fixture, so a constant that drifts from the bytes fails there rather than in the field.
+//!
+//! ## Two of the twelve have no bytes to identify them with
+//!
+//! ICE begins with the uncompressed size in little endian and ARC begins with `0x1A`, the DOS
+//! end-of-file marker, which appears in files that are not archives at all. Inventing a signature
+//! for either would turn a text file into a Zoo. Those two are reachable by name instead, through
+//! [`detect_header_with_name`], which is consulted only after the bytes have said nothing.
 
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::format::{Compression, Format};
 
 /// How many bytes detection reads.
 ///
-/// 512 is a TAR block and covers every fixed signature, including the one at offset 257. Reading
-/// more than this on every open costs time and, on a channel-backed source, a JNI round trip.
+/// 512 is a TAR block and covers every signature here, including the TAR one at offset 257 and the
+/// ACE marker wherever it lands. Reading more than this on every open costs time and, on a
+/// channel-backed source, a JNI round trip.
 pub const HEADER_SIZE: usize = 512;
 
 const SEVEN_Z: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
@@ -33,23 +51,77 @@ const ZIP_SPANNED: &[u8] = &[b'P', b'K', 0x07, 0x08];
 const RAR4: &[u8] = &[b'R', b'a', b'r', b'!', 0x1A, 0x07, 0x00];
 const RAR5: &[u8] = &[b'R', b'a', b'r', b'!', 0x1A, 0x07, 0x01, 0x00];
 const ARJ: &[u8] = &[0x60, 0xEA];
-const LZH_ONE: &[u8] = &[0x2D, 0x6C, 0x68];
-const LZH_TWO: &[u8] = &[0x2D, 0x6C, 0x7A];
-const ACE: &[u8] = &[b'*', b'*', b'A', b'C', b'E', b'*', b'*'];
-const ZOO: &[u8] = &[0x5A, 0x4F, 0x4F, 0x20, 0x32, 0x30, 0x30];
-const SQ: &[u8] = &[b'S', b'Q', 0x1A];
-const UCB: &[u8] = &[b'U', b'C', b'h', 0x1A, 0x00];
-const HYP: &[u8] = &[b'Z', b'Z', b'X', 0x00];
-const ICE: &[u8] = &[0x1F, 0xA0];
+
+/// `unarc-rs-0.7.2/src/ha/header.rs:6` — `HA_MAGIC`.
+const HA: &[u8] = b"HA";
+/// `unarc-rs-0.7.2/src/zoo/zoo_header.rs:6` — `TEXT`. Seventeen bytes, and the version in it is
+/// 2.10. The constant this replaced said `ZOO 200`, which is a different archive format.
+const ZOO: &[u8] = b"ZOO 2.10 Archive.";
+/// `unarc-rs-0.7.2/src/sq/header.rs` — `SQ_SIG`.
+const SQ1: &[u8] = &[0x76, 0xFF];
+/// `unarc-rs-0.7.2/src/sq/header.rs` — `SQ2_SIG`.
+const SQ2: &[u8] = &[0xFA, 0xFF];
+/// `unarc-rs-0.7.2/src/hyp/header.rs:5` — `COMPRESSED: u16 = 0x5048`. That is the number, and these
+/// are the three bytes the file has: the `0x1A` end-of-file marker, then `"HP"`.
+const HYP_COMPRESSED: &[u8] = &[0x1A, b'H', b'P'];
+/// `unarc-rs-0.7.2/src/hyp/header.rs:6` — `STORED: u16 = 0x5453`, which is `0x1A` then `"ST"`.
+const HYP_STORED: &[u8] = &[0x1A, b'S', b'T'];
+/// `unarc-rs-0.7.2/src/uc2/uc2_archive.rs:40` — `ID: u32 = 0x1A324355`, which is these four bytes
+/// read as a little-endian `u32`. The fifth byte of a UC2 file is the algorithm, not part of the
+/// signature: the four vendored fixtures carry 0xa4, 0x1a, 0x16 and 0x08 there.
+const UC2: &[u8] = b"UC2\x1A";
+/// `unarc-rs-0.7.2/src/ace/ace_archive.rs` — `ACE_MAGIC`. Not at a fixed offset: the decoder
+/// *searches* for it and then treats whatever is seven bytes before it as the start of the main
+/// header, so it is searched for here too rather than compared at offset 0.
+const ACE: &[u8] = b"**ACE**";
+/// Where `**ACE**` may sit, relative to the start of the file. The decoder rejects a marker found
+/// before this, because the seven bytes before it are the main header's CRC and size.
+const ACE_MINIMUM_OFFSET: usize = 7;
 
 /// The byte order mark that begins a `compress`ed stream.
 const UNIX_COMPRESS: &[u8] = &[0x1F, 0x9D];
+
+/// The extensions a name can settle when the bytes cannot.
+///
+/// Reachable only through [`detect_header_with_name`], and only after every signature above has
+/// failed, so a name never overrides a format the file actually is. Two entries here do real work:
+/// `arc` and `ice` have no signature at all and would otherwise be unreachable, because their first
+/// bytes are the DOS end-of-file marker and a length respectively. The rest are here so that a
+/// long-tail archive with a large stub in front of it — which puts its marker past the 512 bytes
+/// detection reads — is still reachable when the caller knows what it is called.
+///
+/// `ucb` is deliberately absent: there is no UCB decoder in this crate, so naming a format that
+/// cannot be read would only move the failure.
+const NAME_HINTS: &[(&str, Format)] = &[
+    ("rar", Format::Rar),
+    ("lzh", Format::Lzh),
+    ("lha", Format::Lzh),
+    ("ace", Format::Ace),
+    ("arc", Format::Arc),
+    ("zoo", Format::Zoo),
+    ("arj", Format::Arj),
+    ("sq", Format::Sq),
+    ("sq2", Format::Sq),
+    ("uc2", Format::Uc2),
+    ("ha", Format::Ha),
+    ("hyp", Format::Hyp),
+    ("ice", Format::Ice),
+];
 
 /// Reads a header and rewinds, then works out the format.
 ///
 /// The read is a loop rather than one `read_exact`, because a source backed by a channel hands
 /// back short reads and a single call would miss the signature.
 pub fn detect<R: Read + Seek>(source: &mut R) -> Result<Format> {
+    detect_with_name(source, None)
+}
+
+/// [`detect`], with the name the caller already has as a fallback.
+///
+/// The name is consulted only when the bytes identified nothing, so it can make a format with no
+/// signature reachable without ever overriding a format the file really is. See
+/// [`detect_header_with_name`].
+pub fn detect_with_name<R: Read + Seek>(source: &mut R, name: Option<&Path>) -> Result<Format> {
     let start = source.stream_position()?;
     let mut header = [0u8; HEADER_SIZE];
     let mut filled = 0;
@@ -66,11 +138,20 @@ pub fn detect<R: Read + Seek>(source: &mut R) -> Result<Format> {
     if let Err(error) = source.seek(SeekFrom::Start(start)) {
         return Err(Error::io(error).context("the archive source is not seekable"));
     }
-    Ok(detect_header(&header[..filled]))
+    Ok(detect_header_with_name(&header[..filled], name))
 }
 
 /// Works out the format from bytes already in hand.
 pub fn detect_header(header: &[u8]) -> Format {
+    detect_header_with_name(header, None)
+}
+
+/// [`detect_header`], falling back to `name` when the bytes identified nothing.
+///
+/// `name` is the path the app already has in its hand; only its extension is read, lowercased, so
+/// `LICENSE.ICE` and `license.ice` are the same answer. It is a fallback and not an override: a
+/// Zoo file called `photo.jpg` is a Zoo, and this returns [`Format::Zoo`].
+pub fn detect_header_with_name(header: &[u8], name: Option<&Path>) -> Format {
     // A TAR has no signature at offset zero. Its magic is the word "ustar" 257 bytes in, inside
     // what is otherwise a block of mostly zeroes, so it is checked last: it is the weakest signal
     // here and the only one that needs the header to be long enough to reach.
@@ -80,9 +161,23 @@ pub fn detect_header(header: &[u8]) -> Format {
     if header.len() > 262 && header[257..262] == *b"ustar" {
         return Format::Tar;
     }
+    // Nothing recognised by content. A name is the only thing left that can say, and for ARC and
+    // ICE it is the only thing that ever can.
+    if let Some(format) = name.and_then(format_from_name) {
+        return format;
+    }
     // Nothing recognised. ZIP is the fallback because it can report a meaningful error for a file
     // that is not an archive, rather than "unknown format".
     Format::Zip
+}
+
+/// The long-tail format an extension names, if it names one.
+fn format_from_name(name: &Path) -> Option<Format> {
+    let extension = name.extension()?.to_str()?.to_ascii_lowercase();
+    NAME_HINTS
+        .iter()
+        .find(|(hint, _)| *hint == extension)
+        .map(|(_, format)| *format)
 }
 
 /// The formats that start with bytes at offset zero.
@@ -120,40 +215,69 @@ fn detect_signed(header: &[u8]) -> Option<Format> {
     if starts(UNIX_COMPRESS) {
         return Some(Format::SingleStream(Compression::Z));
     }
-    if starts(ACE) {
+    if is_lzh(header) {
+        return Some(Format::Lzh);
+    }
+    if has_ace_marker(header) {
         return Some(Format::Ace);
     }
     if starts(ZOO) {
         return Some(Format::Zoo);
     }
+    if starts(HYP_COMPRESSED) || starts(HYP_STORED) {
+        return Some(Format::Hyp);
+    }
+    if starts(SQ1) || starts(SQ2) {
+        return Some(Format::Sq);
+    }
+    if starts(UC2) {
+        return Some(Format::Uc2);
+    }
     if starts(ARJ) {
         return Some(Format::Arj);
     }
-    if starts(SQ) {
-        return Some(Format::Sq);
-    }
-    if starts(UCB) {
-        return Some(Format::Ucb);
-    }
-    if starts(HYP) {
-        return Some(Format::Hyp);
-    }
-    if starts(ICE) {
-        return Some(Format::Ice);
-    }
-    // LZH and its two levels of compression are told apart by the compression method byte at
-    // offset 20, which is a digit rather than a letter for method zero and a letter otherwise.
-    if (starts(LZH_ONE) || starts(LZH_TWO)) && header.len() > 20 {
-        let method = header[20];
-        let known = matches!(
-            method,
-            b'0'..=b'9' | b'l' | b'p' | b'z' | b'b' | b'-' | b'h' | b's'
-        );
-        if known {
-            return Some(Format::Lzh);
-        }
+    if starts(HA) {
+        // The weakest signature in this file, and the last one checked. `HA` is two bytes of
+        // upper case at offset zero, which is not much to go on — it is here because it is what
+        // the Ha decoder accepts (`ha/header.rs:6`) and no stronger signal exists.
+        return Some(Format::Ha);
     }
     None
+}
+
+/// Whether the header opens with an LHA/LZH level 0 or level 1 header.
+///
+/// The `-lh5-` marker is at **offset 2**, not offset 0, because the first two bytes of such a
+/// header are the header's own length and checksum — which is also why the LZH fixtures here do not
+/// carry an SFX stub in front of anything. The five-byte method identifier sits at offsets 2..7,
+/// so the method itself is the byte at offset 5. This is checked rather than compared whole
+/// because a header the decoder cannot use is not an LZH, and the caller is better served by the
+/// "not an archive" error than by an LHA error.
+///
+/// The identifier list is `delharc` 0.8.0's own (`src/header/compression.rs`): `-lh0-` through
+/// `-lh7-`, and `-lhx-`, `-lhd-`, `-lzs-`, `-lz4-`, `-lz5-`.
+fn is_lzh(header: &[u8]) -> bool {
+    const MARKER_AT: usize = 2;
+    let end = MARKER_AT + 5;
+    if header.len() < end || &header[MARKER_AT..MARKER_AT + 3] != b"-lh" {
+        return false;
+    }
+    let method = header[MARKER_AT + 3];
+    let method = matches!(method, b'0'..=b'9' | b'd' | b's' | b'x' | b'z');
+    method && header[end - 1] == b'-'
+}
+
+/// Whether the header carries an ACE main header anywhere the decoder would accept one.
+///
+/// The marker is searched for rather than compared at a fixed offset, because ACE archives are
+/// routinely prefixed with a self-extracting stub and `unarc-rs` searches the first 512 KiB for
+/// it. Detection reads [`HEADER_SIZE`] bytes, so this finds a marker in the first 512 and not
+/// beyond; the name hint in [`detect_header_with_name`] covers the rest.
+fn has_ace_marker(header: &[u8]) -> bool {
+    header.len() >= ACE.len() + ACE_MINIMUM_OFFSET
+        && header[ACE_MINIMUM_OFFSET..]
+            .windows(ACE.len())
+            .any(|window| window == ACE)
 }
 
 /// Rewinds a source, or says why it could not.
@@ -184,18 +308,45 @@ mod tests {
             (ZSTD, Format::SingleStream(Compression::Zstd)),
             (LZ4, Format::SingleStream(Compression::Lz4)),
             (UNIX_COMPRESS, Format::SingleStream(Compression::Z)),
-            (ACE, Format::Ace),
             (ZOO, Format::Zoo),
             (ARJ, Format::Arj),
-            (SQ, Format::Sq),
-            (UCB, Format::Ucb),
-            (HYP, Format::Hyp),
-            (ICE, Format::Ice),
+            (SQ1, Format::Sq),
+            (SQ2, Format::Sq),
+            (UC2, Format::Uc2),
+            (HYP_COMPRESSED, Format::Hyp),
+            (HYP_STORED, Format::Hyp),
+            (HA, Format::Ha),
         ];
         for (magic, expected) in cases {
             let mut header = vec![0u8; HEADER_SIZE];
             header[..magic.len()].copy_from_slice(magic);
             assert_eq!(detect_header(&header), *expected, "magic {magic:02x?}");
+        }
+    }
+
+    /// The signatures that used to be in this table, and what they actually matched.
+    ///
+    /// Every one of these is a constant that was removed because it identified nothing. If any of
+    /// them ever becomes real it should become real because a decoder accepts it, not because a
+    /// byte pattern looked plausible.
+    #[test]
+    fn no_signature_is_recognised_from_a_constant_that_matched_nothing() {
+        let invented: &[(&str, &[u8])] = &[
+            ("ZOO 200", b"ZOO 200"),
+            ("SQ\\x1a", b"SQ\x1a"),
+            ("HYP ZZX\\0", b"ZZX\x00"),
+            ("ICE 1f a0", &[0x1F, 0xA0]),
+            ("UCB UCh\\x1a\\0", b"UCh\x1a\x00"),
+            ("ACE at offset 0", ACE),
+        ];
+        for (name, bytes) in invented {
+            let mut header = vec![0u8; HEADER_SIZE];
+            header[..bytes.len()].copy_from_slice(bytes);
+            assert_eq!(
+                detect_header(&header),
+                Format::Zip,
+                "{name} was removed because it identified nothing; if it is real again, say so here"
+            );
         }
     }
 
@@ -209,19 +360,64 @@ mod tests {
     }
 
     #[test]
-    fn an_lzh_is_only_lzh_when_its_method_byte_is_one_a_compressor_actually_uses() {
+    fn an_lzh_is_recognised_by_its_method_marker_at_offset_2_rather_than_at_the_start() {
+        // A real level 1 header: two bytes of header length and checksum, then `-lh5-`.
         let mut header = vec![0u8; HEADER_SIZE];
-        header[..5].copy_from_slice(b"-lh5-");
-        // Offset 20 is the compression method byte, which is what separates LZH from a file that
-        // merely starts with the same five characters. An lh5 file's method byte is 'l'.
-        header[20] = b'l';
+        header[..7].copy_from_slice(&[0x1e, 0xbb, b'-', b'l', b'h', b'5', b'-']);
         assert_eq!(detect_header(&header), Format::Lzh);
-        // Method byte zero is "stored", written as a digit rather than a letter.
-        header[20] = b'0';
-        assert_eq!(detect_header(&header), Format::Lzh);
-        // A file that merely starts "-lh" but has nonsense where the method goes is not an LZH.
-        header[20] = b'\xff';
+
+        // Every method `delharc` knows, at the byte that carries it.
+        for method in [b'0', b'1', b'4', b'5', b'7', b'x', b'd', b's', b'z'] {
+            header[5] = method;
+            assert_eq!(detect_header(&header), Format::Lzh, "-lh{method}- is an LZH");
+        }
+        // A method no decoder has is not an LZH, and saying so gets the caller "not an archive"
+        // rather than an LHA error about a method.
+        header[5] = b'\xff';
         assert_eq!(detect_header(&header), Format::Zip);
+        header[5] = b'5';
+        // And the trailing '-' of the identifier is not optional.
+        header[6] = b'!';
+        assert_eq!(detect_header(&header), Format::Zip);
+    }
+
+    #[test]
+    fn an_ace_is_found_wherever_its_marker_is_rather_than_at_a_fixed_offset() {
+        // `-lh5-` at offset 2 of a real ACE file: a self-extracting stub in front of the header.
+        let mut header = vec![0u8; HEADER_SIZE];
+        header[400..407].copy_from_slice(ACE);
+        assert_eq!(detect_header(&header), Format::Ace);
+
+        // Too close to the start to be a main header: the seven bytes before the marker are the
+        // header's CRC and size, and `unarc-rs` refuses a marker found before that.
+        header.fill(0);
+        header[3..10].copy_from_slice(ACE);
+        assert_eq!(detect_header(&header), Format::Zip);
+    }
+
+    #[test]
+    fn a_name_settles_only_what_the_bytes_cannot() {
+        let ice = [0x5Du8, 0x1C, 0x00, 0x00, 0xAA, 0x00];
+        // Content first, and then the name, which is how an ARC and an ICE become reachable at all.
+        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ice"))), Format::Ice);
+        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.zip"))), Format::Zip);
+        assert_eq!(detect_header_with_name(&ice, None), Format::Zip);
+        // Case and a second dot do not matter; a name with no extension does not either.
+        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ICE"))), Format::Ice);
+        assert_eq!(
+            detect_header_with_name(&ice, Some(Path::new("archive.tar.ice"))),
+            Format::Ice
+        );
+        assert_eq!(detect_header_with_name(&ice, Some(Path::new("ice"))), Format::Zip);
+        // A real archive keeps its real format whatever it is called.
+        let mut zoo = vec![0u8; HEADER_SIZE];
+        zoo[..ZOO.len()].copy_from_slice(ZOO);
+        assert_eq!(
+            detect_header_with_name(&zoo, Some(Path::new("photo.jpg"))),
+            Format::Zoo
+        );
+        // And there is no name that says UCB, because nothing here can read one.
+        assert_eq!(detect_header_with_name(&ice, Some(Path::new("a.ucb"))), Format::Zip);
     }
 
     #[test]
