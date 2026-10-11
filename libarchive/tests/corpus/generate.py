@@ -386,22 +386,22 @@ def gen_7z(tmp: Path):
     enc = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret",
                str(GENERATED / "7z" / "aes256.7z"), *files], cwd=tree)
     add_file("generated/7z/aes256.7z", "7z", enc, password="secret", entries=None,
-             status="pending", owner="codecs", expect_kind="error",
+             status="pending", owner="sevenz", expect_kind="error",
              oracles=["sevenz"],
              notes="AES-256, data encrypted only; the 7z CLI writes it, but vendored "
                    "sevenz-rust2 0.23.0 itself reports MaybeBadPassword with the correct "
                    "password ('invalid LZMA2 control byte'), so both our wrapper and the "
-                   "oracle fail identically. Owner: codecs (vendored sevenz-rust2 AES). "
+                   "oracle fail identically. Owner: sevenz (vendored sevenz-rust2 AES). "
                    "Random salt: not byte-reproducible.")
     enc_h = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret", "-mhe=on",
                  str(GENERATED / "7z" / "aes256-header.7z"), *files], cwd=tree)
     add_file("generated/7z/aes256-header.7z", "7z", enc_h, password="secret", entries=None,
-             status="pending", owner="codecs", expect_kind="error",
+             status="pending", owner="sevenz", expect_kind="error",
              oracles=["sevenz"],
              notes="AES-256 with header encryption: opening itself needs the password. "
                    "sevenz-rust2 0.23.0 reports MaybeBadPassword on open with the correct "
                    "password ('range decoder first byte is not zero'), and our wrapper "
-                   "inherits that exact failure. Owner: codecs (vendored sevenz-rust2 AES). "
+                   "inherits that exact failure. Owner: sevenz (vendored sevenz-rust2 AES). "
                    "Random salt: not byte-reproducible.")
 
     # The 400-entry solid pair behind the 15.5 s vs 204 ms measurement in lib.rs — correctness

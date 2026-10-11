@@ -5,7 +5,7 @@
    "path": "generated/7z/aes256-header.7z",
    "format": "7z",
    "status": "pending",
-   "owner": "codecs",
+   "owner": "sevenz",
    "password": "secret",
    "made_with": "7z a -t7z -bso0 -bsp0 -psecret -mhe=on /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256-header.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
@@ -16,13 +16,13 @@
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256 with header encryption: opening itself needs the password. sevenz-rust2 0.23.0 reports MaybeBadPassword on open with the correct password ('range decoder first byte is not zero'), and our wrapper inherits that exact failure. Owner: codecs (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
+   "notes": "AES-256 with header encryption: opening itself needs the password. sevenz-rust2 0.23.0 reports MaybeBadPassword on open with the correct password ('range decoder first byte is not zero'), and our wrapper inherits that exact failure. Owner: sevenz (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/aes256.7z",
    "format": "7z",
    "status": "pending",
-   "owner": "codecs",
+   "owner": "sevenz",
    "password": "secret",
    "made_with": "7z a -t7z -bso0 -bsp0 -psecret /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
@@ -33,7 +33,7 @@
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256, data encrypted only; the 7z CLI writes it, but vendored sevenz-rust2 0.23.0 itself reports MaybeBadPassword with the correct password ('invalid LZMA2 control byte'), so both our wrapper and the oracle fail identically. Owner: codecs (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
+   "notes": "AES-256, data encrypted only; the 7z CLI writes it, but vendored sevenz-rust2 0.23.0 itself reports MaybeBadPassword with the correct password ('invalid LZMA2 control byte'), so both our wrapper and the oracle fail identically. Owner: sevenz (vendored sevenz-rust2 AES). Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/lzma.7z",
