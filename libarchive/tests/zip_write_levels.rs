@@ -216,6 +216,61 @@ fn a_pinned_level_reaches_the_codec_and_compresses_at_it() {
     verify_externally(&stage("pinned", &best));
 }
 
+/// Writes every entry through the public API's *default* path and returns the archive's bytes.
+///
+/// `from_slice` picks `write_entry_from_slice` over `write_entry`; both take their options from
+/// `create` rather than naming them, which is the path the older test above did not cover.
+fn write_via(entries: &[Entry], options: &WriteOptions, from_slice: bool) -> Vec<u8> {
+    let sink = Cursor::new(Vec::new());
+    let mut writer = ArchiveWriter::create(sink, Format::Zip, options).expect("a ZIP writer");
+    for entry in entries {
+        let declared = NewEntry::file(entry.name.as_str());
+        if from_slice {
+            writer
+                .write_entry_from_slice(&declared, &entry.contents)
+                .expect("write an entry");
+        } else {
+            writer
+                .write_entry(&declared, &mut &entry.contents[..])
+                .expect("write an entry");
+        }
+    }
+    writer.finish_into().expect("finish the archive").into_inner()
+}
+
+#[test]
+fn the_level_given_to_create_reaches_write_entry_and_write_entry_from_slice() {
+    // The level was dropped on the path a caller writes by default: `write_entry` built a
+    // `WriteOptions::default()` per entry, so pinning level 1 and level 9 at `create` produced
+    // byte-identical archives through both of these calls. `a_pinned_level_reaches_the_codec...`
+    // above only called `write_entry_with`, which spelled the options out, so it asserted the
+    // option on the one path where it worked. Here the options come only from `create`.
+    let mut entries = Vec::new();
+    for index in 0..16 {
+        entries.push(Entry {
+            name: format!("log{index}.log"),
+            contents: payload_log(index, 16 * 1024),
+            declare: false,
+        });
+    }
+    for (from_slice, label) in [(false, "write_entry"), (true, "write_entry_from_slice")] {
+        let fast = write_via(&entries, &WriteOptions::default().with_deflate_level(1), from_slice);
+        let best = write_via(&entries, &WriteOptions::default().with_deflate_level(9), from_slice);
+        assert_ne!(
+            fast, best,
+            "{label}: level 1 and level 9 wrote byte-identical archives, so the level pinned at \
+             create never reached the codec"
+        );
+        assert!(
+            best.len() < fast.len(),
+            "{label}: level 9 wrote {} bytes, no smaller than level 1's {}",
+            best.len(),
+            fast.len()
+        );
+        verify_externally(&stage(&format!("pinned-default-path-{from_slice}"), &best));
+    }
+}
+
 /// Writes an archive to disk under the scratch dir for an external test.
 fn stage(name: &str, bytes: &[u8]) -> PathBuf {
     let path = scratch(name);

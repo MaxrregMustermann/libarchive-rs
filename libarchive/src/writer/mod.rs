@@ -259,6 +259,15 @@ pub trait EntryWrite: Write {
 pub struct ArchiveWriter<W: Write + Seek> {
     backend: Box<dyn EntryWriter<W>>,
     format: Format,
+    /// The options [`ArchiveWriter::create`] was given, kept so that
+    /// [`ArchiveWriter::write_entry`] sends them to the backend rather than a fresh default.
+    ///
+    /// The backend is built once from these options, but the ZIP writer reads the deflate level
+    /// per entry, so the value has to survive to every `begin`. Storing it here is what makes the
+    /// level ([`WriteOptions::deflate_level`]) and the password reach the codec on the path a
+    /// caller writes by default; before, `write_entry` built a `WriteOptions::default()` per entry
+    /// and dropped whatever `create` had been given.
+    options: WriteOptions,
     /// The block buffer entries are copied through, owned here so it is allocated once per
     /// archive rather than once per entry.
     ///
@@ -280,6 +289,7 @@ impl<W: Write + Seek + 'static> ArchiveWriter<W> {
         Ok(ArchiveWriter {
             backend: crate::formats::create(format, sink, options)?,
             format,
+            options: options.clone(),
             block: vec![0; COPY_BUFFER_SIZE],
         })
     }
@@ -290,11 +300,17 @@ impl<W: Write + Seek + 'static> ArchiveWriter<W> {
 
     /// Writes one entry, streaming its contents from `contents`.
     ///
-    /// The reader is drained in fixed-size blocks, so nothing here allocates an entry's size. An
-    /// entry with no contents, such as a directory or a symlink whose target the writer records in
-    /// the header, is written from `Empty` instead and `contents` is not read.
+    /// The options given to [`ArchiveWriter::create`] are used. The reader is drained in fixed-size
+    /// blocks, so nothing here allocates an entry's size. An entry with no contents, such as a
+    /// directory or a symlink whose target the writer records in the header, is written from
+    /// `Empty` instead and `contents` is not read.
+    ///
+    /// Use [`ArchiveWriter::write_entry_with`] to override the options for one entry.
     pub fn write_entry(&mut self, entry: &NewEntry, contents: &mut dyn Read) -> Result<()> {
-        let options = WriteOptions::default();
+        // Cloned rather than borrowed: `write_entry_with` takes `&mut self`, so it cannot also
+        // borrow the options from `self`. `WriteOptions` is small and its only heap field is the
+        // password, which is `None` on every path that writes.
+        let options = self.options.clone();
         self.write_entry_with(entry, contents, &options)
     }
 
@@ -478,6 +494,7 @@ mod tests {
         let mut writer: ArchiveWriter<Cursor<Vec<u8>>> = ArchiveWriter {
             backend: Box::new(Recorder),
             format: Format::Zip,
+            options: WriteOptions::default(),
             block: vec![0; COPY_BUFFER_SIZE],
         };
         let entry = NewEntry::file("a.txt").with_size(100);
