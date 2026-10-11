@@ -1,16 +1,12 @@
 //! Does writing an archive of 5,000 entries hold the numbers the crate is measured against?
 //!
-//! Measured on this machine, in release, for an archive of 5,000 entries of 512 bytes each:
+//! The structural numbers are asserted, so a regression fails `cargo bench` rather than quietly
+//! producing a slightly worse number that nobody reads:
 //!
 //! | | code being replaced | this crate | bar |
 //! |---|---|---|---|
 //! | sink writes per entry | 32 | **3.00** | 6 |
-//! | allocated per archive | 1.40 GiB | **11.6 MiB** | 43.9 MB |
-//! | non-codec overhead | — | **8.5 ms** | — |
-//!
-//! The first two are asserted, so a regression fails the benchmark instead of quietly producing a
-//! slightly worse number that nobody reads. The third is separated out because it is the part this
-//! crate controls: the rest is the deflate codec doing the compression the caller asked for.
+//! | allocated per archive | 1.40 GiB | **11.64 MiB** (12,202,175 B) | 43.9 MB |
 //!
 //! The sink counts writes rather than being a file, because every write is a crossing into Java in
 //! the app and a file's page cache would hide exactly the cost being measured.
@@ -21,6 +17,38 @@
 //! is about: it is dominated by one deflate encoder's window and hash tables per entry. The
 //! counter is process-wide but is only sampled around the writer, so criterion's own allocations
 //! are not attributed to the archive.
+//!
+//! # The 109.2 ms time bar, and why it is not asserted here
+//!
+//! The bar is 109.2 ms for the same 5,000 entries. It cannot be reproduced on this machine, and
+//! the reason is the deflate codec, not this writer:
+//!
+//! * One deflated entry holding all 5,000 payloads (2.56 MiB, a single deflate stream) costs about
+//!   **10 ms of CPU** — that is the codec's floor for the bytes themselves.
+//! * The same bytes as 5,000 separate streams cost about **190-270 ms of CPU**, because each tiny
+//!   stream builds its own dynamic Huffman tree over a ~250-symbol alphabet.
+//! * The writer's own non-codec overhead, measured with the stored path, is about **11-40 ms**; a
+//!   writer that did nothing at all would still be bounded by the ~160 ms of per-stream deflate.
+//!
+//! So even a zero-overhead writer cannot reach 109.2 ms on this payload. The reference
+//! implementation agrees: `oxiarc-archive` at 93b17af, run in this same process on the same
+//! payload at the same level 6, costs more than this crate does (about 220-300 ms CPU against this
+//! crate's 190-270 ms). The bar is a function of the payload's alphabet as much as of the writer —
+//! on an 18-byte-cycle payload this crate measures about 90-100 ms CPU and meets the bar, while
+//! `oxiarc` measures about 40-50 ms.
+//! [`timing_report`] prints all of these; `cargo bench --bench zip -- zip-write-5000-entries`.
+//!
+//! The time is therefore reported, with a min-of-N and a CPU-time figure that survive the machine
+//! being busy, and not asserted: a wall-clock threshold would fail on a loaded machine and pass on
+//! an idle one without anything about the code having changed.
+//!
+//! # The deflate backend is already zlib-rs
+//!
+//! `Cargo.toml` asks `flate2` for `rust_backend` (miniz_oxide), but the effective backend in this
+//! build is **zlib-rs**, because `unarc-rs` -> `zip` enables `flate2/zlib-rs` and Cargo unifies
+//! features. `flate2`'s own `ffi/mod.rs` compiles the miniz_oxide module only under
+//! `not(any_zlib)`, and `zlib-rs` enables `any_zlib`, so miniz_oxide is dead code here. Switching
+//! the manifest to name `zlib-rs` explicitly is a no-op at runtime; see `Cargo.toml`.
 
 use std::io::{self, Read, Seek, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -136,15 +164,28 @@ fn payload(index: usize) -> Vec<u8> {
         .collect()
 }
 
-/// Writes the archive once and reports the sink and the elapsed time.
-fn measure(options: &WriteOptions) -> (CountingSink, std::time::Duration) {
+/// A payload with a small alphabet, which is what a text or log file usually is.
+///
+/// This is `oxiarc`'s own corpus payload (`"recycled deflater "[i % 18]`), used here so the two
+/// writers can also be compared on the data the bar was most likely measured with. The 18-byte
+/// cycle gives deflate a Huffman alphabet of a dozen or so symbols, against the ~250 of `payload`.
+fn payload_simple(index: usize) -> Vec<u8> {
+    const CYCLE: &[u8] = b"recycled deflater ";
+    (0..ENTRY_BYTES).map(|offset| CYCLE[(index + offset) % CYCLE.len()]).collect()
+}
+
+/// Writes the archive once with `contents_for` and reports the sink and the elapsed time.
+fn measure_with(
+    options: &WriteOptions,
+    contents_for: &dyn Fn(usize) -> Vec<u8>,
+) -> (CountingSink, std::time::Duration) {
     let start = Instant::now();
     let mut writer =
         ArchiveWriter::create(CountingSink::new(), libarchive::Format::Zip, options)
             .expect("a ZIP writer");
     for index in 0..ENTRIES {
         let name = format!("directory{}/entry{index}.txt", index % 32);
-        let contents = payload(index);
+        let contents = contents_for(index);
         // No declared size, so every entry goes through the streaming path with a data
         // descriptor: the path the app uses, because the app does not know a file's size before
         // it has read it.
@@ -156,7 +197,159 @@ fn measure(options: &WriteOptions) -> (CountingSink, std::time::Duration) {
     (sink, start.elapsed())
 }
 
+/// Writes the archive once and reports the sink and the elapsed time.
+fn measure(options: &WriteOptions) -> (CountingSink, std::time::Duration) {
+    measure_with(options, &payload)
+}
+
+/// The same archive written by the crate this one replaces, on this machine, in this process.
+///
+/// The 109.2 ms bar is `oxiarc-archive` at 93b17af with its three streaming-writer fixes. Comparing
+/// against it here rather than against a number in a document is the only way to tell a real gap
+/// from a machine that is busy: both writers run back to back on the same payload, at the same
+/// deflate level (6), into the same counting sink.
+fn measure_oxiarc_with(contents_for: &dyn Fn(usize) -> Vec<u8>) -> std::time::Duration {
+    use oxiarc_archive::zip::ZipWriter as OxiarcZipWriter;
+    let start = Instant::now();
+    let mut sink = CountingSink::new();
+    {
+        let mut writer = OxiarcZipWriter::new(&mut sink);
+        for index in 0..ENTRIES {
+            let name = format!("directory{}/entry{index}.txt", index % 32);
+            let contents = contents_for(index);
+            let mut entry = writer.add_stream(&name).expect("oxiarc add_stream");
+            entry.write_all(&contents).expect("oxiarc stream write");
+            entry.finish().expect("oxiarc finish entry");
+        }
+        writer.finish().expect("oxiarc finish archive");
+    }
+    start.elapsed()
+}
+
+fn measure_oxiarc() -> std::time::Duration {
+    measure_oxiarc_with(&payload)
+}
+
+/// All 5,000 payloads concatenated into one deflated entry.
+///
+/// This is the codec's floor: the same total bytes, one deflate stream instead of 5,000. The gap
+/// between it and [`measure`] is the per-entry cost the writer can still remove; the floor itself
+/// is the deflate work no writer can avoid.
+fn measure_one_entry() -> (std::time::Duration, u64) {
+    let mut blob = Vec::with_capacity(ENTRIES * ENTRY_BYTES);
+    for index in 0..ENTRIES {
+        blob.extend_from_slice(&payload(index));
+    }
+    let cpu = cpu_millis();
+    let start = Instant::now();
+    let mut writer =
+        ArchiveWriter::create(CountingSink::new(), libarchive::Format::Zip, &WriteOptions::default())
+            .expect("a ZIP writer");
+    writer
+        .write_entry(&NewEntry::file("all.bin"), &mut &blob[..])
+        .expect("write the concatenated entry");
+    let sink = writer.finish_into().expect("the sink");
+    let wall = start.elapsed();
+    let cpu = cpu_millis().saturating_sub(cpu);
+    std::hint::black_box(sink.bytes.len());
+    (wall, cpu)
+}
+
+/// CPU time consumed by this process, in milliseconds, from `/proc/self/stat`.
+///
+/// Wall-clock on a machine with seven agents is noise-dominated — a run can be stopped for
+/// hundreds of milliseconds and report a number four times too slow when nothing about the code
+/// changed. CPU time counts only the cycles the process actually got, so it separates "this code is
+/// slow" from "this machine is busy". `utime` and `stime` are fields 14 and 15, in `USER_HZ`
+/// (100/s on Linux), after the parenthesised `comm` field which can itself contain spaces.
+fn cpu_millis() -> u64 {
+    let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else {
+        return 0;
+    };
+    let Some((_, after_comm)) = stat.rsplit_once(')') else {
+        return 0;
+    };
+    let fields: Vec<&str> = after_comm.split_whitespace().collect();
+    let field = |index: usize| fields.get(index).and_then(|value| value.parse::<u64>().ok());
+    let utime = field(11).unwrap_or(0);
+    let stime = field(12).unwrap_or(0);
+    (utime + stime) * 10
+}
+
+/// The minimum and median of N runs, printed rather than asserted.
+///
+/// The minimum is the closest thing to an uncontended run available without taking the machine
+/// over; the CPU time is what the code costs regardless of who else is running.
+fn timing_report() {
+    const RUNS: usize = 12;
+    let mut ours_wall = Vec::with_capacity(RUNS);
+    let mut ours_cpu = Vec::with_capacity(RUNS);
+    let mut theirs_wall = Vec::with_capacity(RUNS);
+    let mut theirs_cpu = Vec::with_capacity(RUNS);
+    let our_run = || {
+        let cpu = cpu_millis();
+        let wall = measure(&WriteOptions::default()).1;
+        (wall, cpu_millis().saturating_sub(cpu))
+    };
+    let their_run = || {
+        let cpu = cpu_millis();
+        let wall = measure_oxiarc();
+        (wall, cpu_millis().saturating_sub(cpu))
+    };
+    for _ in 0..RUNS {
+        let (wall, cpu) = our_run();
+        ours_wall.push(wall);
+        ours_cpu.push(cpu);
+        let (wall, cpu) = their_run();
+        theirs_wall.push(wall);
+        theirs_cpu.push(cpu);
+    }
+    let mut floor_wall = Vec::with_capacity(RUNS);
+    let mut floor_cpu = Vec::with_capacity(RUNS);
+    for _ in 0..RUNS {
+        let (wall, cpu) = measure_one_entry();
+        floor_wall.push(wall);
+        floor_cpu.push(cpu);
+    }
+    // The same two writers on a low-alphabet payload. If the bar moves a long way here, it was
+    // measured on different data rather than against a different backend.
+    let mut ours_simple = Vec::with_capacity(RUNS);
+    let mut ours_simple_cpu = Vec::with_capacity(RUNS);
+    let mut theirs_simple = Vec::with_capacity(RUNS);
+    let mut theirs_simple_cpu = Vec::with_capacity(RUNS);
+    for _ in 0..RUNS {
+        let cpu = cpu_millis();
+        let wall = measure_with(&WriteOptions::default(), &payload_simple).1;
+        ours_simple.push(wall);
+        ours_simple_cpu.push(cpu_millis().saturating_sub(cpu));
+        let cpu = cpu_millis();
+        let wall = measure_oxiarc_with(&payload_simple);
+        theirs_simple.push(wall);
+        theirs_simple_cpu.push(cpu_millis().saturating_sub(cpu));
+    }
+    report_times("libarchive-rs", &mut ours_wall, &mut ours_cpu);
+    report_times("oxiarc-93b17af", &mut theirs_wall, &mut theirs_cpu);
+    report_times("libarchive-1-entry", &mut floor_wall, &mut floor_cpu);
+    report_times("libarchive-rs/simple", &mut ours_simple, &mut ours_simple_cpu);
+    report_times("oxiarc-93b17af/simple", &mut theirs_simple, &mut theirs_simple_cpu);
+}
+
+fn report_times(label: &str, wall: &mut [std::time::Duration], cpu: &mut [u64]) {
+    wall.sort();
+    cpu.sort();
+    eprintln!(
+        "zip-write timing {label}: wall min {:?} median {:?}; cpu min {} ms median {} ms \
+         over {} runs of {ENTRIES} entries",
+        wall[0],
+        wall[wall.len() / 2],
+        cpu[0],
+        cpu[cpu.len() / 2],
+        wall.len()
+    );
+}
+
 fn writing(criterion: &mut Criterion) {
+    timing_report();
     let mut group = criterion.benchmark_group("zip-write-5000-entries");
     group.throughput(Throughput::Elements(ENTRIES as u64));
     group.bench_function("deflate", |bencher| {
@@ -178,17 +371,6 @@ fn writing(criterion: &mut Criterion) {
 ///
 /// Criterion will happily report a number that got worse. This fails instead, which is the
 /// difference between a benchmark and a regression test that happens to be slow.
-///
-/// Only *deterministic* quantities are asserted here: sink writes per entry, and the allocated
-/// bytes in `allocation_budget`. Wall-clock time is deliberately not asserted, and this function
-/// used to assert it — one `Instant::now()` around a single archive write, with a 60 ms bound.
-/// It failed at 70 ms on a machine running six other agents, while criterion's own measurement of
-/// the same work was 5.5 ms. A wall-clock assertion inside a criterion closure is the same mistake
-/// as measuring a memcpy and calling it latency: it reports the state of the machine as well as
-/// the state of the code, and a reader cannot tell which they are looking at.
-///
-/// Timing is still reported, by criterion, which does warmup and statistics properly. Read
-/// `zip-write-5000-entries/stored` for it.
 fn the_bar_is_met(criterion: &mut Criterion) {
     criterion.bench_function("sink-writes-per-entry", |bencher| {
         bencher.iter(|| {
@@ -198,15 +380,25 @@ fn the_bar_is_met(criterion: &mut Criterion) {
                 per_entry <= 6.0,
                 "{per_entry:.2} sink writes per entry, over the bar of 6 (was 32)"
             );
-            // The stored path carries the same structure with no codec in the way, so the two
-            // must produce the same number of sink writes. If they ever diverge, the codec has
-            // started emitting its own writes, which is how the 32-per-entry figure started.
-            let (stored, _) = measure(&WriteOptions::stored());
-            assert_eq!(
-                stored.writes_per_entry(),
-                per_entry,
-                "the stored path writes to the sink a different number of times than deflate"
+            // The stored path is where the structural cost shows on its own: with no codec in the
+            // way, this is what 5,000 headers, data descriptors and central directory records
+            // cost. 8.5 ms measured; the bound is loose because a debug build is slower.
+            //
+            // The minimum of five runs, not one: on a machine with seven agents a single run can be
+            // descheduled and report 70 ms for work that takes 16 ms, and a threshold that fails on
+            // a busy machine says nothing about the code. The bound is unchanged.
+            let mut best = std::time::Duration::MAX;
+            let mut stored_writes = 0.0;
+            for _ in 0..5 {
+                let (stored, elapsed) = measure(&WriteOptions::stored());
+                best = best.min(elapsed);
+                stored_writes = stored.writes_per_entry();
+            }
+            assert!(
+                best.as_millis() <= 60,
+                "the non-codec work took {best:?} at best of five, which is too much for headers alone"
             );
+            assert_eq!(stored_writes, per_entry);
             per_entry
         })
     });

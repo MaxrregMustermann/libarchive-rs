@@ -17,6 +17,14 @@ brotli = { version = "9", default-features = false, features = ["std"] }
 bzip2 = { version = "0.6", default-features = false }
 crc32fast = "1.5"
 deflate64 = "0.1"
+# `rust_backend` (miniz_oxide) is what this line asks for, but it is inert in this graph: `unarc-rs`
+# -> `zip` enables `flate2/zlib-rs`, Cargo unifies the features, and flate2's `ffi/mod.rs` compiles
+# its miniz_oxide module only under `cfg(not(any_zlib))`, while `zlib-rs` enables `any_zlib`. The
+# effective deflate backend is therefore zlib-rs, for reading and writing. This is a property of the
+# feature graph, not a measurement: `cargo tree -p libarchive -e features` shows both features on
+# flate2, and miniz_oxide is unreachable. Naming `zlib-rs` explicitly here would not change anything
+# (zip still enables flate2's defaults) and would only risk dropping `runtime_detection` if it did.
+# See libarchive/benches/zip.rs for the writer measurements.
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 lz4_flex = { version = "0.14", default-features = false, features = ["std", "frame"] }
 lzma-rust2 = { version = "0.21", features = ["std"] }

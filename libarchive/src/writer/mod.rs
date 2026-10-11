@@ -3,9 +3,11 @@
 //! # Why the writers here look different from the ones they replace
 //!
 //! The API this crate replaces buffered a whole entry before writing it, and allocated a fresh
-//! deflate encoder for every entry. Measured on an archive of 5,000 entries, that cost 1.40 GiB of
-//! allocation and 219.8 ms; reusing the encoder and coalescing headers brought it to 43.9 MB and
-//! 109.2 ms. Three rules follow from that, and every writer in this crate follows them:
+//! deflate encoder for every entry. Measured on an archive of 5,000 entries, that was 1.40 GiB of
+//! allocation; reusing the encoder and coalescing headers brings it to 11.64 MiB, measured. The
+//! time target of 109.2 ms is not met on the benchmark's payload — the per-stream deflate cost
+//! alone exceeds it, and the reference implementation does not meet it either; `benches/zip.rs`
+//! carries the numbers. Three rules follow, and every writer in this crate follows them:
 //!
 //! 1. **Encoders are created once, not per entry.** A deflate encoder carries a 32 KiB window and a
 //!    hash table; making one per entry is the single largest allocation source in the writer.
