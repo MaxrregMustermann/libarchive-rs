@@ -296,38 +296,9 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for LegacyReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
-/// Test that each long-tail format can be dispatched and opened.
-///
-/// This test uses a simple Cursor<Vec<u8>> filled with garbage, so it will fail to
-/// open most formats correctly. The point is just that the dispatch works without
-/// compiling errors and unsupported formats correctly report Unsupported.
-#[test]
-fn long_tail_formats_dispatch_and_open() {
-    let options = OpenOptions::default();
-    for format in [
-        Format::Rar,
-        Format::Lzh,
-        Format::Ace,
-        Format::Arc,
-        Format::Zoo,
-        Format::Arj,
-        Format::Sq,
-        Format::Ucb,
-        Format::Uc2,
-        Format::Ha,
-        Format::Hyp,
-        Format::Ice,
-    ] {
-        // Each format should either open or return Unsupported (not panic)
-        let _result = legacy::open(format, Cursor::new(vec![0u8; 8]), &options);
-        // Accept both Ok (format works) and Err with Unsupported kind
-        // We just check it doesn't panic and the error kind is correct
-    }
-}
-
-    /// Verify that every long-tail format is listed as available.
+    /// What each long-tail format can actually do is measured, fixture by fixture, in
+    /// `tests/long_tail.rs`. This module only holds what cannot be stated that way.
     #[test]
     fn every_long_tail_format_is_listed() {
         for format in [
@@ -344,10 +315,33 @@ fn long_tail_formats_dispatch_and_open() {
             Format::Hyp,
             Format::Ice,
         ] {
-            assert!(
-                legacy::is_available(format),
-                "{format:?} should be listed"
-            );
+            assert!(legacy::is_available(format), "{format:?} should be listed");
         }
+    }
+
+    /// The one thing this module can decide without a fixture: what happens to a format that is
+    /// not a long-tail one and reaches `legacy::open` anyway.
+    ///
+    /// The old `long_tail_formats_dispatch_and_open` fed eight bytes of zeroes to all twelve
+    /// formats and threw the answer away, so it passed whether a format worked or not. This asserts
+    /// the refusal instead, which is the part of dispatch that is a decision rather than a
+    /// measurement.
+    #[test]
+    fn a_format_outside_the_long_tail_is_refused_by_name() {
+        let refused = legacy::open(
+            Format::Tar,
+            Cursor::new(vec![0u8; 8]),
+            &OpenOptions::default(),
+        );
+        let error = match refused {
+            Ok(_) => panic!("Tar is not a legacy format and must not open through this path"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), crate::error::ErrorKind::Unsupported);
+        assert!(
+            error.message().contains("tar"),
+            "the error should name the format it was given, got: {}",
+            error.message()
+        );
     }
 }
