@@ -1,0 +1,8175 @@
+{
+ "comment": "The corpus contract. Regenerate with: python3 libarchive/tests/corpus/generate.py. Entry ground truth comes from the plaintext, never from reading an archive back. status=gate records must pass the differential harness; status=pending records assert today's honest Err and name the owner who flips them when their reader lands.",
+ "files": [
+  {
+   "path": "generated/7z/aes256-header.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": "secret",
+   "made_with": "7z a -t7z -bso0 -bsp0 -psecret -mhe=on /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256-header.7z hello.txt data.bin empty.txt nested/inner.txt",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz"
+   ],
+   "notes": "AES-256 with header encryption: opening itself needs the password."
+  },
+  {
+   "path": "generated/7z/aes256.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": "secret",
+   "made_with": "7z a -t7z -bso0 -bsp0 -psecret /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256.7z hello.txt data.bin empty.txt nested/inner.txt",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz"
+   ],
+   "notes": "AES-256, data encrypted only; listing works without the password."
+  },
+  {
+   "path": "generated/7z/lzma.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "7z a -t7z -m0=lzma2 lzma.7z  (over hello.txt data.bin empty.txt nested/inner.txt)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz",
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/7z/non-solid.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "7z a -t7z -ms=off non-solid.7z  (over hello.txt data.bin empty.txt nested/inner.txt)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz",
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/7z/non-solid400.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "7z a -t7z -ms=off over 400 generated files",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "f000.bin",
+     "size": 200,
+     "crc32": 3695781252,
+     "dir": false
+    },
+    {
+     "name": "f001.bin",
+     "size": 200,
+     "crc32": 3805334121,
+     "dir": false
+    },
+    {
+     "name": "f002.bin",
+     "size": 200,
+     "crc32": 225939970,
+     "dir": false
+    },
+    {
+     "name": "f003.bin",
+     "size": 200,
+     "crc32": 2224974921,
+     "dir": false
+    },
+    {
+     "name": "f004.bin",
+     "size": 200,
+     "crc32": 1413169902,
+     "dir": false
+    },
+    {
+     "name": "f005.bin",
+     "size": 200,
+     "crc32": 1712246380,
+     "dir": false
+    },
+    {
+     "name": "f006.bin",
+     "size": 200,
+     "crc32": 1420314285,
+     "dir": false
+    },
+    {
+     "name": "f007.bin",
+     "size": 200,
+     "crc32": 3953128384,
+     "dir": false
+    },
+    {
+     "name": "f008.bin",
+     "size": 200,
+     "crc32": 3909191377,
+     "dir": false
+    },
+    {
+     "name": "f009.bin",
+     "size": 200,
+     "crc32": 3056651164,
+     "dir": false
+    },
+    {
+     "name": "f010.bin",
+     "size": 200,
+     "crc32": 3025057909,
+     "dir": false
+    },
+    {
+     "name": "f011.bin",
+     "size": 200,
+     "crc32": 93478353,
+     "dir": false
+    },
+    {
+     "name": "f012.bin",
+     "size": 200,
+     "crc32": 1169185788,
+     "dir": false
+    },
+    {
+     "name": "f013.bin",
+     "size": 200,
+     "crc32": 3664959504,
+     "dir": false
+    },
+    {
+     "name": "f014.bin",
+     "size": 200,
+     "crc32": 2031995721,
+     "dir": false
+    },
+    {
+     "name": "f015.bin",
+     "size": 200,
+     "crc32": 50433025,
+     "dir": false
+    },
+    {
+     "name": "f016.bin",
+     "size": 200,
+     "crc32": 132933629,
+     "dir": false
+    },
+    {
+     "name": "f017.bin",
+     "size": 200,
+     "crc32": 1399861965,
+     "dir": false
+    },
+    {
+     "name": "f018.bin",
+     "size": 200,
+     "crc32": 2934697928,
+     "dir": false
+    },
+    {
+     "name": "f019.bin",
+     "size": 200,
+     "crc32": 1731088356,
+     "dir": false
+    },
+    {
+     "name": "f020.bin",
+     "size": 200,
+     "crc32": 1820872512,
+     "dir": false
+    },
+    {
+     "name": "f021.bin",
+     "size": 200,
+     "crc32": 3489294320,
+     "dir": false
+    },
+    {
+     "name": "f022.bin",
+     "size": 200,
+     "crc32": 3744389032,
+     "dir": false
+    },
+    {
+     "name": "f023.bin",
+     "size": 200,
+     "crc32": 64755104,
+     "dir": false
+    },
+    {
+     "name": "f024.bin",
+     "size": 200,
+     "crc32": 710832321,
+     "dir": false
+    },
+    {
+     "name": "f025.bin",
+     "size": 200,
+     "crc32": 143143096,
+     "dir": false
+    },
+    {
+     "name": "f026.bin",
+     "size": 200,
+     "crc32": 3238755924,
+     "dir": false
+    },
+    {
+     "name": "f027.bin",
+     "size": 200,
+     "crc32": 1898348111,
+     "dir": false
+    },
+    {
+     "name": "f028.bin",
+     "size": 200,
+     "crc32": 1649332540,
+     "dir": false
+    },
+    {
+     "name": "f029.bin",
+     "size": 200,
+     "crc32": 3808252060,
+     "dir": false
+    },
+    {
+     "name": "f030.bin",
+     "size": 200,
+     "crc32": 3570602433,
+     "dir": false
+    },
+    {
+     "name": "f031.bin",
+     "size": 200,
+     "crc32": 903855343,
+     "dir": false
+    },
+    {
+     "name": "f032.bin",
+     "size": 200,
+     "crc32": 2212479812,
+     "dir": false
+    },
+    {
+     "name": "f033.bin",
+     "size": 200,
+     "crc32": 2480910466,
+     "dir": false
+    },
+    {
+     "name": "f034.bin",
+     "size": 200,
+     "crc32": 3505031221,
+     "dir": false
+    },
+    {
+     "name": "f035.bin",
+     "size": 200,
+     "crc32": 879469306,
+     "dir": false
+    },
+    {
+     "name": "f036.bin",
+     "size": 200,
+     "crc32": 242656176,
+     "dir": false
+    },
+    {
+     "name": "f037.bin",
+     "size": 200,
+     "crc32": 11784643,
+     "dir": false
+    },
+    {
+     "name": "f038.bin",
+     "size": 200,
+     "crc32": 4170410870,
+     "dir": false
+    },
+    {
+     "name": "f039.bin",
+     "size": 200,
+     "crc32": 3969221473,
+     "dir": false
+    },
+    {
+     "name": "f040.bin",
+     "size": 200,
+     "crc32": 1584422671,
+     "dir": false
+    },
+    {
+     "name": "f041.bin",
+     "size": 200,
+     "crc32": 1037593387,
+     "dir": false
+    },
+    {
+     "name": "f042.bin",
+     "size": 200,
+     "crc32": 2425395959,
+     "dir": false
+    },
+    {
+     "name": "f043.bin",
+     "size": 200,
+     "crc32": 244684633,
+     "dir": false
+    },
+    {
+     "name": "f044.bin",
+     "size": 200,
+     "crc32": 891904818,
+     "dir": false
+    },
+    {
+     "name": "f045.bin",
+     "size": 200,
+     "crc32": 1290436642,
+     "dir": false
+    },
+    {
+     "name": "f046.bin",
+     "size": 200,
+     "crc32": 766799292,
+     "dir": false
+    },
+    {
+     "name": "f047.bin",
+     "size": 200,
+     "crc32": 3626329060,
+     "dir": false
+    },
+    {
+     "name": "f048.bin",
+     "size": 200,
+     "crc32": 3073135781,
+     "dir": false
+    },
+    {
+     "name": "f049.bin",
+     "size": 200,
+     "crc32": 3695445381,
+     "dir": false
+    },
+    {
+     "name": "f050.bin",
+     "size": 200,
+     "crc32": 3740722427,
+     "dir": false
+    },
+    {
+     "name": "f051.bin",
+     "size": 200,
+     "crc32": 3491480927,
+     "dir": false
+    },
+    {
+     "name": "f052.bin",
+     "size": 200,
+     "crc32": 3669507699,
+     "dir": false
+    },
+    {
+     "name": "f053.bin",
+     "size": 200,
+     "crc32": 2594707498,
+     "dir": false
+    },
+    {
+     "name": "f054.bin",
+     "size": 200,
+     "crc32": 2950364877,
+     "dir": false
+    },
+    {
+     "name": "f055.bin",
+     "size": 200,
+     "crc32": 684930190,
+     "dir": false
+    },
+    {
+     "name": "f056.bin",
+     "size": 200,
+     "crc32": 479681682,
+     "dir": false
+    },
+    {
+     "name": "f057.bin",
+     "size": 200,
+     "crc32": 2341213655,
+     "dir": false
+    },
+    {
+     "name": "f058.bin",
+     "size": 200,
+     "crc32": 336654366,
+     "dir": false
+    },
+    {
+     "name": "f059.bin",
+     "size": 200,
+     "crc32": 1946941785,
+     "dir": false
+    },
+    {
+     "name": "f060.bin",
+     "size": 200,
+     "crc32": 2091607895,
+     "dir": false
+    },
+    {
+     "name": "f061.bin",
+     "size": 200,
+     "crc32": 2758501079,
+     "dir": false
+    },
+    {
+     "name": "f062.bin",
+     "size": 200,
+     "crc32": 591159099,
+     "dir": false
+    },
+    {
+     "name": "f063.bin",
+     "size": 200,
+     "crc32": 138103267,
+     "dir": false
+    },
+    {
+     "name": "f064.bin",
+     "size": 200,
+     "crc32": 1616921895,
+     "dir": false
+    },
+    {
+     "name": "f065.bin",
+     "size": 200,
+     "crc32": 1326631232,
+     "dir": false
+    },
+    {
+     "name": "f066.bin",
+     "size": 200,
+     "crc32": 2915635318,
+     "dir": false
+    },
+    {
+     "name": "f067.bin",
+     "size": 200,
+     "crc32": 838320117,
+     "dir": false
+    },
+    {
+     "name": "f068.bin",
+     "size": 200,
+     "crc32": 1962413185,
+     "dir": false
+    },
+    {
+     "name": "f069.bin",
+     "size": 200,
+     "crc32": 1202724742,
+     "dir": false
+    },
+    {
+     "name": "f070.bin",
+     "size": 200,
+     "crc32": 3905265015,
+     "dir": false
+    },
+    {
+     "name": "f071.bin",
+     "size": 200,
+     "crc32": 1907805116,
+     "dir": false
+    },
+    {
+     "name": "f072.bin",
+     "size": 200,
+     "crc32": 1287388307,
+     "dir": false
+    },
+    {
+     "name": "f073.bin",
+     "size": 200,
+     "crc32": 3437660481,
+     "dir": false
+    },
+    {
+     "name": "f074.bin",
+     "size": 200,
+     "crc32": 2935429189,
+     "dir": false
+    },
+    {
+     "name": "f075.bin",
+     "size": 200,
+     "crc32": 3253734598,
+     "dir": false
+    },
+    {
+     "name": "f076.bin",
+     "size": 200,
+     "crc32": 3384731473,
+     "dir": false
+    },
+    {
+     "name": "f077.bin",
+     "size": 200,
+     "crc32": 2383046548,
+     "dir": false
+    },
+    {
+     "name": "f078.bin",
+     "size": 200,
+     "crc32": 1863293602,
+     "dir": false
+    },
+    {
+     "name": "f079.bin",
+     "size": 200,
+     "crc32": 3361524685,
+     "dir": false
+    },
+    {
+     "name": "f080.bin",
+     "size": 200,
+     "crc32": 2229164396,
+     "dir": false
+    },
+    {
+     "name": "f081.bin",
+     "size": 200,
+     "crc32": 911899450,
+     "dir": false
+    },
+    {
+     "name": "f082.bin",
+     "size": 200,
+     "crc32": 1878424101,
+     "dir": false
+    },
+    {
+     "name": "f083.bin",
+     "size": 200,
+     "crc32": 1542788271,
+     "dir": false
+    },
+    {
+     "name": "f084.bin",
+     "size": 200,
+     "crc32": 1898537582,
+     "dir": false
+    },
+    {
+     "name": "f085.bin",
+     "size": 200,
+     "crc32": 4020413823,
+     "dir": false
+    },
+    {
+     "name": "f086.bin",
+     "size": 200,
+     "crc32": 1587183542,
+     "dir": false
+    },
+    {
+     "name": "f087.bin",
+     "size": 200,
+     "crc32": 96596486,
+     "dir": false
+    },
+    {
+     "name": "f088.bin",
+     "size": 200,
+     "crc32": 4148999136,
+     "dir": false
+    },
+    {
+     "name": "f089.bin",
+     "size": 200,
+     "crc32": 2795366974,
+     "dir": false
+    },
+    {
+     "name": "f090.bin",
+     "size": 200,
+     "crc32": 668964224,
+     "dir": false
+    },
+    {
+     "name": "f091.bin",
+     "size": 200,
+     "crc32": 4284999506,
+     "dir": false
+    },
+    {
+     "name": "f092.bin",
+     "size": 200,
+     "crc32": 4250243601,
+     "dir": false
+    },
+    {
+     "name": "f093.bin",
+     "size": 200,
+     "crc32": 1529772487,
+     "dir": false
+    },
+    {
+     "name": "f094.bin",
+     "size": 200,
+     "crc32": 3560973561,
+     "dir": false
+    },
+    {
+     "name": "f095.bin",
+     "size": 200,
+     "crc32": 217479689,
+     "dir": false
+    },
+    {
+     "name": "f096.bin",
+     "size": 200,
+     "crc32": 674133460,
+     "dir": false
+    },
+    {
+     "name": "f097.bin",
+     "size": 200,
+     "crc32": 2178550379,
+     "dir": false
+    },
+    {
+     "name": "f098.bin",
+     "size": 200,
+     "crc32": 3952021320,
+     "dir": false
+    },
+    {
+     "name": "f099.bin",
+     "size": 200,
+     "crc32": 3866600593,
+     "dir": false
+    },
+    {
+     "name": "f100.bin",
+     "size": 200,
+     "crc32": 676817163,
+     "dir": false
+    },
+    {
+     "name": "f101.bin",
+     "size": 200,
+     "crc32": 2696279136,
+     "dir": false
+    },
+    {
+     "name": "f102.bin",
+     "size": 200,
+     "crc32": 1266676076,
+     "dir": false
+    },
+    {
+     "name": "f103.bin",
+     "size": 200,
+     "crc32": 4091891354,
+     "dir": false
+    },
+    {
+     "name": "f104.bin",
+     "size": 200,
+     "crc32": 2527190093,
+     "dir": false
+    },
+    {
+     "name": "f105.bin",
+     "size": 200,
+     "crc32": 1197687311,
+     "dir": false
+    },
+    {
+     "name": "f106.bin",
+     "size": 200,
+     "crc32": 2750455348,
+     "dir": false
+    },
+    {
+     "name": "f107.bin",
+     "size": 200,
+     "crc32": 4032301626,
+     "dir": false
+    },
+    {
+     "name": "f108.bin",
+     "size": 200,
+     "crc32": 503312416,
+     "dir": false
+    },
+    {
+     "name": "f109.bin",
+     "size": 200,
+     "crc32": 1139296660,
+     "dir": false
+    },
+    {
+     "name": "f110.bin",
+     "size": 200,
+     "crc32": 512922753,
+     "dir": false
+    },
+    {
+     "name": "f111.bin",
+     "size": 200,
+     "crc32": 1658835223,
+     "dir": false
+    },
+    {
+     "name": "f112.bin",
+     "size": 200,
+     "crc32": 1904465322,
+     "dir": false
+    },
+    {
+     "name": "f113.bin",
+     "size": 200,
+     "crc32": 2929487758,
+     "dir": false
+    },
+    {
+     "name": "f114.bin",
+     "size": 200,
+     "crc32": 3049622388,
+     "dir": false
+    },
+    {
+     "name": "f115.bin",
+     "size": 200,
+     "crc32": 1373898476,
+     "dir": false
+    },
+    {
+     "name": "f116.bin",
+     "size": 200,
+     "crc32": 1958890987,
+     "dir": false
+    },
+    {
+     "name": "f117.bin",
+     "size": 200,
+     "crc32": 2554402626,
+     "dir": false
+    },
+    {
+     "name": "f118.bin",
+     "size": 200,
+     "crc32": 235939507,
+     "dir": false
+    },
+    {
+     "name": "f119.bin",
+     "size": 200,
+     "crc32": 2104392310,
+     "dir": false
+    },
+    {
+     "name": "f120.bin",
+     "size": 200,
+     "crc32": 1292190697,
+     "dir": false
+    },
+    {
+     "name": "f121.bin",
+     "size": 200,
+     "crc32": 1125348423,
+     "dir": false
+    },
+    {
+     "name": "f122.bin",
+     "size": 200,
+     "crc32": 407147094,
+     "dir": false
+    },
+    {
+     "name": "f123.bin",
+     "size": 200,
+     "crc32": 4036168436,
+     "dir": false
+    },
+    {
+     "name": "f124.bin",
+     "size": 200,
+     "crc32": 685461148,
+     "dir": false
+    },
+    {
+     "name": "f125.bin",
+     "size": 200,
+     "crc32": 3114460299,
+     "dir": false
+    },
+    {
+     "name": "f126.bin",
+     "size": 200,
+     "crc32": 2740802425,
+     "dir": false
+    },
+    {
+     "name": "f127.bin",
+     "size": 200,
+     "crc32": 1925763144,
+     "dir": false
+    },
+    {
+     "name": "f128.bin",
+     "size": 200,
+     "crc32": 3284079813,
+     "dir": false
+    },
+    {
+     "name": "f129.bin",
+     "size": 200,
+     "crc32": 4247190312,
+     "dir": false
+    },
+    {
+     "name": "f130.bin",
+     "size": 200,
+     "crc32": 310485827,
+     "dir": false
+    },
+    {
+     "name": "f131.bin",
+     "size": 200,
+     "crc32": 2607308040,
+     "dir": false
+    },
+    {
+     "name": "f132.bin",
+     "size": 200,
+     "crc32": 1271755695,
+     "dir": false
+    },
+    {
+     "name": "f133.bin",
+     "size": 200,
+     "crc32": 2046361389,
+     "dir": false
+    },
+    {
+     "name": "f134.bin",
+     "size": 200,
+     "crc32": 1264482284,
+     "dir": false
+    },
+    {
+     "name": "f135.bin",
+     "size": 200,
+     "crc32": 4100571777,
+     "dir": false
+    },
+    {
+     "name": "f136.bin",
+     "size": 200,
+     "crc32": 4143429520,
+     "dir": false
+    },
+    {
+     "name": "f137.bin",
+     "size": 200,
+     "crc32": 2848389853,
+     "dir": false
+    },
+    {
+     "name": "f138.bin",
+     "size": 200,
+     "crc32": 2880997684,
+     "dir": false
+    },
+    {
+     "name": "f139.bin",
+     "size": 200,
+     "crc32": 442789008,
+     "dir": false
+    },
+    {
+     "name": "f140.bin",
+     "size": 200,
+     "crc32": 1514564285,
+     "dir": false
+    },
+    {
+     "name": "f141.bin",
+     "size": 200,
+     "crc32": 3313822033,
+     "dir": false
+    },
+    {
+     "name": "f142.bin",
+     "size": 200,
+     "crc32": 1726741000,
+     "dir": false
+    },
+    {
+     "name": "f143.bin",
+     "size": 200,
+     "crc32": 485997888,
+     "dir": false
+    },
+    {
+     "name": "f144.bin",
+     "size": 200,
+     "crc32": 404379324,
+     "dir": false
+    },
+    {
+     "name": "f145.bin",
+     "size": 200,
+     "crc32": 1283851148,
+     "dir": false
+    },
+    {
+     "name": "f146.bin",
+     "size": 200,
+     "crc32": 2971524745,
+     "dir": false
+    },
+    {
+     "name": "f147.bin",
+     "size": 200,
+     "crc32": 2027454117,
+     "dir": false
+    },
+    {
+     "name": "f148.bin",
+     "size": 200,
+     "crc32": 1937669633,
+     "dir": false
+    },
+    {
+     "name": "f149.bin",
+     "size": 200,
+     "crc32": 3490469553,
+     "dir": false
+    },
+    {
+     "name": "f150.bin",
+     "size": 200,
+     "crc32": 3235440361,
+     "dir": false
+    },
+    {
+     "name": "f151.bin",
+     "size": 200,
+     "crc32": 472524001,
+     "dir": false
+    },
+    {
+     "name": "f152.bin",
+     "size": 200,
+     "crc32": 900219264,
+     "dir": false
+    },
+    {
+     "name": "f153.bin",
+     "size": 200,
+     "crc32": 394134009,
+     "dir": false
+    },
+    {
+     "name": "f154.bin",
+     "size": 200,
+     "crc32": 3741142805,
+     "dir": false
+    },
+    {
+     "name": "f155.bin",
+     "size": 200,
+     "crc32": 1859145486,
+     "dir": false
+    },
+    {
+     "name": "f156.bin",
+     "size": 200,
+     "crc32": 2109268093,
+     "dir": false
+    },
+    {
+     "name": "f157.bin",
+     "size": 200,
+     "crc32": 4245381597,
+     "dir": false
+    },
+    {
+     "name": "f158.bin",
+     "size": 200,
+     "crc32": 3408208000,
+     "dir": false
+    },
+    {
+     "name": "f159.bin",
+     "size": 200,
+     "crc32": 707366318,
+     "dir": false
+    },
+    {
+     "name": "f160.bin",
+     "size": 200,
+     "crc32": 2619994629,
+     "dir": false
+    },
+    {
+     "name": "f161.bin",
+     "size": 200,
+     "crc32": 2351530435,
+     "dir": false
+    },
+    {
+     "name": "f162.bin",
+     "size": 200,
+     "crc32": 3474766196,
+     "dir": false
+    },
+    {
+     "name": "f163.bin",
+     "size": 200,
+     "crc32": 731747259,
+     "dir": false
+    },
+    {
+     "name": "f164.bin",
+     "size": 200,
+     "crc32": 293638897,
+     "dir": false
+    },
+    {
+     "name": "f165.bin",
+     "size": 200,
+     "crc32": 524673154,
+     "dir": false
+    },
+    {
+     "name": "f166.bin",
+     "size": 200,
+     "crc32": 3882179127,
+     "dir": false
+    },
+    {
+     "name": "f167.bin",
+     "size": 200,
+     "crc32": 4083397152,
+     "dir": false
+    },
+    {
+     "name": "f168.bin",
+     "size": 200,
+     "crc32": 1099329102,
+     "dir": false
+    },
+    {
+     "name": "f169.bin",
+     "size": 200,
+     "crc32": 573463146,
+     "dir": false
+    },
+    {
+     "name": "f170.bin",
+     "size": 200,
+     "crc32": 2405870518,
+     "dir": false
+    },
+    {
+     "name": "f171.bin",
+     "size": 200,
+     "crc32": 291743256,
+     "dir": false
+    },
+    {
+     "name": "f172.bin",
+     "size": 200,
+     "crc32": 719278707,
+     "dir": false
+    },
+    {
+     "name": "f173.bin",
+     "size": 200,
+     "crc32": 1394389347,
+     "dir": false
+    },
+    {
+     "name": "f174.bin",
+     "size": 200,
+     "crc32": 843209981,
+     "dir": false
+    },
+    {
+     "name": "f175.bin",
+     "size": 200,
+     "crc32": 3352515237,
+     "dir": false
+    },
+    {
+     "name": "f176.bin",
+     "size": 200,
+     "crc32": 2832885220,
+     "dir": false
+    },
+    {
+     "name": "f177.bin",
+     "size": 200,
+     "crc32": 3283236036,
+     "dir": false
+    },
+    {
+     "name": "f178.bin",
+     "size": 200,
+     "crc32": 3238057402,
+     "dir": false
+    },
+    {
+     "name": "f179.bin",
+     "size": 200,
+     "crc32": 3488478238,
+     "dir": false
+    },
+    {
+     "name": "f180.bin",
+     "size": 200,
+     "crc32": 3310227250,
+     "dir": false
+    },
+    {
+     "name": "f181.bin",
+     "size": 200,
+     "crc32": 2237540715,
+     "dir": false
+    },
+    {
+     "name": "f182.bin",
+     "size": 200,
+     "crc32": 2955726732,
+     "dir": false
+    },
+    {
+     "name": "f183.bin",
+     "size": 200,
+     "crc32": 925173199,
+     "dir": false
+    },
+    {
+     "name": "f184.bin",
+     "size": 200,
+     "crc32": 56716755,
+     "dir": false
+    },
+    {
+     "name": "f185.bin",
+     "size": 200,
+     "crc32": 2491032726,
+     "dir": false
+    },
+    {
+     "name": "f186.bin",
+     "size": 200,
+     "crc32": 199672159,
+     "dir": false
+    },
+    {
+     "name": "f187.bin",
+     "size": 200,
+     "crc32": 1811793944,
+     "dir": false
+    },
+    {
+     "name": "f188.bin",
+     "size": 200,
+     "crc32": 1667061270,
+     "dir": false
+    },
+    {
+     "name": "f189.bin",
+     "size": 200,
+     "crc32": 3147649942,
+     "dir": false
+    },
+    {
+     "name": "f190.bin",
+     "size": 200,
+     "crc32": 1019899514,
+     "dir": false
+    },
+    {
+     "name": "f191.bin",
+     "size": 200,
+     "crc32": 399341730,
+     "dir": false
+    },
+    {
+     "name": "f192.bin",
+     "size": 200,
+     "crc32": 2140566630,
+     "dir": false
+    },
+    {
+     "name": "f193.bin",
+     "size": 200,
+     "crc32": 1357182977,
+     "dir": false
+    },
+    {
+     "name": "f194.bin",
+     "size": 200,
+     "crc32": 2990481719,
+     "dir": false
+    },
+    {
+     "name": "f195.bin",
+     "size": 200,
+     "crc32": 771854004,
+     "dir": false
+    },
+    {
+     "name": "f196.bin",
+     "size": 200,
+     "crc32": 1796095424,
+     "dir": false
+    },
+    {
+     "name": "f197.bin",
+     "size": 200,
+     "crc32": 1480994503,
+     "dir": false
+    },
+    {
+     "name": "f198.bin",
+     "size": 200,
+     "crc32": 4147358774,
+     "dir": false
+    },
+    {
+     "name": "f199.bin",
+     "size": 200,
+     "crc32": 1849752317,
+     "dir": false
+    },
+    {
+     "name": "f200.bin",
+     "size": 200,
+     "crc32": 1397607890,
+     "dir": false
+    },
+    {
+     "name": "f201.bin",
+     "size": 200,
+     "crc32": 3541088256,
+     "dir": false
+    },
+    {
+     "name": "f202.bin",
+     "size": 200,
+     "crc32": 2969643268,
+     "dir": false
+    },
+    {
+     "name": "f203.bin",
+     "size": 200,
+     "crc32": 3724950919,
+     "dir": false
+    },
+    {
+     "name": "f204.bin",
+     "size": 200,
+     "crc32": 3595097616,
+     "dir": false
+    },
+    {
+     "name": "f205.bin",
+     "size": 200,
+     "crc32": 2449233621,
+     "dir": false
+    },
+    {
+     "name": "f206.bin",
+     "size": 200,
+     "crc32": 1895410659,
+     "dir": false
+    },
+    {
+     "name": "f207.bin",
+     "size": 200,
+     "crc32": 3618306700,
+     "dir": false
+    },
+    {
+     "name": "f208.bin",
+     "size": 200,
+     "crc32": 2603116589,
+     "dir": false
+    },
+    {
+     "name": "f209.bin",
+     "size": 200,
+     "crc32": 699157115,
+     "dir": false
+    },
+    {
+     "name": "f210.bin",
+     "size": 200,
+     "crc32": 1879067492,
+     "dir": false
+    },
+    {
+     "name": "f211.bin",
+     "size": 200,
+     "crc32": 1141057006,
+     "dir": false
+    },
+    {
+     "name": "f212.bin",
+     "size": 200,
+     "crc32": 1860129583,
+     "dir": false
+    },
+    {
+     "name": "f213.bin",
+     "size": 200,
+     "crc32": 4032074814,
+     "dir": false
+    },
+    {
+     "name": "f214.bin",
+     "size": 200,
+     "crc32": 1097617143,
+     "dir": false
+    },
+    {
+     "name": "f215.bin",
+     "size": 200,
+     "crc32": 439862087,
+     "dir": false
+    },
+    {
+     "name": "f216.bin",
+     "size": 200,
+     "crc32": 3904537249,
+     "dir": false
+    },
+    {
+     "name": "f217.bin",
+     "size": 200,
+     "crc32": 3110853503,
+     "dir": false
+    },
+    {
+     "name": "f218.bin",
+     "size": 200,
+     "crc32": 942253249,
+     "dir": false
+    },
+    {
+     "name": "f219.bin",
+     "size": 200,
+     "crc32": 3767653907,
+     "dir": false
+    },
+    {
+     "name": "f220.bin",
+     "size": 200,
+     "crc32": 3802374992,
+     "dir": false
+    },
+    {
+     "name": "f221.bin",
+     "size": 200,
+     "crc32": 1155025030,
+     "dir": false
+    },
+    {
+     "name": "f222.bin",
+     "size": 200,
+     "crc32": 3417707960,
+     "dir": false
+    },
+    {
+     "name": "f223.bin",
+     "size": 200,
+     "crc32": 318786376,
+     "dir": false
+    },
+    {
+     "name": "f224.bin",
+     "size": 200,
+     "crc32": 936920213,
+     "dir": false
+    },
+    {
+     "name": "f225.bin",
+     "size": 200,
+     "crc32": 2653698858,
+     "dir": false
+    },
+    {
+     "name": "f226.bin",
+     "size": 200,
+     "crc32": 4101586441,
+     "dir": false
+    },
+    {
+     "name": "f227.bin",
+     "size": 200,
+     "crc32": 4186019280,
+     "dir": false
+    },
+    {
+     "name": "f228.bin",
+     "size": 200,
+     "crc32": 933320778,
+     "dir": false
+    },
+    {
+     "name": "f229.bin",
+     "size": 200,
+     "crc32": 3208889633,
+     "dir": false
+    },
+    {
+     "name": "f230.bin",
+     "size": 200,
+     "crc32": 1418313773,
+     "dir": false
+    },
+    {
+     "name": "f231.bin",
+     "size": 200,
+     "crc32": 3960700891,
+     "dir": false
+    },
+    {
+     "name": "f232.bin",
+     "size": 200,
+     "crc32": 2304240908,
+     "dir": false
+    },
+    {
+     "name": "f233.bin",
+     "size": 200,
+     "crc32": 1486189390,
+     "dir": false
+    },
+    {
+     "name": "f234.bin",
+     "size": 200,
+     "crc32": 3154554741,
+     "dir": false
+    },
+    {
+     "name": "f235.bin",
+     "size": 200,
+     "crc32": 4021173115,
+     "dir": false
+    },
+    {
+     "name": "f236.bin",
+     "size": 200,
+     "crc32": 34193761,
+     "dir": false
+    },
+    {
+     "name": "f237.bin",
+     "size": 200,
+     "crc32": 1545500885,
+     "dir": false
+    },
+    {
+     "name": "f238.bin",
+     "size": 200,
+     "crc32": 23373248,
+     "dir": false
+    },
+    {
+     "name": "f239.bin",
+     "size": 200,
+     "crc32": 2099896406,
+     "dir": false
+    },
+    {
+     "name": "f240.bin",
+     "size": 200,
+     "crc32": 1853220075,
+     "dir": false
+    },
+    {
+     "name": "f241.bin",
+     "size": 200,
+     "crc32": 2976538319,
+     "dir": false
+    },
+    {
+     "name": "f242.bin",
+     "size": 200,
+     "crc32": 2855516725,
+     "dir": false
+    },
+    {
+     "name": "f243.bin",
+     "size": 200,
+     "crc32": 1309816749,
+     "dir": false
+    },
+    {
+     "name": "f244.bin",
+     "size": 200,
+     "crc32": 1798601898,
+     "dir": false
+    },
+    {
+     "name": "f245.bin",
+     "size": 200,
+     "crc32": 2276926979,
+     "dir": false
+    },
+    {
+     "name": "f246.bin",
+     "size": 200,
+     "crc32": 300292082,
+     "dir": false
+    },
+    {
+     "name": "f247.bin",
+     "size": 200,
+     "crc32": 1654147895,
+     "dir": false
+    },
+    {
+     "name": "f248.bin",
+     "size": 200,
+     "crc32": 1391686312,
+     "dir": false
+    },
+    {
+     "name": "f249.bin",
+     "size": 200,
+     "crc32": 1558529286,
+     "dir": false
+    },
+    {
+     "name": "f250.bin",
+     "size": 200,
+     "crc32": 129147671,
+     "dir": false
+    },
+    {
+     "name": "f251.bin",
+     "size": 200,
+     "crc32": 4016389045,
+     "dir": false
+    },
+    {
+     "name": "f252.bin",
+     "size": 200,
+     "crc32": 925728733,
+     "dir": false
+    },
+    {
+     "name": "f253.bin",
+     "size": 200,
+     "crc32": 2790577610,
+     "dir": false
+    },
+    {
+     "name": "f254.bin",
+     "size": 200,
+     "crc32": 3165348408,
+     "dir": false
+    },
+    {
+     "name": "f255.bin",
+     "size": 200,
+     "crc32": 1832837385,
+     "dir": false
+    },
+    {
+     "name": "f256.bin",
+     "size": 200,
+     "crc32": 3695781252,
+     "dir": false
+    },
+    {
+     "name": "f257.bin",
+     "size": 200,
+     "crc32": 3805334121,
+     "dir": false
+    },
+    {
+     "name": "f258.bin",
+     "size": 200,
+     "crc32": 225939970,
+     "dir": false
+    },
+    {
+     "name": "f259.bin",
+     "size": 200,
+     "crc32": 2224974921,
+     "dir": false
+    },
+    {
+     "name": "f260.bin",
+     "size": 200,
+     "crc32": 1413169902,
+     "dir": false
+    },
+    {
+     "name": "f261.bin",
+     "size": 200,
+     "crc32": 1712246380,
+     "dir": false
+    },
+    {
+     "name": "f262.bin",
+     "size": 200,
+     "crc32": 1420314285,
+     "dir": false
+    },
+    {
+     "name": "f263.bin",
+     "size": 200,
+     "crc32": 3953128384,
+     "dir": false
+    },
+    {
+     "name": "f264.bin",
+     "size": 200,
+     "crc32": 3909191377,
+     "dir": false
+    },
+    {
+     "name": "f265.bin",
+     "size": 200,
+     "crc32": 3056651164,
+     "dir": false
+    },
+    {
+     "name": "f266.bin",
+     "size": 200,
+     "crc32": 3025057909,
+     "dir": false
+    },
+    {
+     "name": "f267.bin",
+     "size": 200,
+     "crc32": 93478353,
+     "dir": false
+    },
+    {
+     "name": "f268.bin",
+     "size": 200,
+     "crc32": 1169185788,
+     "dir": false
+    },
+    {
+     "name": "f269.bin",
+     "size": 200,
+     "crc32": 3664959504,
+     "dir": false
+    },
+    {
+     "name": "f270.bin",
+     "size": 200,
+     "crc32": 2031995721,
+     "dir": false
+    },
+    {
+     "name": "f271.bin",
+     "size": 200,
+     "crc32": 50433025,
+     "dir": false
+    },
+    {
+     "name": "f272.bin",
+     "size": 200,
+     "crc32": 132933629,
+     "dir": false
+    },
+    {
+     "name": "f273.bin",
+     "size": 200,
+     "crc32": 1399861965,
+     "dir": false
+    },
+    {
+     "name": "f274.bin",
+     "size": 200,
+     "crc32": 2934697928,
+     "dir": false
+    },
+    {
+     "name": "f275.bin",
+     "size": 200,
+     "crc32": 1731088356,
+     "dir": false
+    },
+    {
+     "name": "f276.bin",
+     "size": 200,
+     "crc32": 1820872512,
+     "dir": false
+    },
+    {
+     "name": "f277.bin",
+     "size": 200,
+     "crc32": 3489294320,
+     "dir": false
+    },
+    {
+     "name": "f278.bin",
+     "size": 200,
+     "crc32": 3744389032,
+     "dir": false
+    },
+    {
+     "name": "f279.bin",
+     "size": 200,
+     "crc32": 64755104,
+     "dir": false
+    },
+    {
+     "name": "f280.bin",
+     "size": 200,
+     "crc32": 710832321,
+     "dir": false
+    },
+    {
+     "name": "f281.bin",
+     "size": 200,
+     "crc32": 143143096,
+     "dir": false
+    },
+    {
+     "name": "f282.bin",
+     "size": 200,
+     "crc32": 3238755924,
+     "dir": false
+    },
+    {
+     "name": "f283.bin",
+     "size": 200,
+     "crc32": 1898348111,
+     "dir": false
+    },
+    {
+     "name": "f284.bin",
+     "size": 200,
+     "crc32": 1649332540,
+     "dir": false
+    },
+    {
+     "name": "f285.bin",
+     "size": 200,
+     "crc32": 3808252060,
+     "dir": false
+    },
+    {
+     "name": "f286.bin",
+     "size": 200,
+     "crc32": 3570602433,
+     "dir": false
+    },
+    {
+     "name": "f287.bin",
+     "size": 200,
+     "crc32": 903855343,
+     "dir": false
+    },
+    {
+     "name": "f288.bin",
+     "size": 200,
+     "crc32": 2212479812,
+     "dir": false
+    },
+    {
+     "name": "f289.bin",
+     "size": 200,
+     "crc32": 2480910466,
+     "dir": false
+    },
+    {
+     "name": "f290.bin",
+     "size": 200,
+     "crc32": 3505031221,
+     "dir": false
+    },
+    {
+     "name": "f291.bin",
+     "size": 200,
+     "crc32": 879469306,
+     "dir": false
+    },
+    {
+     "name": "f292.bin",
+     "size": 200,
+     "crc32": 242656176,
+     "dir": false
+    },
+    {
+     "name": "f293.bin",
+     "size": 200,
+     "crc32": 11784643,
+     "dir": false
+    },
+    {
+     "name": "f294.bin",
+     "size": 200,
+     "crc32": 4170410870,
+     "dir": false
+    },
+    {
+     "name": "f295.bin",
+     "size": 200,
+     "crc32": 3969221473,
+     "dir": false
+    },
+    {
+     "name": "f296.bin",
+     "size": 200,
+     "crc32": 1584422671,
+     "dir": false
+    },
+    {
+     "name": "f297.bin",
+     "size": 200,
+     "crc32": 1037593387,
+     "dir": false
+    },
+    {
+     "name": "f298.bin",
+     "size": 200,
+     "crc32": 2425395959,
+     "dir": false
+    },
+    {
+     "name": "f299.bin",
+     "size": 200,
+     "crc32": 244684633,
+     "dir": false
+    },
+    {
+     "name": "f300.bin",
+     "size": 200,
+     "crc32": 891904818,
+     "dir": false
+    },
+    {
+     "name": "f301.bin",
+     "size": 200,
+     "crc32": 1290436642,
+     "dir": false
+    },
+    {
+     "name": "f302.bin",
+     "size": 200,
+     "crc32": 766799292,
+     "dir": false
+    },
+    {
+     "name": "f303.bin",
+     "size": 200,
+     "crc32": 3626329060,
+     "dir": false
+    },
+    {
+     "name": "f304.bin",
+     "size": 200,
+     "crc32": 3073135781,
+     "dir": false
+    },
+    {
+     "name": "f305.bin",
+     "size": 200,
+     "crc32": 3695445381,
+     "dir": false
+    },
+    {
+     "name": "f306.bin",
+     "size": 200,
+     "crc32": 3740722427,
+     "dir": false
+    },
+    {
+     "name": "f307.bin",
+     "size": 200,
+     "crc32": 3491480927,
+     "dir": false
+    },
+    {
+     "name": "f308.bin",
+     "size": 200,
+     "crc32": 3669507699,
+     "dir": false
+    },
+    {
+     "name": "f309.bin",
+     "size": 200,
+     "crc32": 2594707498,
+     "dir": false
+    },
+    {
+     "name": "f310.bin",
+     "size": 200,
+     "crc32": 2950364877,
+     "dir": false
+    },
+    {
+     "name": "f311.bin",
+     "size": 200,
+     "crc32": 684930190,
+     "dir": false
+    },
+    {
+     "name": "f312.bin",
+     "size": 200,
+     "crc32": 479681682,
+     "dir": false
+    },
+    {
+     "name": "f313.bin",
+     "size": 200,
+     "crc32": 2341213655,
+     "dir": false
+    },
+    {
+     "name": "f314.bin",
+     "size": 200,
+     "crc32": 336654366,
+     "dir": false
+    },
+    {
+     "name": "f315.bin",
+     "size": 200,
+     "crc32": 1946941785,
+     "dir": false
+    },
+    {
+     "name": "f316.bin",
+     "size": 200,
+     "crc32": 2091607895,
+     "dir": false
+    },
+    {
+     "name": "f317.bin",
+     "size": 200,
+     "crc32": 2758501079,
+     "dir": false
+    },
+    {
+     "name": "f318.bin",
+     "size": 200,
+     "crc32": 591159099,
+     "dir": false
+    },
+    {
+     "name": "f319.bin",
+     "size": 200,
+     "crc32": 138103267,
+     "dir": false
+    },
+    {
+     "name": "f320.bin",
+     "size": 200,
+     "crc32": 1616921895,
+     "dir": false
+    },
+    {
+     "name": "f321.bin",
+     "size": 200,
+     "crc32": 1326631232,
+     "dir": false
+    },
+    {
+     "name": "f322.bin",
+     "size": 200,
+     "crc32": 2915635318,
+     "dir": false
+    },
+    {
+     "name": "f323.bin",
+     "size": 200,
+     "crc32": 838320117,
+     "dir": false
+    },
+    {
+     "name": "f324.bin",
+     "size": 200,
+     "crc32": 1962413185,
+     "dir": false
+    },
+    {
+     "name": "f325.bin",
+     "size": 200,
+     "crc32": 1202724742,
+     "dir": false
+    },
+    {
+     "name": "f326.bin",
+     "size": 200,
+     "crc32": 3905265015,
+     "dir": false
+    },
+    {
+     "name": "f327.bin",
+     "size": 200,
+     "crc32": 1907805116,
+     "dir": false
+    },
+    {
+     "name": "f328.bin",
+     "size": 200,
+     "crc32": 1287388307,
+     "dir": false
+    },
+    {
+     "name": "f329.bin",
+     "size": 200,
+     "crc32": 3437660481,
+     "dir": false
+    },
+    {
+     "name": "f330.bin",
+     "size": 200,
+     "crc32": 2935429189,
+     "dir": false
+    },
+    {
+     "name": "f331.bin",
+     "size": 200,
+     "crc32": 3253734598,
+     "dir": false
+    },
+    {
+     "name": "f332.bin",
+     "size": 200,
+     "crc32": 3384731473,
+     "dir": false
+    },
+    {
+     "name": "f333.bin",
+     "size": 200,
+     "crc32": 2383046548,
+     "dir": false
+    },
+    {
+     "name": "f334.bin",
+     "size": 200,
+     "crc32": 1863293602,
+     "dir": false
+    },
+    {
+     "name": "f335.bin",
+     "size": 200,
+     "crc32": 3361524685,
+     "dir": false
+    },
+    {
+     "name": "f336.bin",
+     "size": 200,
+     "crc32": 2229164396,
+     "dir": false
+    },
+    {
+     "name": "f337.bin",
+     "size": 200,
+     "crc32": 911899450,
+     "dir": false
+    },
+    {
+     "name": "f338.bin",
+     "size": 200,
+     "crc32": 1878424101,
+     "dir": false
+    },
+    {
+     "name": "f339.bin",
+     "size": 200,
+     "crc32": 1542788271,
+     "dir": false
+    },
+    {
+     "name": "f340.bin",
+     "size": 200,
+     "crc32": 1898537582,
+     "dir": false
+    },
+    {
+     "name": "f341.bin",
+     "size": 200,
+     "crc32": 4020413823,
+     "dir": false
+    },
+    {
+     "name": "f342.bin",
+     "size": 200,
+     "crc32": 1587183542,
+     "dir": false
+    },
+    {
+     "name": "f343.bin",
+     "size": 200,
+     "crc32": 96596486,
+     "dir": false
+    },
+    {
+     "name": "f344.bin",
+     "size": 200,
+     "crc32": 4148999136,
+     "dir": false
+    },
+    {
+     "name": "f345.bin",
+     "size": 200,
+     "crc32": 2795366974,
+     "dir": false
+    },
+    {
+     "name": "f346.bin",
+     "size": 200,
+     "crc32": 668964224,
+     "dir": false
+    },
+    {
+     "name": "f347.bin",
+     "size": 200,
+     "crc32": 4284999506,
+     "dir": false
+    },
+    {
+     "name": "f348.bin",
+     "size": 200,
+     "crc32": 4250243601,
+     "dir": false
+    },
+    {
+     "name": "f349.bin",
+     "size": 200,
+     "crc32": 1529772487,
+     "dir": false
+    },
+    {
+     "name": "f350.bin",
+     "size": 200,
+     "crc32": 3560973561,
+     "dir": false
+    },
+    {
+     "name": "f351.bin",
+     "size": 200,
+     "crc32": 217479689,
+     "dir": false
+    },
+    {
+     "name": "f352.bin",
+     "size": 200,
+     "crc32": 674133460,
+     "dir": false
+    },
+    {
+     "name": "f353.bin",
+     "size": 200,
+     "crc32": 2178550379,
+     "dir": false
+    },
+    {
+     "name": "f354.bin",
+     "size": 200,
+     "crc32": 3952021320,
+     "dir": false
+    },
+    {
+     "name": "f355.bin",
+     "size": 200,
+     "crc32": 3866600593,
+     "dir": false
+    },
+    {
+     "name": "f356.bin",
+     "size": 200,
+     "crc32": 676817163,
+     "dir": false
+    },
+    {
+     "name": "f357.bin",
+     "size": 200,
+     "crc32": 2696279136,
+     "dir": false
+    },
+    {
+     "name": "f358.bin",
+     "size": 200,
+     "crc32": 1266676076,
+     "dir": false
+    },
+    {
+     "name": "f359.bin",
+     "size": 200,
+     "crc32": 4091891354,
+     "dir": false
+    },
+    {
+     "name": "f360.bin",
+     "size": 200,
+     "crc32": 2527190093,
+     "dir": false
+    },
+    {
+     "name": "f361.bin",
+     "size": 200,
+     "crc32": 1197687311,
+     "dir": false
+    },
+    {
+     "name": "f362.bin",
+     "size": 200,
+     "crc32": 2750455348,
+     "dir": false
+    },
+    {
+     "name": "f363.bin",
+     "size": 200,
+     "crc32": 4032301626,
+     "dir": false
+    },
+    {
+     "name": "f364.bin",
+     "size": 200,
+     "crc32": 503312416,
+     "dir": false
+    },
+    {
+     "name": "f365.bin",
+     "size": 200,
+     "crc32": 1139296660,
+     "dir": false
+    },
+    {
+     "name": "f366.bin",
+     "size": 200,
+     "crc32": 512922753,
+     "dir": false
+    },
+    {
+     "name": "f367.bin",
+     "size": 200,
+     "crc32": 1658835223,
+     "dir": false
+    },
+    {
+     "name": "f368.bin",
+     "size": 200,
+     "crc32": 1904465322,
+     "dir": false
+    },
+    {
+     "name": "f369.bin",
+     "size": 200,
+     "crc32": 2929487758,
+     "dir": false
+    },
+    {
+     "name": "f370.bin",
+     "size": 200,
+     "crc32": 3049622388,
+     "dir": false
+    },
+    {
+     "name": "f371.bin",
+     "size": 200,
+     "crc32": 1373898476,
+     "dir": false
+    },
+    {
+     "name": "f372.bin",
+     "size": 200,
+     "crc32": 1958890987,
+     "dir": false
+    },
+    {
+     "name": "f373.bin",
+     "size": 200,
+     "crc32": 2554402626,
+     "dir": false
+    },
+    {
+     "name": "f374.bin",
+     "size": 200,
+     "crc32": 235939507,
+     "dir": false
+    },
+    {
+     "name": "f375.bin",
+     "size": 200,
+     "crc32": 2104392310,
+     "dir": false
+    },
+    {
+     "name": "f376.bin",
+     "size": 200,
+     "crc32": 1292190697,
+     "dir": false
+    },
+    {
+     "name": "f377.bin",
+     "size": 200,
+     "crc32": 1125348423,
+     "dir": false
+    },
+    {
+     "name": "f378.bin",
+     "size": 200,
+     "crc32": 407147094,
+     "dir": false
+    },
+    {
+     "name": "f379.bin",
+     "size": 200,
+     "crc32": 4036168436,
+     "dir": false
+    },
+    {
+     "name": "f380.bin",
+     "size": 200,
+     "crc32": 685461148,
+     "dir": false
+    },
+    {
+     "name": "f381.bin",
+     "size": 200,
+     "crc32": 3114460299,
+     "dir": false
+    },
+    {
+     "name": "f382.bin",
+     "size": 200,
+     "crc32": 2740802425,
+     "dir": false
+    },
+    {
+     "name": "f383.bin",
+     "size": 200,
+     "crc32": 1925763144,
+     "dir": false
+    },
+    {
+     "name": "f384.bin",
+     "size": 200,
+     "crc32": 3284079813,
+     "dir": false
+    },
+    {
+     "name": "f385.bin",
+     "size": 200,
+     "crc32": 4247190312,
+     "dir": false
+    },
+    {
+     "name": "f386.bin",
+     "size": 200,
+     "crc32": 310485827,
+     "dir": false
+    },
+    {
+     "name": "f387.bin",
+     "size": 200,
+     "crc32": 2607308040,
+     "dir": false
+    },
+    {
+     "name": "f388.bin",
+     "size": 200,
+     "crc32": 1271755695,
+     "dir": false
+    },
+    {
+     "name": "f389.bin",
+     "size": 200,
+     "crc32": 2046361389,
+     "dir": false
+    },
+    {
+     "name": "f390.bin",
+     "size": 200,
+     "crc32": 1264482284,
+     "dir": false
+    },
+    {
+     "name": "f391.bin",
+     "size": 200,
+     "crc32": 4100571777,
+     "dir": false
+    },
+    {
+     "name": "f392.bin",
+     "size": 200,
+     "crc32": 4143429520,
+     "dir": false
+    },
+    {
+     "name": "f393.bin",
+     "size": 200,
+     "crc32": 2848389853,
+     "dir": false
+    },
+    {
+     "name": "f394.bin",
+     "size": 200,
+     "crc32": 2880997684,
+     "dir": false
+    },
+    {
+     "name": "f395.bin",
+     "size": 200,
+     "crc32": 442789008,
+     "dir": false
+    },
+    {
+     "name": "f396.bin",
+     "size": 200,
+     "crc32": 1514564285,
+     "dir": false
+    },
+    {
+     "name": "f397.bin",
+     "size": 200,
+     "crc32": 3313822033,
+     "dir": false
+    },
+    {
+     "name": "f398.bin",
+     "size": 200,
+     "crc32": 1726741000,
+     "dir": false
+    },
+    {
+     "name": "f399.bin",
+     "size": 200,
+     "crc32": 485997888,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz"
+   ],
+   "notes": "The shape of the quadratic-cost measurement in lib.rs:39-41."
+  },
+  {
+   "path": "generated/7z/solid.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "7z a -t7z -ms=on solid.7z  (over hello.txt data.bin empty.txt nested/inner.txt)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz",
+    "unarc"
+   ],
+   "notes": "Solid: every entry in one folder. The differential exercises in-order and out-of-order reads against the same bytes."
+  },
+  {
+   "path": "generated/7z/solid400.7z",
+   "format": "7z",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "7z a -t7z -ms=on over 400 generated files",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "f000.bin",
+     "size": 200,
+     "crc32": 3695781252,
+     "dir": false
+    },
+    {
+     "name": "f001.bin",
+     "size": 200,
+     "crc32": 3805334121,
+     "dir": false
+    },
+    {
+     "name": "f002.bin",
+     "size": 200,
+     "crc32": 225939970,
+     "dir": false
+    },
+    {
+     "name": "f003.bin",
+     "size": 200,
+     "crc32": 2224974921,
+     "dir": false
+    },
+    {
+     "name": "f004.bin",
+     "size": 200,
+     "crc32": 1413169902,
+     "dir": false
+    },
+    {
+     "name": "f005.bin",
+     "size": 200,
+     "crc32": 1712246380,
+     "dir": false
+    },
+    {
+     "name": "f006.bin",
+     "size": 200,
+     "crc32": 1420314285,
+     "dir": false
+    },
+    {
+     "name": "f007.bin",
+     "size": 200,
+     "crc32": 3953128384,
+     "dir": false
+    },
+    {
+     "name": "f008.bin",
+     "size": 200,
+     "crc32": 3909191377,
+     "dir": false
+    },
+    {
+     "name": "f009.bin",
+     "size": 200,
+     "crc32": 3056651164,
+     "dir": false
+    },
+    {
+     "name": "f010.bin",
+     "size": 200,
+     "crc32": 3025057909,
+     "dir": false
+    },
+    {
+     "name": "f011.bin",
+     "size": 200,
+     "crc32": 93478353,
+     "dir": false
+    },
+    {
+     "name": "f012.bin",
+     "size": 200,
+     "crc32": 1169185788,
+     "dir": false
+    },
+    {
+     "name": "f013.bin",
+     "size": 200,
+     "crc32": 3664959504,
+     "dir": false
+    },
+    {
+     "name": "f014.bin",
+     "size": 200,
+     "crc32": 2031995721,
+     "dir": false
+    },
+    {
+     "name": "f015.bin",
+     "size": 200,
+     "crc32": 50433025,
+     "dir": false
+    },
+    {
+     "name": "f016.bin",
+     "size": 200,
+     "crc32": 132933629,
+     "dir": false
+    },
+    {
+     "name": "f017.bin",
+     "size": 200,
+     "crc32": 1399861965,
+     "dir": false
+    },
+    {
+     "name": "f018.bin",
+     "size": 200,
+     "crc32": 2934697928,
+     "dir": false
+    },
+    {
+     "name": "f019.bin",
+     "size": 200,
+     "crc32": 1731088356,
+     "dir": false
+    },
+    {
+     "name": "f020.bin",
+     "size": 200,
+     "crc32": 1820872512,
+     "dir": false
+    },
+    {
+     "name": "f021.bin",
+     "size": 200,
+     "crc32": 3489294320,
+     "dir": false
+    },
+    {
+     "name": "f022.bin",
+     "size": 200,
+     "crc32": 3744389032,
+     "dir": false
+    },
+    {
+     "name": "f023.bin",
+     "size": 200,
+     "crc32": 64755104,
+     "dir": false
+    },
+    {
+     "name": "f024.bin",
+     "size": 200,
+     "crc32": 710832321,
+     "dir": false
+    },
+    {
+     "name": "f025.bin",
+     "size": 200,
+     "crc32": 143143096,
+     "dir": false
+    },
+    {
+     "name": "f026.bin",
+     "size": 200,
+     "crc32": 3238755924,
+     "dir": false
+    },
+    {
+     "name": "f027.bin",
+     "size": 200,
+     "crc32": 1898348111,
+     "dir": false
+    },
+    {
+     "name": "f028.bin",
+     "size": 200,
+     "crc32": 1649332540,
+     "dir": false
+    },
+    {
+     "name": "f029.bin",
+     "size": 200,
+     "crc32": 3808252060,
+     "dir": false
+    },
+    {
+     "name": "f030.bin",
+     "size": 200,
+     "crc32": 3570602433,
+     "dir": false
+    },
+    {
+     "name": "f031.bin",
+     "size": 200,
+     "crc32": 903855343,
+     "dir": false
+    },
+    {
+     "name": "f032.bin",
+     "size": 200,
+     "crc32": 2212479812,
+     "dir": false
+    },
+    {
+     "name": "f033.bin",
+     "size": 200,
+     "crc32": 2480910466,
+     "dir": false
+    },
+    {
+     "name": "f034.bin",
+     "size": 200,
+     "crc32": 3505031221,
+     "dir": false
+    },
+    {
+     "name": "f035.bin",
+     "size": 200,
+     "crc32": 879469306,
+     "dir": false
+    },
+    {
+     "name": "f036.bin",
+     "size": 200,
+     "crc32": 242656176,
+     "dir": false
+    },
+    {
+     "name": "f037.bin",
+     "size": 200,
+     "crc32": 11784643,
+     "dir": false
+    },
+    {
+     "name": "f038.bin",
+     "size": 200,
+     "crc32": 4170410870,
+     "dir": false
+    },
+    {
+     "name": "f039.bin",
+     "size": 200,
+     "crc32": 3969221473,
+     "dir": false
+    },
+    {
+     "name": "f040.bin",
+     "size": 200,
+     "crc32": 1584422671,
+     "dir": false
+    },
+    {
+     "name": "f041.bin",
+     "size": 200,
+     "crc32": 1037593387,
+     "dir": false
+    },
+    {
+     "name": "f042.bin",
+     "size": 200,
+     "crc32": 2425395959,
+     "dir": false
+    },
+    {
+     "name": "f043.bin",
+     "size": 200,
+     "crc32": 244684633,
+     "dir": false
+    },
+    {
+     "name": "f044.bin",
+     "size": 200,
+     "crc32": 891904818,
+     "dir": false
+    },
+    {
+     "name": "f045.bin",
+     "size": 200,
+     "crc32": 1290436642,
+     "dir": false
+    },
+    {
+     "name": "f046.bin",
+     "size": 200,
+     "crc32": 766799292,
+     "dir": false
+    },
+    {
+     "name": "f047.bin",
+     "size": 200,
+     "crc32": 3626329060,
+     "dir": false
+    },
+    {
+     "name": "f048.bin",
+     "size": 200,
+     "crc32": 3073135781,
+     "dir": false
+    },
+    {
+     "name": "f049.bin",
+     "size": 200,
+     "crc32": 3695445381,
+     "dir": false
+    },
+    {
+     "name": "f050.bin",
+     "size": 200,
+     "crc32": 3740722427,
+     "dir": false
+    },
+    {
+     "name": "f051.bin",
+     "size": 200,
+     "crc32": 3491480927,
+     "dir": false
+    },
+    {
+     "name": "f052.bin",
+     "size": 200,
+     "crc32": 3669507699,
+     "dir": false
+    },
+    {
+     "name": "f053.bin",
+     "size": 200,
+     "crc32": 2594707498,
+     "dir": false
+    },
+    {
+     "name": "f054.bin",
+     "size": 200,
+     "crc32": 2950364877,
+     "dir": false
+    },
+    {
+     "name": "f055.bin",
+     "size": 200,
+     "crc32": 684930190,
+     "dir": false
+    },
+    {
+     "name": "f056.bin",
+     "size": 200,
+     "crc32": 479681682,
+     "dir": false
+    },
+    {
+     "name": "f057.bin",
+     "size": 200,
+     "crc32": 2341213655,
+     "dir": false
+    },
+    {
+     "name": "f058.bin",
+     "size": 200,
+     "crc32": 336654366,
+     "dir": false
+    },
+    {
+     "name": "f059.bin",
+     "size": 200,
+     "crc32": 1946941785,
+     "dir": false
+    },
+    {
+     "name": "f060.bin",
+     "size": 200,
+     "crc32": 2091607895,
+     "dir": false
+    },
+    {
+     "name": "f061.bin",
+     "size": 200,
+     "crc32": 2758501079,
+     "dir": false
+    },
+    {
+     "name": "f062.bin",
+     "size": 200,
+     "crc32": 591159099,
+     "dir": false
+    },
+    {
+     "name": "f063.bin",
+     "size": 200,
+     "crc32": 138103267,
+     "dir": false
+    },
+    {
+     "name": "f064.bin",
+     "size": 200,
+     "crc32": 1616921895,
+     "dir": false
+    },
+    {
+     "name": "f065.bin",
+     "size": 200,
+     "crc32": 1326631232,
+     "dir": false
+    },
+    {
+     "name": "f066.bin",
+     "size": 200,
+     "crc32": 2915635318,
+     "dir": false
+    },
+    {
+     "name": "f067.bin",
+     "size": 200,
+     "crc32": 838320117,
+     "dir": false
+    },
+    {
+     "name": "f068.bin",
+     "size": 200,
+     "crc32": 1962413185,
+     "dir": false
+    },
+    {
+     "name": "f069.bin",
+     "size": 200,
+     "crc32": 1202724742,
+     "dir": false
+    },
+    {
+     "name": "f070.bin",
+     "size": 200,
+     "crc32": 3905265015,
+     "dir": false
+    },
+    {
+     "name": "f071.bin",
+     "size": 200,
+     "crc32": 1907805116,
+     "dir": false
+    },
+    {
+     "name": "f072.bin",
+     "size": 200,
+     "crc32": 1287388307,
+     "dir": false
+    },
+    {
+     "name": "f073.bin",
+     "size": 200,
+     "crc32": 3437660481,
+     "dir": false
+    },
+    {
+     "name": "f074.bin",
+     "size": 200,
+     "crc32": 2935429189,
+     "dir": false
+    },
+    {
+     "name": "f075.bin",
+     "size": 200,
+     "crc32": 3253734598,
+     "dir": false
+    },
+    {
+     "name": "f076.bin",
+     "size": 200,
+     "crc32": 3384731473,
+     "dir": false
+    },
+    {
+     "name": "f077.bin",
+     "size": 200,
+     "crc32": 2383046548,
+     "dir": false
+    },
+    {
+     "name": "f078.bin",
+     "size": 200,
+     "crc32": 1863293602,
+     "dir": false
+    },
+    {
+     "name": "f079.bin",
+     "size": 200,
+     "crc32": 3361524685,
+     "dir": false
+    },
+    {
+     "name": "f080.bin",
+     "size": 200,
+     "crc32": 2229164396,
+     "dir": false
+    },
+    {
+     "name": "f081.bin",
+     "size": 200,
+     "crc32": 911899450,
+     "dir": false
+    },
+    {
+     "name": "f082.bin",
+     "size": 200,
+     "crc32": 1878424101,
+     "dir": false
+    },
+    {
+     "name": "f083.bin",
+     "size": 200,
+     "crc32": 1542788271,
+     "dir": false
+    },
+    {
+     "name": "f084.bin",
+     "size": 200,
+     "crc32": 1898537582,
+     "dir": false
+    },
+    {
+     "name": "f085.bin",
+     "size": 200,
+     "crc32": 4020413823,
+     "dir": false
+    },
+    {
+     "name": "f086.bin",
+     "size": 200,
+     "crc32": 1587183542,
+     "dir": false
+    },
+    {
+     "name": "f087.bin",
+     "size": 200,
+     "crc32": 96596486,
+     "dir": false
+    },
+    {
+     "name": "f088.bin",
+     "size": 200,
+     "crc32": 4148999136,
+     "dir": false
+    },
+    {
+     "name": "f089.bin",
+     "size": 200,
+     "crc32": 2795366974,
+     "dir": false
+    },
+    {
+     "name": "f090.bin",
+     "size": 200,
+     "crc32": 668964224,
+     "dir": false
+    },
+    {
+     "name": "f091.bin",
+     "size": 200,
+     "crc32": 4284999506,
+     "dir": false
+    },
+    {
+     "name": "f092.bin",
+     "size": 200,
+     "crc32": 4250243601,
+     "dir": false
+    },
+    {
+     "name": "f093.bin",
+     "size": 200,
+     "crc32": 1529772487,
+     "dir": false
+    },
+    {
+     "name": "f094.bin",
+     "size": 200,
+     "crc32": 3560973561,
+     "dir": false
+    },
+    {
+     "name": "f095.bin",
+     "size": 200,
+     "crc32": 217479689,
+     "dir": false
+    },
+    {
+     "name": "f096.bin",
+     "size": 200,
+     "crc32": 674133460,
+     "dir": false
+    },
+    {
+     "name": "f097.bin",
+     "size": 200,
+     "crc32": 2178550379,
+     "dir": false
+    },
+    {
+     "name": "f098.bin",
+     "size": 200,
+     "crc32": 3952021320,
+     "dir": false
+    },
+    {
+     "name": "f099.bin",
+     "size": 200,
+     "crc32": 3866600593,
+     "dir": false
+    },
+    {
+     "name": "f100.bin",
+     "size": 200,
+     "crc32": 676817163,
+     "dir": false
+    },
+    {
+     "name": "f101.bin",
+     "size": 200,
+     "crc32": 2696279136,
+     "dir": false
+    },
+    {
+     "name": "f102.bin",
+     "size": 200,
+     "crc32": 1266676076,
+     "dir": false
+    },
+    {
+     "name": "f103.bin",
+     "size": 200,
+     "crc32": 4091891354,
+     "dir": false
+    },
+    {
+     "name": "f104.bin",
+     "size": 200,
+     "crc32": 2527190093,
+     "dir": false
+    },
+    {
+     "name": "f105.bin",
+     "size": 200,
+     "crc32": 1197687311,
+     "dir": false
+    },
+    {
+     "name": "f106.bin",
+     "size": 200,
+     "crc32": 2750455348,
+     "dir": false
+    },
+    {
+     "name": "f107.bin",
+     "size": 200,
+     "crc32": 4032301626,
+     "dir": false
+    },
+    {
+     "name": "f108.bin",
+     "size": 200,
+     "crc32": 503312416,
+     "dir": false
+    },
+    {
+     "name": "f109.bin",
+     "size": 200,
+     "crc32": 1139296660,
+     "dir": false
+    },
+    {
+     "name": "f110.bin",
+     "size": 200,
+     "crc32": 512922753,
+     "dir": false
+    },
+    {
+     "name": "f111.bin",
+     "size": 200,
+     "crc32": 1658835223,
+     "dir": false
+    },
+    {
+     "name": "f112.bin",
+     "size": 200,
+     "crc32": 1904465322,
+     "dir": false
+    },
+    {
+     "name": "f113.bin",
+     "size": 200,
+     "crc32": 2929487758,
+     "dir": false
+    },
+    {
+     "name": "f114.bin",
+     "size": 200,
+     "crc32": 3049622388,
+     "dir": false
+    },
+    {
+     "name": "f115.bin",
+     "size": 200,
+     "crc32": 1373898476,
+     "dir": false
+    },
+    {
+     "name": "f116.bin",
+     "size": 200,
+     "crc32": 1958890987,
+     "dir": false
+    },
+    {
+     "name": "f117.bin",
+     "size": 200,
+     "crc32": 2554402626,
+     "dir": false
+    },
+    {
+     "name": "f118.bin",
+     "size": 200,
+     "crc32": 235939507,
+     "dir": false
+    },
+    {
+     "name": "f119.bin",
+     "size": 200,
+     "crc32": 2104392310,
+     "dir": false
+    },
+    {
+     "name": "f120.bin",
+     "size": 200,
+     "crc32": 1292190697,
+     "dir": false
+    },
+    {
+     "name": "f121.bin",
+     "size": 200,
+     "crc32": 1125348423,
+     "dir": false
+    },
+    {
+     "name": "f122.bin",
+     "size": 200,
+     "crc32": 407147094,
+     "dir": false
+    },
+    {
+     "name": "f123.bin",
+     "size": 200,
+     "crc32": 4036168436,
+     "dir": false
+    },
+    {
+     "name": "f124.bin",
+     "size": 200,
+     "crc32": 685461148,
+     "dir": false
+    },
+    {
+     "name": "f125.bin",
+     "size": 200,
+     "crc32": 3114460299,
+     "dir": false
+    },
+    {
+     "name": "f126.bin",
+     "size": 200,
+     "crc32": 2740802425,
+     "dir": false
+    },
+    {
+     "name": "f127.bin",
+     "size": 200,
+     "crc32": 1925763144,
+     "dir": false
+    },
+    {
+     "name": "f128.bin",
+     "size": 200,
+     "crc32": 3284079813,
+     "dir": false
+    },
+    {
+     "name": "f129.bin",
+     "size": 200,
+     "crc32": 4247190312,
+     "dir": false
+    },
+    {
+     "name": "f130.bin",
+     "size": 200,
+     "crc32": 310485827,
+     "dir": false
+    },
+    {
+     "name": "f131.bin",
+     "size": 200,
+     "crc32": 2607308040,
+     "dir": false
+    },
+    {
+     "name": "f132.bin",
+     "size": 200,
+     "crc32": 1271755695,
+     "dir": false
+    },
+    {
+     "name": "f133.bin",
+     "size": 200,
+     "crc32": 2046361389,
+     "dir": false
+    },
+    {
+     "name": "f134.bin",
+     "size": 200,
+     "crc32": 1264482284,
+     "dir": false
+    },
+    {
+     "name": "f135.bin",
+     "size": 200,
+     "crc32": 4100571777,
+     "dir": false
+    },
+    {
+     "name": "f136.bin",
+     "size": 200,
+     "crc32": 4143429520,
+     "dir": false
+    },
+    {
+     "name": "f137.bin",
+     "size": 200,
+     "crc32": 2848389853,
+     "dir": false
+    },
+    {
+     "name": "f138.bin",
+     "size": 200,
+     "crc32": 2880997684,
+     "dir": false
+    },
+    {
+     "name": "f139.bin",
+     "size": 200,
+     "crc32": 442789008,
+     "dir": false
+    },
+    {
+     "name": "f140.bin",
+     "size": 200,
+     "crc32": 1514564285,
+     "dir": false
+    },
+    {
+     "name": "f141.bin",
+     "size": 200,
+     "crc32": 3313822033,
+     "dir": false
+    },
+    {
+     "name": "f142.bin",
+     "size": 200,
+     "crc32": 1726741000,
+     "dir": false
+    },
+    {
+     "name": "f143.bin",
+     "size": 200,
+     "crc32": 485997888,
+     "dir": false
+    },
+    {
+     "name": "f144.bin",
+     "size": 200,
+     "crc32": 404379324,
+     "dir": false
+    },
+    {
+     "name": "f145.bin",
+     "size": 200,
+     "crc32": 1283851148,
+     "dir": false
+    },
+    {
+     "name": "f146.bin",
+     "size": 200,
+     "crc32": 2971524745,
+     "dir": false
+    },
+    {
+     "name": "f147.bin",
+     "size": 200,
+     "crc32": 2027454117,
+     "dir": false
+    },
+    {
+     "name": "f148.bin",
+     "size": 200,
+     "crc32": 1937669633,
+     "dir": false
+    },
+    {
+     "name": "f149.bin",
+     "size": 200,
+     "crc32": 3490469553,
+     "dir": false
+    },
+    {
+     "name": "f150.bin",
+     "size": 200,
+     "crc32": 3235440361,
+     "dir": false
+    },
+    {
+     "name": "f151.bin",
+     "size": 200,
+     "crc32": 472524001,
+     "dir": false
+    },
+    {
+     "name": "f152.bin",
+     "size": 200,
+     "crc32": 900219264,
+     "dir": false
+    },
+    {
+     "name": "f153.bin",
+     "size": 200,
+     "crc32": 394134009,
+     "dir": false
+    },
+    {
+     "name": "f154.bin",
+     "size": 200,
+     "crc32": 3741142805,
+     "dir": false
+    },
+    {
+     "name": "f155.bin",
+     "size": 200,
+     "crc32": 1859145486,
+     "dir": false
+    },
+    {
+     "name": "f156.bin",
+     "size": 200,
+     "crc32": 2109268093,
+     "dir": false
+    },
+    {
+     "name": "f157.bin",
+     "size": 200,
+     "crc32": 4245381597,
+     "dir": false
+    },
+    {
+     "name": "f158.bin",
+     "size": 200,
+     "crc32": 3408208000,
+     "dir": false
+    },
+    {
+     "name": "f159.bin",
+     "size": 200,
+     "crc32": 707366318,
+     "dir": false
+    },
+    {
+     "name": "f160.bin",
+     "size": 200,
+     "crc32": 2619994629,
+     "dir": false
+    },
+    {
+     "name": "f161.bin",
+     "size": 200,
+     "crc32": 2351530435,
+     "dir": false
+    },
+    {
+     "name": "f162.bin",
+     "size": 200,
+     "crc32": 3474766196,
+     "dir": false
+    },
+    {
+     "name": "f163.bin",
+     "size": 200,
+     "crc32": 731747259,
+     "dir": false
+    },
+    {
+     "name": "f164.bin",
+     "size": 200,
+     "crc32": 293638897,
+     "dir": false
+    },
+    {
+     "name": "f165.bin",
+     "size": 200,
+     "crc32": 524673154,
+     "dir": false
+    },
+    {
+     "name": "f166.bin",
+     "size": 200,
+     "crc32": 3882179127,
+     "dir": false
+    },
+    {
+     "name": "f167.bin",
+     "size": 200,
+     "crc32": 4083397152,
+     "dir": false
+    },
+    {
+     "name": "f168.bin",
+     "size": 200,
+     "crc32": 1099329102,
+     "dir": false
+    },
+    {
+     "name": "f169.bin",
+     "size": 200,
+     "crc32": 573463146,
+     "dir": false
+    },
+    {
+     "name": "f170.bin",
+     "size": 200,
+     "crc32": 2405870518,
+     "dir": false
+    },
+    {
+     "name": "f171.bin",
+     "size": 200,
+     "crc32": 291743256,
+     "dir": false
+    },
+    {
+     "name": "f172.bin",
+     "size": 200,
+     "crc32": 719278707,
+     "dir": false
+    },
+    {
+     "name": "f173.bin",
+     "size": 200,
+     "crc32": 1394389347,
+     "dir": false
+    },
+    {
+     "name": "f174.bin",
+     "size": 200,
+     "crc32": 843209981,
+     "dir": false
+    },
+    {
+     "name": "f175.bin",
+     "size": 200,
+     "crc32": 3352515237,
+     "dir": false
+    },
+    {
+     "name": "f176.bin",
+     "size": 200,
+     "crc32": 2832885220,
+     "dir": false
+    },
+    {
+     "name": "f177.bin",
+     "size": 200,
+     "crc32": 3283236036,
+     "dir": false
+    },
+    {
+     "name": "f178.bin",
+     "size": 200,
+     "crc32": 3238057402,
+     "dir": false
+    },
+    {
+     "name": "f179.bin",
+     "size": 200,
+     "crc32": 3488478238,
+     "dir": false
+    },
+    {
+     "name": "f180.bin",
+     "size": 200,
+     "crc32": 3310227250,
+     "dir": false
+    },
+    {
+     "name": "f181.bin",
+     "size": 200,
+     "crc32": 2237540715,
+     "dir": false
+    },
+    {
+     "name": "f182.bin",
+     "size": 200,
+     "crc32": 2955726732,
+     "dir": false
+    },
+    {
+     "name": "f183.bin",
+     "size": 200,
+     "crc32": 925173199,
+     "dir": false
+    },
+    {
+     "name": "f184.bin",
+     "size": 200,
+     "crc32": 56716755,
+     "dir": false
+    },
+    {
+     "name": "f185.bin",
+     "size": 200,
+     "crc32": 2491032726,
+     "dir": false
+    },
+    {
+     "name": "f186.bin",
+     "size": 200,
+     "crc32": 199672159,
+     "dir": false
+    },
+    {
+     "name": "f187.bin",
+     "size": 200,
+     "crc32": 1811793944,
+     "dir": false
+    },
+    {
+     "name": "f188.bin",
+     "size": 200,
+     "crc32": 1667061270,
+     "dir": false
+    },
+    {
+     "name": "f189.bin",
+     "size": 200,
+     "crc32": 3147649942,
+     "dir": false
+    },
+    {
+     "name": "f190.bin",
+     "size": 200,
+     "crc32": 1019899514,
+     "dir": false
+    },
+    {
+     "name": "f191.bin",
+     "size": 200,
+     "crc32": 399341730,
+     "dir": false
+    },
+    {
+     "name": "f192.bin",
+     "size": 200,
+     "crc32": 2140566630,
+     "dir": false
+    },
+    {
+     "name": "f193.bin",
+     "size": 200,
+     "crc32": 1357182977,
+     "dir": false
+    },
+    {
+     "name": "f194.bin",
+     "size": 200,
+     "crc32": 2990481719,
+     "dir": false
+    },
+    {
+     "name": "f195.bin",
+     "size": 200,
+     "crc32": 771854004,
+     "dir": false
+    },
+    {
+     "name": "f196.bin",
+     "size": 200,
+     "crc32": 1796095424,
+     "dir": false
+    },
+    {
+     "name": "f197.bin",
+     "size": 200,
+     "crc32": 1480994503,
+     "dir": false
+    },
+    {
+     "name": "f198.bin",
+     "size": 200,
+     "crc32": 4147358774,
+     "dir": false
+    },
+    {
+     "name": "f199.bin",
+     "size": 200,
+     "crc32": 1849752317,
+     "dir": false
+    },
+    {
+     "name": "f200.bin",
+     "size": 200,
+     "crc32": 1397607890,
+     "dir": false
+    },
+    {
+     "name": "f201.bin",
+     "size": 200,
+     "crc32": 3541088256,
+     "dir": false
+    },
+    {
+     "name": "f202.bin",
+     "size": 200,
+     "crc32": 2969643268,
+     "dir": false
+    },
+    {
+     "name": "f203.bin",
+     "size": 200,
+     "crc32": 3724950919,
+     "dir": false
+    },
+    {
+     "name": "f204.bin",
+     "size": 200,
+     "crc32": 3595097616,
+     "dir": false
+    },
+    {
+     "name": "f205.bin",
+     "size": 200,
+     "crc32": 2449233621,
+     "dir": false
+    },
+    {
+     "name": "f206.bin",
+     "size": 200,
+     "crc32": 1895410659,
+     "dir": false
+    },
+    {
+     "name": "f207.bin",
+     "size": 200,
+     "crc32": 3618306700,
+     "dir": false
+    },
+    {
+     "name": "f208.bin",
+     "size": 200,
+     "crc32": 2603116589,
+     "dir": false
+    },
+    {
+     "name": "f209.bin",
+     "size": 200,
+     "crc32": 699157115,
+     "dir": false
+    },
+    {
+     "name": "f210.bin",
+     "size": 200,
+     "crc32": 1879067492,
+     "dir": false
+    },
+    {
+     "name": "f211.bin",
+     "size": 200,
+     "crc32": 1141057006,
+     "dir": false
+    },
+    {
+     "name": "f212.bin",
+     "size": 200,
+     "crc32": 1860129583,
+     "dir": false
+    },
+    {
+     "name": "f213.bin",
+     "size": 200,
+     "crc32": 4032074814,
+     "dir": false
+    },
+    {
+     "name": "f214.bin",
+     "size": 200,
+     "crc32": 1097617143,
+     "dir": false
+    },
+    {
+     "name": "f215.bin",
+     "size": 200,
+     "crc32": 439862087,
+     "dir": false
+    },
+    {
+     "name": "f216.bin",
+     "size": 200,
+     "crc32": 3904537249,
+     "dir": false
+    },
+    {
+     "name": "f217.bin",
+     "size": 200,
+     "crc32": 3110853503,
+     "dir": false
+    },
+    {
+     "name": "f218.bin",
+     "size": 200,
+     "crc32": 942253249,
+     "dir": false
+    },
+    {
+     "name": "f219.bin",
+     "size": 200,
+     "crc32": 3767653907,
+     "dir": false
+    },
+    {
+     "name": "f220.bin",
+     "size": 200,
+     "crc32": 3802374992,
+     "dir": false
+    },
+    {
+     "name": "f221.bin",
+     "size": 200,
+     "crc32": 1155025030,
+     "dir": false
+    },
+    {
+     "name": "f222.bin",
+     "size": 200,
+     "crc32": 3417707960,
+     "dir": false
+    },
+    {
+     "name": "f223.bin",
+     "size": 200,
+     "crc32": 318786376,
+     "dir": false
+    },
+    {
+     "name": "f224.bin",
+     "size": 200,
+     "crc32": 936920213,
+     "dir": false
+    },
+    {
+     "name": "f225.bin",
+     "size": 200,
+     "crc32": 2653698858,
+     "dir": false
+    },
+    {
+     "name": "f226.bin",
+     "size": 200,
+     "crc32": 4101586441,
+     "dir": false
+    },
+    {
+     "name": "f227.bin",
+     "size": 200,
+     "crc32": 4186019280,
+     "dir": false
+    },
+    {
+     "name": "f228.bin",
+     "size": 200,
+     "crc32": 933320778,
+     "dir": false
+    },
+    {
+     "name": "f229.bin",
+     "size": 200,
+     "crc32": 3208889633,
+     "dir": false
+    },
+    {
+     "name": "f230.bin",
+     "size": 200,
+     "crc32": 1418313773,
+     "dir": false
+    },
+    {
+     "name": "f231.bin",
+     "size": 200,
+     "crc32": 3960700891,
+     "dir": false
+    },
+    {
+     "name": "f232.bin",
+     "size": 200,
+     "crc32": 2304240908,
+     "dir": false
+    },
+    {
+     "name": "f233.bin",
+     "size": 200,
+     "crc32": 1486189390,
+     "dir": false
+    },
+    {
+     "name": "f234.bin",
+     "size": 200,
+     "crc32": 3154554741,
+     "dir": false
+    },
+    {
+     "name": "f235.bin",
+     "size": 200,
+     "crc32": 4021173115,
+     "dir": false
+    },
+    {
+     "name": "f236.bin",
+     "size": 200,
+     "crc32": 34193761,
+     "dir": false
+    },
+    {
+     "name": "f237.bin",
+     "size": 200,
+     "crc32": 1545500885,
+     "dir": false
+    },
+    {
+     "name": "f238.bin",
+     "size": 200,
+     "crc32": 23373248,
+     "dir": false
+    },
+    {
+     "name": "f239.bin",
+     "size": 200,
+     "crc32": 2099896406,
+     "dir": false
+    },
+    {
+     "name": "f240.bin",
+     "size": 200,
+     "crc32": 1853220075,
+     "dir": false
+    },
+    {
+     "name": "f241.bin",
+     "size": 200,
+     "crc32": 2976538319,
+     "dir": false
+    },
+    {
+     "name": "f242.bin",
+     "size": 200,
+     "crc32": 2855516725,
+     "dir": false
+    },
+    {
+     "name": "f243.bin",
+     "size": 200,
+     "crc32": 1309816749,
+     "dir": false
+    },
+    {
+     "name": "f244.bin",
+     "size": 200,
+     "crc32": 1798601898,
+     "dir": false
+    },
+    {
+     "name": "f245.bin",
+     "size": 200,
+     "crc32": 2276926979,
+     "dir": false
+    },
+    {
+     "name": "f246.bin",
+     "size": 200,
+     "crc32": 300292082,
+     "dir": false
+    },
+    {
+     "name": "f247.bin",
+     "size": 200,
+     "crc32": 1654147895,
+     "dir": false
+    },
+    {
+     "name": "f248.bin",
+     "size": 200,
+     "crc32": 1391686312,
+     "dir": false
+    },
+    {
+     "name": "f249.bin",
+     "size": 200,
+     "crc32": 1558529286,
+     "dir": false
+    },
+    {
+     "name": "f250.bin",
+     "size": 200,
+     "crc32": 129147671,
+     "dir": false
+    },
+    {
+     "name": "f251.bin",
+     "size": 200,
+     "crc32": 4016389045,
+     "dir": false
+    },
+    {
+     "name": "f252.bin",
+     "size": 200,
+     "crc32": 925728733,
+     "dir": false
+    },
+    {
+     "name": "f253.bin",
+     "size": 200,
+     "crc32": 2790577610,
+     "dir": false
+    },
+    {
+     "name": "f254.bin",
+     "size": 200,
+     "crc32": 3165348408,
+     "dir": false
+    },
+    {
+     "name": "f255.bin",
+     "size": 200,
+     "crc32": 1832837385,
+     "dir": false
+    },
+    {
+     "name": "f256.bin",
+     "size": 200,
+     "crc32": 3695781252,
+     "dir": false
+    },
+    {
+     "name": "f257.bin",
+     "size": 200,
+     "crc32": 3805334121,
+     "dir": false
+    },
+    {
+     "name": "f258.bin",
+     "size": 200,
+     "crc32": 225939970,
+     "dir": false
+    },
+    {
+     "name": "f259.bin",
+     "size": 200,
+     "crc32": 2224974921,
+     "dir": false
+    },
+    {
+     "name": "f260.bin",
+     "size": 200,
+     "crc32": 1413169902,
+     "dir": false
+    },
+    {
+     "name": "f261.bin",
+     "size": 200,
+     "crc32": 1712246380,
+     "dir": false
+    },
+    {
+     "name": "f262.bin",
+     "size": 200,
+     "crc32": 1420314285,
+     "dir": false
+    },
+    {
+     "name": "f263.bin",
+     "size": 200,
+     "crc32": 3953128384,
+     "dir": false
+    },
+    {
+     "name": "f264.bin",
+     "size": 200,
+     "crc32": 3909191377,
+     "dir": false
+    },
+    {
+     "name": "f265.bin",
+     "size": 200,
+     "crc32": 3056651164,
+     "dir": false
+    },
+    {
+     "name": "f266.bin",
+     "size": 200,
+     "crc32": 3025057909,
+     "dir": false
+    },
+    {
+     "name": "f267.bin",
+     "size": 200,
+     "crc32": 93478353,
+     "dir": false
+    },
+    {
+     "name": "f268.bin",
+     "size": 200,
+     "crc32": 1169185788,
+     "dir": false
+    },
+    {
+     "name": "f269.bin",
+     "size": 200,
+     "crc32": 3664959504,
+     "dir": false
+    },
+    {
+     "name": "f270.bin",
+     "size": 200,
+     "crc32": 2031995721,
+     "dir": false
+    },
+    {
+     "name": "f271.bin",
+     "size": 200,
+     "crc32": 50433025,
+     "dir": false
+    },
+    {
+     "name": "f272.bin",
+     "size": 200,
+     "crc32": 132933629,
+     "dir": false
+    },
+    {
+     "name": "f273.bin",
+     "size": 200,
+     "crc32": 1399861965,
+     "dir": false
+    },
+    {
+     "name": "f274.bin",
+     "size": 200,
+     "crc32": 2934697928,
+     "dir": false
+    },
+    {
+     "name": "f275.bin",
+     "size": 200,
+     "crc32": 1731088356,
+     "dir": false
+    },
+    {
+     "name": "f276.bin",
+     "size": 200,
+     "crc32": 1820872512,
+     "dir": false
+    },
+    {
+     "name": "f277.bin",
+     "size": 200,
+     "crc32": 3489294320,
+     "dir": false
+    },
+    {
+     "name": "f278.bin",
+     "size": 200,
+     "crc32": 3744389032,
+     "dir": false
+    },
+    {
+     "name": "f279.bin",
+     "size": 200,
+     "crc32": 64755104,
+     "dir": false
+    },
+    {
+     "name": "f280.bin",
+     "size": 200,
+     "crc32": 710832321,
+     "dir": false
+    },
+    {
+     "name": "f281.bin",
+     "size": 200,
+     "crc32": 143143096,
+     "dir": false
+    },
+    {
+     "name": "f282.bin",
+     "size": 200,
+     "crc32": 3238755924,
+     "dir": false
+    },
+    {
+     "name": "f283.bin",
+     "size": 200,
+     "crc32": 1898348111,
+     "dir": false
+    },
+    {
+     "name": "f284.bin",
+     "size": 200,
+     "crc32": 1649332540,
+     "dir": false
+    },
+    {
+     "name": "f285.bin",
+     "size": 200,
+     "crc32": 3808252060,
+     "dir": false
+    },
+    {
+     "name": "f286.bin",
+     "size": 200,
+     "crc32": 3570602433,
+     "dir": false
+    },
+    {
+     "name": "f287.bin",
+     "size": 200,
+     "crc32": 903855343,
+     "dir": false
+    },
+    {
+     "name": "f288.bin",
+     "size": 200,
+     "crc32": 2212479812,
+     "dir": false
+    },
+    {
+     "name": "f289.bin",
+     "size": 200,
+     "crc32": 2480910466,
+     "dir": false
+    },
+    {
+     "name": "f290.bin",
+     "size": 200,
+     "crc32": 3505031221,
+     "dir": false
+    },
+    {
+     "name": "f291.bin",
+     "size": 200,
+     "crc32": 879469306,
+     "dir": false
+    },
+    {
+     "name": "f292.bin",
+     "size": 200,
+     "crc32": 242656176,
+     "dir": false
+    },
+    {
+     "name": "f293.bin",
+     "size": 200,
+     "crc32": 11784643,
+     "dir": false
+    },
+    {
+     "name": "f294.bin",
+     "size": 200,
+     "crc32": 4170410870,
+     "dir": false
+    },
+    {
+     "name": "f295.bin",
+     "size": 200,
+     "crc32": 3969221473,
+     "dir": false
+    },
+    {
+     "name": "f296.bin",
+     "size": 200,
+     "crc32": 1584422671,
+     "dir": false
+    },
+    {
+     "name": "f297.bin",
+     "size": 200,
+     "crc32": 1037593387,
+     "dir": false
+    },
+    {
+     "name": "f298.bin",
+     "size": 200,
+     "crc32": 2425395959,
+     "dir": false
+    },
+    {
+     "name": "f299.bin",
+     "size": 200,
+     "crc32": 244684633,
+     "dir": false
+    },
+    {
+     "name": "f300.bin",
+     "size": 200,
+     "crc32": 891904818,
+     "dir": false
+    },
+    {
+     "name": "f301.bin",
+     "size": 200,
+     "crc32": 1290436642,
+     "dir": false
+    },
+    {
+     "name": "f302.bin",
+     "size": 200,
+     "crc32": 766799292,
+     "dir": false
+    },
+    {
+     "name": "f303.bin",
+     "size": 200,
+     "crc32": 3626329060,
+     "dir": false
+    },
+    {
+     "name": "f304.bin",
+     "size": 200,
+     "crc32": 3073135781,
+     "dir": false
+    },
+    {
+     "name": "f305.bin",
+     "size": 200,
+     "crc32": 3695445381,
+     "dir": false
+    },
+    {
+     "name": "f306.bin",
+     "size": 200,
+     "crc32": 3740722427,
+     "dir": false
+    },
+    {
+     "name": "f307.bin",
+     "size": 200,
+     "crc32": 3491480927,
+     "dir": false
+    },
+    {
+     "name": "f308.bin",
+     "size": 200,
+     "crc32": 3669507699,
+     "dir": false
+    },
+    {
+     "name": "f309.bin",
+     "size": 200,
+     "crc32": 2594707498,
+     "dir": false
+    },
+    {
+     "name": "f310.bin",
+     "size": 200,
+     "crc32": 2950364877,
+     "dir": false
+    },
+    {
+     "name": "f311.bin",
+     "size": 200,
+     "crc32": 684930190,
+     "dir": false
+    },
+    {
+     "name": "f312.bin",
+     "size": 200,
+     "crc32": 479681682,
+     "dir": false
+    },
+    {
+     "name": "f313.bin",
+     "size": 200,
+     "crc32": 2341213655,
+     "dir": false
+    },
+    {
+     "name": "f314.bin",
+     "size": 200,
+     "crc32": 336654366,
+     "dir": false
+    },
+    {
+     "name": "f315.bin",
+     "size": 200,
+     "crc32": 1946941785,
+     "dir": false
+    },
+    {
+     "name": "f316.bin",
+     "size": 200,
+     "crc32": 2091607895,
+     "dir": false
+    },
+    {
+     "name": "f317.bin",
+     "size": 200,
+     "crc32": 2758501079,
+     "dir": false
+    },
+    {
+     "name": "f318.bin",
+     "size": 200,
+     "crc32": 591159099,
+     "dir": false
+    },
+    {
+     "name": "f319.bin",
+     "size": 200,
+     "crc32": 138103267,
+     "dir": false
+    },
+    {
+     "name": "f320.bin",
+     "size": 200,
+     "crc32": 1616921895,
+     "dir": false
+    },
+    {
+     "name": "f321.bin",
+     "size": 200,
+     "crc32": 1326631232,
+     "dir": false
+    },
+    {
+     "name": "f322.bin",
+     "size": 200,
+     "crc32": 2915635318,
+     "dir": false
+    },
+    {
+     "name": "f323.bin",
+     "size": 200,
+     "crc32": 838320117,
+     "dir": false
+    },
+    {
+     "name": "f324.bin",
+     "size": 200,
+     "crc32": 1962413185,
+     "dir": false
+    },
+    {
+     "name": "f325.bin",
+     "size": 200,
+     "crc32": 1202724742,
+     "dir": false
+    },
+    {
+     "name": "f326.bin",
+     "size": 200,
+     "crc32": 3905265015,
+     "dir": false
+    },
+    {
+     "name": "f327.bin",
+     "size": 200,
+     "crc32": 1907805116,
+     "dir": false
+    },
+    {
+     "name": "f328.bin",
+     "size": 200,
+     "crc32": 1287388307,
+     "dir": false
+    },
+    {
+     "name": "f329.bin",
+     "size": 200,
+     "crc32": 3437660481,
+     "dir": false
+    },
+    {
+     "name": "f330.bin",
+     "size": 200,
+     "crc32": 2935429189,
+     "dir": false
+    },
+    {
+     "name": "f331.bin",
+     "size": 200,
+     "crc32": 3253734598,
+     "dir": false
+    },
+    {
+     "name": "f332.bin",
+     "size": 200,
+     "crc32": 3384731473,
+     "dir": false
+    },
+    {
+     "name": "f333.bin",
+     "size": 200,
+     "crc32": 2383046548,
+     "dir": false
+    },
+    {
+     "name": "f334.bin",
+     "size": 200,
+     "crc32": 1863293602,
+     "dir": false
+    },
+    {
+     "name": "f335.bin",
+     "size": 200,
+     "crc32": 3361524685,
+     "dir": false
+    },
+    {
+     "name": "f336.bin",
+     "size": 200,
+     "crc32": 2229164396,
+     "dir": false
+    },
+    {
+     "name": "f337.bin",
+     "size": 200,
+     "crc32": 911899450,
+     "dir": false
+    },
+    {
+     "name": "f338.bin",
+     "size": 200,
+     "crc32": 1878424101,
+     "dir": false
+    },
+    {
+     "name": "f339.bin",
+     "size": 200,
+     "crc32": 1542788271,
+     "dir": false
+    },
+    {
+     "name": "f340.bin",
+     "size": 200,
+     "crc32": 1898537582,
+     "dir": false
+    },
+    {
+     "name": "f341.bin",
+     "size": 200,
+     "crc32": 4020413823,
+     "dir": false
+    },
+    {
+     "name": "f342.bin",
+     "size": 200,
+     "crc32": 1587183542,
+     "dir": false
+    },
+    {
+     "name": "f343.bin",
+     "size": 200,
+     "crc32": 96596486,
+     "dir": false
+    },
+    {
+     "name": "f344.bin",
+     "size": 200,
+     "crc32": 4148999136,
+     "dir": false
+    },
+    {
+     "name": "f345.bin",
+     "size": 200,
+     "crc32": 2795366974,
+     "dir": false
+    },
+    {
+     "name": "f346.bin",
+     "size": 200,
+     "crc32": 668964224,
+     "dir": false
+    },
+    {
+     "name": "f347.bin",
+     "size": 200,
+     "crc32": 4284999506,
+     "dir": false
+    },
+    {
+     "name": "f348.bin",
+     "size": 200,
+     "crc32": 4250243601,
+     "dir": false
+    },
+    {
+     "name": "f349.bin",
+     "size": 200,
+     "crc32": 1529772487,
+     "dir": false
+    },
+    {
+     "name": "f350.bin",
+     "size": 200,
+     "crc32": 3560973561,
+     "dir": false
+    },
+    {
+     "name": "f351.bin",
+     "size": 200,
+     "crc32": 217479689,
+     "dir": false
+    },
+    {
+     "name": "f352.bin",
+     "size": 200,
+     "crc32": 674133460,
+     "dir": false
+    },
+    {
+     "name": "f353.bin",
+     "size": 200,
+     "crc32": 2178550379,
+     "dir": false
+    },
+    {
+     "name": "f354.bin",
+     "size": 200,
+     "crc32": 3952021320,
+     "dir": false
+    },
+    {
+     "name": "f355.bin",
+     "size": 200,
+     "crc32": 3866600593,
+     "dir": false
+    },
+    {
+     "name": "f356.bin",
+     "size": 200,
+     "crc32": 676817163,
+     "dir": false
+    },
+    {
+     "name": "f357.bin",
+     "size": 200,
+     "crc32": 2696279136,
+     "dir": false
+    },
+    {
+     "name": "f358.bin",
+     "size": 200,
+     "crc32": 1266676076,
+     "dir": false
+    },
+    {
+     "name": "f359.bin",
+     "size": 200,
+     "crc32": 4091891354,
+     "dir": false
+    },
+    {
+     "name": "f360.bin",
+     "size": 200,
+     "crc32": 2527190093,
+     "dir": false
+    },
+    {
+     "name": "f361.bin",
+     "size": 200,
+     "crc32": 1197687311,
+     "dir": false
+    },
+    {
+     "name": "f362.bin",
+     "size": 200,
+     "crc32": 2750455348,
+     "dir": false
+    },
+    {
+     "name": "f363.bin",
+     "size": 200,
+     "crc32": 4032301626,
+     "dir": false
+    },
+    {
+     "name": "f364.bin",
+     "size": 200,
+     "crc32": 503312416,
+     "dir": false
+    },
+    {
+     "name": "f365.bin",
+     "size": 200,
+     "crc32": 1139296660,
+     "dir": false
+    },
+    {
+     "name": "f366.bin",
+     "size": 200,
+     "crc32": 512922753,
+     "dir": false
+    },
+    {
+     "name": "f367.bin",
+     "size": 200,
+     "crc32": 1658835223,
+     "dir": false
+    },
+    {
+     "name": "f368.bin",
+     "size": 200,
+     "crc32": 1904465322,
+     "dir": false
+    },
+    {
+     "name": "f369.bin",
+     "size": 200,
+     "crc32": 2929487758,
+     "dir": false
+    },
+    {
+     "name": "f370.bin",
+     "size": 200,
+     "crc32": 3049622388,
+     "dir": false
+    },
+    {
+     "name": "f371.bin",
+     "size": 200,
+     "crc32": 1373898476,
+     "dir": false
+    },
+    {
+     "name": "f372.bin",
+     "size": 200,
+     "crc32": 1958890987,
+     "dir": false
+    },
+    {
+     "name": "f373.bin",
+     "size": 200,
+     "crc32": 2554402626,
+     "dir": false
+    },
+    {
+     "name": "f374.bin",
+     "size": 200,
+     "crc32": 235939507,
+     "dir": false
+    },
+    {
+     "name": "f375.bin",
+     "size": 200,
+     "crc32": 2104392310,
+     "dir": false
+    },
+    {
+     "name": "f376.bin",
+     "size": 200,
+     "crc32": 1292190697,
+     "dir": false
+    },
+    {
+     "name": "f377.bin",
+     "size": 200,
+     "crc32": 1125348423,
+     "dir": false
+    },
+    {
+     "name": "f378.bin",
+     "size": 200,
+     "crc32": 407147094,
+     "dir": false
+    },
+    {
+     "name": "f379.bin",
+     "size": 200,
+     "crc32": 4036168436,
+     "dir": false
+    },
+    {
+     "name": "f380.bin",
+     "size": 200,
+     "crc32": 685461148,
+     "dir": false
+    },
+    {
+     "name": "f381.bin",
+     "size": 200,
+     "crc32": 3114460299,
+     "dir": false
+    },
+    {
+     "name": "f382.bin",
+     "size": 200,
+     "crc32": 2740802425,
+     "dir": false
+    },
+    {
+     "name": "f383.bin",
+     "size": 200,
+     "crc32": 1925763144,
+     "dir": false
+    },
+    {
+     "name": "f384.bin",
+     "size": 200,
+     "crc32": 3284079813,
+     "dir": false
+    },
+    {
+     "name": "f385.bin",
+     "size": 200,
+     "crc32": 4247190312,
+     "dir": false
+    },
+    {
+     "name": "f386.bin",
+     "size": 200,
+     "crc32": 310485827,
+     "dir": false
+    },
+    {
+     "name": "f387.bin",
+     "size": 200,
+     "crc32": 2607308040,
+     "dir": false
+    },
+    {
+     "name": "f388.bin",
+     "size": 200,
+     "crc32": 1271755695,
+     "dir": false
+    },
+    {
+     "name": "f389.bin",
+     "size": 200,
+     "crc32": 2046361389,
+     "dir": false
+    },
+    {
+     "name": "f390.bin",
+     "size": 200,
+     "crc32": 1264482284,
+     "dir": false
+    },
+    {
+     "name": "f391.bin",
+     "size": 200,
+     "crc32": 4100571777,
+     "dir": false
+    },
+    {
+     "name": "f392.bin",
+     "size": 200,
+     "crc32": 4143429520,
+     "dir": false
+    },
+    {
+     "name": "f393.bin",
+     "size": 200,
+     "crc32": 2848389853,
+     "dir": false
+    },
+    {
+     "name": "f394.bin",
+     "size": 200,
+     "crc32": 2880997684,
+     "dir": false
+    },
+    {
+     "name": "f395.bin",
+     "size": 200,
+     "crc32": 442789008,
+     "dir": false
+    },
+    {
+     "name": "f396.bin",
+     "size": 200,
+     "crc32": 1514564285,
+     "dir": false
+    },
+    {
+     "name": "f397.bin",
+     "size": 200,
+     "crc32": 3313822033,
+     "dir": false
+    },
+    {
+     "name": "f398.bin",
+     "size": 200,
+     "crc32": 1726741000,
+     "dir": false
+    },
+    {
+     "name": "f399.bin",
+     "size": 200,
+     "crc32": 485997888,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "sevenz"
+   ],
+   "notes": "The shape of the quadratic-cost measurement in lib.rs:39-41."
+  },
+  {
+   "path": "generated/lzh/lh5.lzh",
+   "format": "lzh",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+  },
+  {
+   "path": "generated/lzh/stored.lzh",
+   "format": "lzh",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+  },
+  {
+   "path": "generated/rar/rar15.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 1.5)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+  },
+  {
+   "path": "generated/rar/rar29-encrypted.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": "secret",
+   "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9, entry encryption)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+  },
+  {
+   "path": "generated/rar/rar29.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+  },
+  {
+   "path": "generated/rar/rar50-solid.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0 solid)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+  },
+  {
+   "path": "generated/rar/rar50.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0)",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+  },
+  {
+   "path": "generated/streams/multimember.gz",
+   "format": "gz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "two gzip members concatenated (member one + member two)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 22,
+     "crc32": 106096394,
+     "dir": false
+    }
+   ],
+   "oracles": [],
+   "notes": "oxiarc's gzip decompressor reads only the first member, so the generic oracle comparison would be wrong here; the manifest alone owns this record."
+  },
+  {
+   "path": "generated/streams/payload.br",
+   "format": "br",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (brotli CompressorWriter)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": "brotli has no magic of its own; the manifest's format drives open_as, and detect() cannot find it in the wild."
+  },
+  {
+   "path": "generated/streams/payload.bz2",
+   "format": "bz2",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "bzip2 -c data.bin",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/payload.gz",
+   "format": "gz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "gzip -c data.bin",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/payload.lz4",
+   "format": "lz4",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (lz4_flex frame encoder)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/payload.xz",
+   "format": "xz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "xz -c data.bin",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/payload.zst",
+   "format": "zst",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "zstd -q -c data.bin",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "content",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/plain.tar.bz2",
+   "format": "tar.bz2",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar -cjf over the standard plaintext tree",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/plain.tar.gz",
+   "format": "tar.gz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar -czf over the standard plaintext tree",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/plain.tar.lz4",
+   "format": "tar.lz4",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "cargo run -p libarchive --example gen_corpus (lz4_flex frame over tar/ustar.tar)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [],
+   "notes": "no oracle here reads tar.lz4: unarc has no lz4, oxiarc has no compressed-TAR wrapper. The manifest's plaintext CRCs are the ground truth."
+  },
+  {
+   "path": "generated/streams/plain.tar.xz",
+   "format": "tar.xz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar -cJf over the standard plaintext tree",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/streams/plain.tar.zst",
+   "format": "tar.zst",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar --zstd -cf over the standard plaintext tree",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/tar/awkward.tar",
+   "format": "tar",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 tarfile, GNU format: directory, symlink, executable, 121-char name",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "dir",
+     "size": 0,
+     "crc32": 0,
+     "dir": true
+    },
+    {
+     "name": "exec.sh",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "link.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": "link.txt is a symlink: contents are not compared, kind and target are."
+  },
+  {
+   "path": "generated/tar/gnu.tar",
+   "format": "tar",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar --format=gnu -cf gnu.tar -T list",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/tar/posix.tar",
+   "format": "tar",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar --format=posix -cf posix.tar -T list",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/tar/ustar.tar",
+   "format": "tar",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "tar --format=ustar -cf ustar.tar -T list",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/bzip2.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile, compress=bzip2",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/cp437-names.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "hand-built local+central headers, name encoded CP437, bit 11 clear",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "café.txt",
+     "size": 19,
+     "crc32": 338622229,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": "CP437 is the historic ZIP encoding; python and Info-ZIP cannot write it."
+  },
+  {
+   "path": "generated/zip/data-descriptor.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile over a non-seekable sink (forces GPBF bit 3)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/deflate.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile, compress=deflate",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/empty.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "hand-written EOCD only (22 bytes)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/lzma.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile, compress=lzma",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/store.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile, compress=store",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/symlink.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "zip -y over a symlink tree",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [],
+   "notes": "Symlink semantics differ per oracle, so this record is checked by a bespoke test in differential.rs (kind Symlink, target hello.txt), not the generic comparison."
+  },
+  {
+   "path": "generated/zip/utf8-names.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "python3 zipfile, non-ASCII names (GPBF bit 11)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "héllo wörld.txt",
+     "size": 8,
+     "crc32": 1531555693,
+     "dir": false
+    },
+    {
+     "name": "日本語.txt",
+     "size": 8,
+     "crc32": 3581528734,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/zip64.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "hand-built minimal ZIP64 (0xFFFFFFFF classic sizes, ZIP64 extra + EOCD)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "z64.txt",
+     "size": 21,
+     "crc32": 1674655009,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": ""
+  },
+  {
+   "path": "generated/zip/zipcrypto.zip",
+   "format": "zip",
+   "status": "gate",
+   "owner": null,
+   "password": "secret",
+   "made_with": "zip -P secret (traditional PKWARE encryption)",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": [
+    {
+     "name": "hello.txt",
+     "size": 22,
+     "crc32": 2800458935,
+     "dir": false
+    },
+    {
+     "name": "data.bin",
+     "size": 4096,
+     "crc32": 1562136291,
+     "dir": false
+    },
+    {
+     "name": "empty.txt",
+     "size": 0,
+     "crc32": 0,
+     "dir": false
+    },
+    {
+     "name": "nested/inner.txt",
+     "size": 13,
+     "crc32": 2367766211,
+     "dir": false
+    }
+   ],
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "Listing works and marks the entries; reading needs the password. Encrypted ZIP is currently refused by this crate — the dedicated test in differential.rs pins Err(Password) without a password; with one, this record flips to gate once the ZipCrypto reader lands."
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z",
+   "format": "z",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/Z/LICENSE.Z, sha256=39bdb89bbd77db37…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unimplemented"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "Unix compress (.Z): detection works, listing works, decompression is Unimplemented — `compress` is LZW with a twist and has no crate here (src/compression.rs:71). Flip to gate when a Z codec lands."
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/ace/license1.ace",
+   "format": "ace",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/ace/license1.ace, sha256=c457c207063a9194…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arc/crunch.arc",
+   "format": "arc",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arc/crunch.arc, sha256=bdd0fdc6500d0717…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arc/license_cypted.arc",
+   "format": "arc",
+   "status": "pending",
+   "owner": "legacy",
+   "password": "SECRET",
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arc/license_cypted.arc, sha256=838d6c67e805f310…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arc/store.arc",
+   "format": "arc",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arc/store.arc, sha256=3e3272f20848b95e…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arj/method1.arj",
+   "format": "arj",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method1.arj, sha256=a610180da1a37246…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arj/method4.arj",
+   "format": "arj",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method4.arj, sha256=3a1e1ebcf4cdc3dd…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/arj/stored.arj",
+   "format": "arj",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/arj/stored.arj, sha256=3108cf45a88a657c…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/bz2/LICENSE.bz2",
+   "format": "bz2",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/bz2/LICENSE.bz2, sha256=e7d161277aae388c…",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": "unarc-rs's own bzip2 fixture"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/gz/LICENSE.gz",
+   "format": "gz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/gz/LICENSE.gz, sha256=2d28edd085ec8b43…",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": "unarc-rs's own gzip fixture; the plaintext is the repo LICENSE, 11357 bytes"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/ha/copy.ha",
+   "format": "ha",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/ha/copy.ha, sha256=3655b396502df3d4…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/ha/hsc.ha",
+   "format": "ha",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/ha/hsc.ha, sha256=cf860a56029e89a1…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/hyp/license.hyp",
+   "format": "hyp",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/license.hyp, sha256=82d9980aad1fcc81…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/hyp/stored.hyp",
+   "format": "hyp",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/stored.hyp, sha256=5c2ab9ae603dd0c5…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/ice/license_lha.ice",
+   "format": "ice",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/ice/license_lha.ice, sha256=833616ba837b2413…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/jar/license_m1.j",
+   "format": "zip",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/jar/license_m1.j, sha256=c44c2b07f9e4fcae…",
+   "expect": {
+    "kind": "error",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "JAR method 1: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/jar/license_m2.j",
+   "format": "zip",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/jar/license_m2.j, sha256=50194fee3bccba66…",
+   "expect": {
+    "kind": "error",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "JAR method 2: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/jar/license_m3.j",
+   "format": "zip",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/jar/license_m3.j, sha256=0590f4f29a7e6e29…",
+   "expect": {
+    "kind": "error",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "JAR method 3: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/jar/license_m4.j",
+   "format": "zip",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/jar/license_m4.j, sha256=43e18dd1298cab2a…",
+   "expect": {
+    "kind": "error",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "JAR method 4: listing works, reading must Err (Unsupported) until the method lands; unarc's jar reader decodes it"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar",
+   "format": "rar",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/acid-70a.rar, sha256=47aa19cd9d075741…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/sq/license.sq",
+   "format": "sq",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/qqq/license.sq, sha256=462ae8d1f91ece5a…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/sq/license.sq2",
+   "format": "sq",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/qqq/license.sq2, sha256=4c6ba4cbafb082e5…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/sqz/license_m1.sqz",
+   "format": "sq",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/sqz/license_m1.sqz, sha256=a4f69ae03670aa7d…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/sqz/store.sqz",
+   "format": "sq",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/sqz/store.sqz, sha256=29e80f956d560ecf…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/tar/license.tar",
+   "format": "tar",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/tar/license.tar, sha256=7cd95745c6f13611…",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc",
+    "oxiarc"
+   ],
+   "notes": "unarc-rs's own TAR fixture"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/tarz/license.tar.Z",
+   "format": "z",
+   "status": "pending",
+   "owner": "codecs",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/tarz/license.tar.Z, sha256=16cb633a90575970…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unimplemented"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "tar.Z: a Unix-compress stream wrapping a TAR. Read at the stream level (format z); reading it as a compressed TAR needs the Z codec first."
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/tbz/license.tar.bz2",
+   "format": "tar.bz2",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/tbz/license.tar.bz2, sha256=8f92bbfc410965f9…",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "tar.bz2; unarc's Tbz reader is the oracle"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/tgz/license.tgz",
+   "format": "tar.gz",
+   "status": "gate",
+   "owner": null,
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/tgz/license.tgz, sha256=99439ade654bacff…",
+   "expect": {
+    "kind": "ok",
+    "error_kind": null
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "tar.gz; unarc's Tgz reader is the oracle"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/uc2/normal.uc2",
+   "format": "uc2",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/uc2/normal.uc2, sha256=ad341656c3447f94…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/uc2/tight.uc2",
+   "format": "uc2",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/uc2/tight.uc2, sha256=19d34d9a60f75af5…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/ue2/license.ue2",
+   "format": "uc2",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/ue2/license.ue2, sha256=fdca25f4dba172b0…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/zoo/default.zoo",
+   "format": "zoo",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/zoo/default.zoo, sha256=ae45e8abe3e36bc0…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/zoo/store.zoo",
+   "format": "zoo",
+   "status": "pending",
+   "owner": "legacy",
+   "password": null,
+   "made_with": "harvested from unarc-rs 0.7.2 tests/zoo/store.zoo, sha256=27cd5b07007167ee…",
+   "expect": {
+    "kind": "error",
+    "error_kind": "Unsupported"
+   },
+   "entries": null,
+   "oracles": [
+    "unarc"
+   ],
+   "notes": "long-tail reader is formats::legacy::open, a stub; flip to gate when it lands"
+  }
+ ],
+ "malformed": [
+  {
+   "path": "../vendor/sevenz-rust2/tests/resources/issue_127_coder_stream_overflow.bin",
+   "case": "corrupt",
+   "format": "7z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "sevenz-rust2's regression input for issue #127 (coder stream overflow)"
+  },
+  {
+   "path": "generated/malformed/bomb.gz",
+   "case": "oversized",
+   "format": "gz",
+   "expect": "err",
+   "error_kind": "LimitExceeded",
+   "notes": "4 MiB of zeros, ~4 KiB gzipped; the malformed suite reads it under a 1 MiB ceiling (support::tight_limits), never the 4 GiB default"
+  },
+  {
+   "path": "generated/malformed/fake-ace.ace",
+   "case": "wrong_magic",
+   "format": "ace",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-arj.arj",
+   "case": "wrong_magic",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-ha.ha",
+   "case": "wrong_magic",
+   "format": "ha",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-hyp.hyp",
+   "case": "wrong_magic",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-ice.ice",
+   "case": "wrong_magic",
+   "format": "ice",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-lzh.lzh",
+   "case": "wrong_magic",
+   "format": "lzh",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "valid LZH magic + method byte over garbage: detection must recognise the format, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-rar.rar",
+   "case": "wrong_magic",
+   "format": "rar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-sq.sq",
+   "case": "wrong_magic",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake-zoo.zoo",
+   "case": "wrong_magic",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "magic bytes over garbage: detection must recognise, open must Err"
+  },
+  {
+   "path": "generated/malformed/fake.ucb",
+   "case": "wrong_magic",
+   "format": "ucb",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "recognisable UCB magic over garbage: detection succeeds, the reader must Err (Unsupported today) rather than parse"
+  },
+  {
+   "path": "generated/malformed/garbage.br",
+   "case": "wrong_magic",
+   "format": "br",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "brotli has no signature; detection falls through to ZIP, which must then report NotAnArchive/Malformed"
+  },
+  {
+   "path": "generated/malformed/oversized-tar.tar",
+   "case": "oversized",
+   "format": "tar",
+   "expect": "err",
+   "error_kind": "LimitExceeded",
+   "notes": "one ustar header claiming 8589934591 bytes; must be refused by the per-entry ceiling before any allocation"
+  },
+  {
+   "path": "generated/malformed/oversized-zip.zip",
+   "case": "oversized",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "central directory claims 0xFFFFFFFE uncompressed bytes with no ZIP64 extra field; must be Malformed, not a 4 GiB allocation"
+  },
+  {
+   "path": "generated/malformed/traversal.tar",
+   "case": "traversal",
+   "format": "tar",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "ditto, TAR flavour"
+  },
+  {
+   "path": "generated/malformed/traversal.zip",
+   "case": "traversal",
+   "format": "zip",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "well-formed ZIP with ../../, absolute and backslash names; must list and stream, with names normalised, never panic"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 0 of 522 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_payload_bz2",
+   "case": "truncated",
+   "format": "bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 truncated to 0 of 668 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_payload_gz",
+   "case": "truncated",
+   "format": "gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.gz truncated to 0 of 336 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_payload_xz",
+   "case": "truncated",
+   "format": "xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.xz truncated to 0 of 332 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_payload_zst",
+   "case": "truncated",
+   "format": "zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.zst truncated to 0 of 280 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_plain_tar_bz2",
+   "case": "truncated",
+   "format": "tar.bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 truncated to 0 of 874 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_plain_tar_gz",
+   "case": "truncated",
+   "format": "tar.gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz truncated to 0 of 531 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_plain_tar_xz",
+   "case": "truncated",
+   "format": "tar.xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz truncated to 0 of 516 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_streams_plain_tar_zst",
+   "case": "truncated",
+   "format": "tar.zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.zst truncated to 0 of 485 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_tar_ustar_tar",
+   "case": "truncated",
+   "format": "tar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar truncated to 0 of 10240 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-generated_zip_store_zip",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip truncated to 0 of 4541 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "truncated",
+   "format": "z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 0 of 5282 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "truncated",
+   "format": "ace",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace truncated to 0 of 4047 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "truncated",
+   "format": "arc",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc truncated to 0 of 11388 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "truncated",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj truncated to 0 of 11483 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "truncated",
+   "format": "ha",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha truncated to 0 of 11390 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "truncated",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp truncated to 0 of 4169 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "truncated",
+   "format": "ice",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice truncated to 0 of 4311 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 0 of 3624 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "truncated",
+   "format": "rar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar truncated to 0 of 1204032 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 0 of 6717 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz truncated to 0 of 11404 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 truncated to 0 of 3892 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 truncated to 0 of 3919 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-0-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "truncated",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo truncated to 0 of 5451 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 1 of 522 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_payload_bz2",
+   "case": "truncated",
+   "format": "bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 truncated to 1 of 668 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_payload_gz",
+   "case": "truncated",
+   "format": "gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.gz truncated to 1 of 336 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_payload_xz",
+   "case": "truncated",
+   "format": "xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.xz truncated to 1 of 332 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_payload_zst",
+   "case": "truncated",
+   "format": "zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.zst truncated to 1 of 280 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_plain_tar_bz2",
+   "case": "truncated",
+   "format": "tar.bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 truncated to 1 of 874 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_plain_tar_gz",
+   "case": "truncated",
+   "format": "tar.gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz truncated to 1 of 531 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_plain_tar_xz",
+   "case": "truncated",
+   "format": "tar.xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz truncated to 1 of 516 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_streams_plain_tar_zst",
+   "case": "truncated",
+   "format": "tar.zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.zst truncated to 1 of 485 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_tar_ustar_tar",
+   "case": "truncated",
+   "format": "tar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar truncated to 1 of 10240 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-generated_zip_store_zip",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip truncated to 1 of 4541 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "truncated",
+   "format": "z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 1 of 5282 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "truncated",
+   "format": "ace",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace truncated to 1 of 4047 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "truncated",
+   "format": "arc",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc truncated to 1 of 11388 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "truncated",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj truncated to 1 of 11483 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "truncated",
+   "format": "ha",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha truncated to 1 of 11390 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "truncated",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp truncated to 1 of 4169 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "truncated",
+   "format": "ice",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice truncated to 1 of 4311 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 1 of 3624 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "truncated",
+   "format": "rar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar truncated to 1 of 1204032 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 1 of 6717 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz truncated to 1 of 11404 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 truncated to 1 of 3892 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 truncated to 1 of 3919 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "truncated",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo truncated to 1 of 5451 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-10239-generated_tar_ustar_tar",
+   "case": "truncated",
+   "format": "tar",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar truncated to 10239 of 10240 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-11387-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "truncated",
+   "format": "arc",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc truncated to 11387 of 11388 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-11389-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "truncated",
+   "format": "ha",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha truncated to 11389 of 11390 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-11403-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz truncated to 11403 of 11404 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-11482-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "truncated",
+   "format": "arj",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj truncated to 11482 of 11483 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1204031-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "truncated",
+   "format": "rar",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar truncated to 1204031 of 1204032 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-140-generated_streams_payload_zst",
+   "case": "truncated",
+   "format": "zst",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.zst truncated to 140 of 280 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-166-generated_streams_payload_xz",
+   "case": "truncated",
+   "format": "xz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.xz truncated to 166 of 332 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-168-generated_streams_payload_gz",
+   "case": "truncated",
+   "format": "gz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.gz truncated to 168 of 336 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1812-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 1812 of 3624 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1946-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 truncated to 1946 of 3892 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-1959-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 truncated to 1959 of 3919 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2023-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "truncated",
+   "format": "ace",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace truncated to 2023 of 4047 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2084-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "truncated",
+   "format": "hyp",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp truncated to 2084 of 4169 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2155-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "truncated",
+   "format": "ice",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice truncated to 2155 of 4311 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2270-generated_zip_store_zip",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip truncated to 2270 of 4541 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-242-generated_streams_plain_tar_zst",
+   "case": "truncated",
+   "format": "tar.zst",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.zst truncated to 242 of 485 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-258-generated_streams_plain_tar_xz",
+   "case": "truncated",
+   "format": "tar.xz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz truncated to 258 of 516 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-261-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 261 of 522 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2641-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "truncated",
+   "format": "z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 2641 of 5282 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-265-generated_streams_plain_tar_gz",
+   "case": "truncated",
+   "format": "tar.gz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz truncated to 265 of 531 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-2725-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "truncated",
+   "format": "zoo",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo truncated to 2725 of 5451 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-279-generated_streams_payload_zst",
+   "case": "truncated",
+   "format": "zst",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.zst truncated to 279 of 280 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-331-generated_streams_payload_xz",
+   "case": "truncated",
+   "format": "xz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.xz truncated to 331 of 332 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-334-generated_streams_payload_bz2",
+   "case": "truncated",
+   "format": "bz2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 truncated to 334 of 668 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-335-generated_streams_payload_gz",
+   "case": "truncated",
+   "format": "gz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.gz truncated to 335 of 336 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-3358-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 3358 of 6717 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-3623-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 3623 of 3624 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-3891-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 truncated to 3891 of 3892 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-3918-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 truncated to 3918 of 3919 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-4046-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "truncated",
+   "format": "ace",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace truncated to 4046 of 4047 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-4168-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "truncated",
+   "format": "hyp",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp truncated to 4168 of 4169 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-4310-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "truncated",
+   "format": "ice",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice truncated to 4310 of 4311 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-437-generated_streams_plain_tar_bz2",
+   "case": "truncated",
+   "format": "tar.bz2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 truncated to 437 of 874 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-4540-generated_zip_store_zip",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip truncated to 4540 of 4541 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-484-generated_streams_plain_tar_zst",
+   "case": "truncated",
+   "format": "tar.zst",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.zst truncated to 484 of 485 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 512 of 522 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_streams_payload_bz2",
+   "case": "truncated",
+   "format": "bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 truncated to 512 of 668 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_streams_plain_tar_bz2",
+   "case": "truncated",
+   "format": "tar.bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 truncated to 512 of 874 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_streams_plain_tar_gz",
+   "case": "truncated",
+   "format": "tar.gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz truncated to 512 of 531 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_streams_plain_tar_xz",
+   "case": "truncated",
+   "format": "tar.xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz truncated to 512 of 516 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_tar_ustar_tar",
+   "case": "truncated",
+   "format": "tar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar truncated to 512 of 10240 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-generated_zip_store_zip",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip truncated to 512 of 4541 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "truncated",
+   "format": "z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 512 of 5282 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "truncated",
+   "format": "ace",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace truncated to 512 of 4047 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "truncated",
+   "format": "arc",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc truncated to 512 of 11388 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "truncated",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj truncated to 512 of 11483 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "truncated",
+   "format": "ha",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha truncated to 512 of 11390 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "truncated",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp truncated to 512 of 4169 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "truncated",
+   "format": "ice",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice truncated to 512 of 4311 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "truncated",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j truncated to 512 of 3624 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "truncated",
+   "format": "rar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar truncated to 512 of 1204032 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 512 of 6717 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz truncated to 512 of 11404 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 truncated to 512 of 3892 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "truncated",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 truncated to 512 of 3919 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-512-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "truncated",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo truncated to 512 of 5451 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5120-generated_tar_ustar_tar",
+   "case": "truncated",
+   "format": "tar",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar truncated to 5120 of 10240 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-515-generated_streams_plain_tar_xz",
+   "case": "truncated",
+   "format": "tar.xz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz truncated to 515 of 516 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-521-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 521 of 522 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5281-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "truncated",
+   "format": "z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 5281 of 5282 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-530-generated_streams_plain_tar_gz",
+   "case": "truncated",
+   "format": "tar.gz",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz truncated to 530 of 531 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5450-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "truncated",
+   "format": "zoo",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo truncated to 5450 of 5451 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5694-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "truncated",
+   "format": "arc",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc truncated to 5694 of 11388 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5695-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "truncated",
+   "format": "ha",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha truncated to 5695 of 11390 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5702-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz truncated to 5702 of 11404 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-5741-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "truncated",
+   "format": "arj",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj truncated to 5741 of 11483 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-602016-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "truncated",
+   "format": "rar",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar truncated to 602016 of 1204032 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-667-generated_streams_payload_bz2",
+   "case": "truncated",
+   "format": "bz2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 truncated to 667 of 668 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-6716-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "truncated",
+   "format": "sq",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 6716 of 6717 bytes"
+  },
+  {
+   "path": "generated/malformed/trunc-873-generated_streams_plain_tar_bz2",
+   "case": "truncated",
+   "format": "tar.bz2",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 truncated to 873 of 874 bytes"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_7z_lzma_7z",
+   "case": "wrong_magic",
+   "format": "7z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_payload_bz2",
+   "case": "wrong_magic",
+   "format": "bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.bz2 with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_payload_gz",
+   "case": "wrong_magic",
+   "format": "gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.gz with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_payload_xz",
+   "case": "wrong_magic",
+   "format": "xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.xz with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_payload_zst",
+   "case": "wrong_magic",
+   "format": "zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/payload.zst with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_plain_tar_bz2",
+   "case": "wrong_magic",
+   "format": "tar.bz2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.bz2 with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_plain_tar_gz",
+   "case": "wrong_magic",
+   "format": "tar.gz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.gz with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_plain_tar_xz",
+   "case": "wrong_magic",
+   "format": "tar.xz",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.xz with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_streams_plain_tar_zst",
+   "case": "wrong_magic",
+   "format": "tar.zst",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/streams/plain.tar.zst with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_tar_ustar_tar",
+   "case": "wrong_magic",
+   "format": "tar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/tar/ustar.tar with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-generated_zip_store_zip",
+   "case": "wrong_magic",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "generated/zip/store.zip with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
+   "case": "wrong_magic",
+   "format": "z",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_ace_license1_ace",
+   "case": "wrong_magic",
+   "format": "ace",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ace/license1.ace with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_arc_store_arc",
+   "case": "wrong_magic",
+   "format": "arc",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arc/store.arc with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_arj_stored_arj",
+   "case": "wrong_magic",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/arj/stored.arj with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_ha_copy_ha",
+   "case": "wrong_magic",
+   "format": "ha",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ha/copy.ha with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_hyp_license_hyp",
+   "case": "wrong_magic",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/hyp/license.hyp with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_ice_license_lha_ice",
+   "case": "wrong_magic",
+   "format": "ice",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ice/license_lha.ice with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_jar_license_m1_j",
+   "case": "wrong_magic",
+   "format": "zip",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/jar/license_m1.j with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_rar_acid-70a_rar",
+   "case": "wrong_magic",
+   "format": "rar",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/rar/acid-70a.rar with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_sq_license_sq",
+   "case": "wrong_magic",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sq/license.sq with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_sqz_store_sqz",
+   "case": "wrong_magic",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/sqz/store.sqz with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_uc2_normal_uc2",
+   "case": "wrong_magic",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/uc2/normal.uc2 with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_ue2_license_ue2",
+   "case": "wrong_magic",
+   "format": "uc2",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/ue2/license.ue2 with its first byte XOR 0xFF"
+  },
+  {
+   "path": "generated/malformed/wrongmagic-vendor_unarc-rs-0_7_2_zoo_default_zoo",
+   "case": "wrong_magic",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "vendor/unarc-rs-0.7.2/zoo/default.zoo with its first byte XOR 0xFF"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/corrupt/invalid.hyp",
+   "case": "corrupt",
+   "format": "hyp",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "26 bytes; unarc-rs hyp_failures.rs"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/corrupt/wrongcrc.sqz",
+   "case": "corrupt",
+   "format": "sq",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "unarc-rs sqz_failures.rs"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/corrupt/wrongcrc16.arc",
+   "case": "corrupt",
+   "format": "arc",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "unarc-rs arc_failures.rs: this must fail a CRC check, not pass"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/corrupt/wrongcrc16.zoo",
+   "case": "corrupt",
+   "format": "zoo",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "unarc-rs zoo_failures.rs"
+  },
+  {
+   "path": "vendor/unarc-rs-0.7.2/corrupt/wrongcrc32.arj",
+   "case": "corrupt",
+   "format": "arj",
+   "expect": "err",
+   "error_kind": null,
+   "notes": "unarc-rs arj_failures.rs"
+  }
+ ]
+}

@@ -1,0 +1,386 @@
+{
+  "files": [
+    {
+      "path": "generated/streams/payload.lz4",
+      "format": "lz4",
+      "status": "gate",
+      "owner": null,
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (lz4_flex frame encoder)",
+      "expect": {
+        "kind": "ok",
+        "error_kind": null
+      },
+      "entries": [
+        {
+          "name": "content",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "oxiarc"
+      ],
+      "notes": ""
+    },
+    {
+      "path": "generated/streams/payload.br",
+      "format": "br",
+      "status": "gate",
+      "owner": null,
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (brotli CompressorWriter)",
+      "expect": {
+        "kind": "ok",
+        "error_kind": null
+      },
+      "entries": [
+        {
+          "name": "content",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "oxiarc"
+      ],
+      "notes": "brotli has no magic of its own; the manifest's format drives open_as, and detect() cannot find it in the wild."
+    },
+    {
+      "path": "generated/streams/plain.tar.lz4",
+      "format": "tar.lz4",
+      "status": "gate",
+      "owner": null,
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (lz4_flex frame over tar/ustar.tar)",
+      "expect": {
+        "kind": "ok",
+        "error_kind": null
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [],
+      "notes": "no oracle here reads tar.lz4: unarc has no lz4, oxiarc has no compressed-TAR wrapper. The manifest's plaintext CRCs are the ground truth."
+    },
+    {
+      "path": "generated/lzh/stored.lzh",
+      "format": "lzh",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "oxiarc"
+      ],
+      "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+    },
+    {
+      "path": "generated/lzh/lh5.lzh",
+      "format": "lzh",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "oxiarc"
+      ],
+      "notes": "LZH is in the long tail: formats::legacy::open is a stub. oxiarc's reader is the second oracle here because it is the writer too — self-round-trip plus cross-reader."
+    },
+    {
+      "path": "generated/rar/rar15.rar",
+      "format": "rar",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 1.5)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "unarc"
+      ],
+      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+    },
+    {
+      "path": "generated/rar/rar29.rar",
+      "format": "rar",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "unarc"
+      ],
+      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+    },
+    {
+      "path": "generated/rar/rar50.rar",
+      "format": "rar",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "unarc"
+      ],
+      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+    },
+    {
+      "path": "generated/rar/rar50-solid.rar",
+      "format": "rar",
+      "status": "pending",
+      "owner": "legacy",
+      "password": null,
+      "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 5.0 solid)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "unarc"
+      ],
+      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+    },
+    {
+      "path": "generated/rar/rar29-encrypted.rar",
+      "format": "rar",
+      "status": "pending",
+      "owner": "legacy",
+      "password": "secret",
+      "made_with": "cargo run -p libarchive --example gen_corpus (rars Builder, RAR 2.9, entry encryption)",
+      "expect": {
+        "kind": "error",
+        "error_kind": "Unsupported"
+      },
+      "entries": [
+        {
+          "name": "hello.txt",
+          "size": 22,
+          "crc32": 2800458935,
+          "dir": false
+        },
+        {
+          "name": "data.bin",
+          "size": 4096,
+          "crc32": 1562136291,
+          "dir": false
+        },
+        {
+          "name": "empty.txt",
+          "size": 0,
+          "crc32": 0,
+          "dir": false
+        },
+        {
+          "name": "nested/inner.txt",
+          "size": 13,
+          "crc32": 2367766211,
+          "dir": false
+        }
+      ],
+      "oracles": [
+        "unarc"
+      ],
+      "notes": "RAR is in the long tail. rars is the same builder unarc-rs's tests use, so the oracle is guaranteed to read these; when the RAR reader lands, flip to gate and the entries above are the ground truth."
+    }
+  ]
+}

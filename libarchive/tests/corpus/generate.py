@@ -260,6 +260,8 @@ def gen_zip(tmp: Path):
         def write(self, b):
             self.buf.extend(b)
             return len(b)
+        def flush(self):
+            pass
     sink = NonSeekable()
     with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
         for entry, content in PLAINTEXT:
@@ -447,9 +449,9 @@ def gen_tar(tmp: Path):
         ("tar.zst", ["tar", "--zstd", "-cf"], "tar --zstd -cf"),
     ]
     for name, argv, label in streams:
-        out = GENERATED / "streams" / name  # plain.tar.gz, plain.tar.bz2, …
+        out = GENERATED / "streams" / f"plain.{name}"  # plain.tar.gz, plain.tar.bz2, …
         run(argv + [str(out), "-T", str(listing)], cwd=tree)
-        add_file(f"generated/streams/{name}", name,
+        add_file(f"generated/streams/plain.{name}", name,
                  f"{label} over the standard plaintext tree",
                  entries=entries_of(), oracles=["unarc"])
 
