@@ -178,6 +178,17 @@ fn writing(criterion: &mut Criterion) {
 ///
 /// Criterion will happily report a number that got worse. This fails instead, which is the
 /// difference between a benchmark and a regression test that happens to be slow.
+///
+/// Only *deterministic* quantities are asserted here: sink writes per entry, and the allocated
+/// bytes in `allocation_budget`. Wall-clock time is deliberately not asserted, and this function
+/// used to assert it — one `Instant::now()` around a single archive write, with a 60 ms bound.
+/// It failed at 70 ms on a machine running six other agents, while criterion's own measurement of
+/// the same work was 5.5 ms. A wall-clock assertion inside a criterion closure is the same mistake
+/// as measuring a memcpy and calling it latency: it reports the state of the machine as well as
+/// the state of the code, and a reader cannot tell which they are looking at.
+///
+/// Timing is still reported, by criterion, which does warmup and statistics properly. Read
+/// `zip-write-5000-entries/stored` for it.
 fn the_bar_is_met(criterion: &mut Criterion) {
     criterion.bench_function("sink-writes-per-entry", |bencher| {
         bencher.iter(|| {
@@ -187,15 +198,15 @@ fn the_bar_is_met(criterion: &mut Criterion) {
                 per_entry <= 6.0,
                 "{per_entry:.2} sink writes per entry, over the bar of 6 (was 32)"
             );
-            // The stored path is where the structural cost shows on its own: with no codec in the
-            // way, this is what 5,000 headers, data descriptors and central directory records
-            // cost. 8.5 ms measured; the bound is loose because a debug build is slower.
-            let (stored, elapsed) = measure(&WriteOptions::stored());
-            assert!(
-                elapsed.as_millis() <= 60,
-                "the non-codec work took {elapsed:?}, which is too much for headers alone"
+            // The stored path carries the same structure with no codec in the way, so the two
+            // must produce the same number of sink writes. If they ever diverge, the codec has
+            // started emitting its own writes, which is how the 32-per-entry figure started.
+            let (stored, _) = measure(&WriteOptions::stored());
+            assert_eq!(
+                stored.writes_per_entry(),
+                per_entry,
+                "the stored path writes to the sink a different number of times than deflate"
             );
-            assert_eq!(stored.writes_per_entry(), per_entry);
             per_entry
         })
     });
