@@ -1,6 +1,8 @@
 //! Writing TAR archives.
 //!
-//! **Owned by Team `container`.**
+//! **Owned by Team `container`, except for [`CompressedTarWriter`]'s compressor, which is Team
+//! `codecs`' [`StreamEncoder`](crate::writer::single::StreamEncoder): the codec choice is the
+//! codecs team's work whichever container it sits in.**
 //!
 //! # Why TAR is the easy format and still worth care
 //!
@@ -25,6 +27,8 @@ use std::io::{self, Seek, Write};
 
 use crate::entry::{normalise_name, EntryKind};
 use crate::error::{Error, Result};
+use crate::format::Compression;
+use crate::writer::single::StreamEncoder;
 use crate::writer::{EntryWrite, EntryWriter, NewEntry, WriteOptions};
 
 /// The size of every TAR block, and of every header.
@@ -78,36 +82,159 @@ impl Header {
     }
 }
 
-/// Writes a TAR whose whole stream is then compressed: a `.tar.gz` or `.tar.xz`.
+/// Writes a TAR whose whole stream is then compressed: a `.tar.gz`, `.tar.bz2`, `.tar.xz`,
+/// `.tar.zst` or `.tar.lz4`.
 ///
 /// Two writers rather than one, because the compressed form is a compressor around an
 /// uncompressed TAR and the block alignment the TAR needs is not visible to the compressor. The
 /// inner writer is finished first, so the TAR's end-of-archive blocks are compressed too, which
 /// is what every tar-compatible tool expects.
-pub struct CompressedTarWriter<W: Write + Seek> {
+///
+/// Nothing here holds the archive: entries stream through the inner TAR writer into the
+/// compressor a block at a time, exactly as they do for a plain TAR. Peak memory is one entry's
+/// in-flight blocks plus whatever window the codec itself keeps.
+///
+/// Only the methods the reader can decode are writable — gzip, bzip2, XZ, zstd and LZ4. Anything
+/// else (stored, raw deflate, brotli, LZMA, Unix `compress`) is refused with `Unimplemented`
+/// rather than producing a file this crate's own reader cannot open.
+pub struct CompressedTarWriter<W: Write + Seek + 'static> {
+    tar: Option<TarWriter<EncoderSink<W>>>,
     sink: Option<W>,
-    compression: crate::format::Compression,
+    finished: bool,
 }
 
-impl<W: Write + Seek> CompressedTarWriter<W> {
+impl<W: Write + Seek + 'static> CompressedTarWriter<W> {
     pub fn create(sink: W, options: &WriteOptions) -> Result<Box<dyn EntryWriter<W>>> {
-        let _ = &sink;
-        Err(Error::unimplemented(format!(
-            "writing a TAR compressed with {} is Team container's work in progress",
-            options.compression
-        )))
+        // None of these formats has anywhere to put a password: refusing is the difference
+        // between "cannot encrypt" and an archive that silently drops the encryption.
+        if options.password.is_some() {
+            return Err(Error::unimplemented(
+                "a compressed TAR cannot be encrypted by this build",
+            ));
+        }
+        if !is_tar_compression(options.compression) {
+            return Err(Error::unimplemented(format!(
+                "a TAR compressed with {} cannot be written by this build",
+                options.compression
+            )));
+        }
+        let encoder = StreamEncoder::new(sink, options.compression)?;
+        let tar = TarWriter::new(EncoderSink { encoder: Some(encoder), position: 0 }, options);
+        Ok(Box::new(CompressedTarWriter { tar: Some(tar), sink: None, finished: false }))
     }
 }
 
-impl<W: Write + Seek> EntryWriter<W> for CompressedTarWriter<W> {
-    fn begin<'a>(&'a mut self, _entry: &NewEntry, _options: &WriteOptions) -> Result<Box<dyn EntryWrite + 'a>> {
-        Err(Error::unimplemented("pending"))
+impl<W: Write + Seek + 'static> EntryWriter<W> for CompressedTarWriter<W> {
+    fn begin<'a>(
+        &'a mut self,
+        entry: &NewEntry,
+        options: &WriteOptions,
+    ) -> Result<Box<dyn EntryWrite + 'a>> {
+        if self.finished {
+            return Err(Error::malformed(
+                "the archive has already been finished and takes no more entries",
+            ));
+        }
+        match self.tar.as_mut() {
+            Some(tar) => tar.begin(entry, options),
+            None => Err(Error::malformed("the compressed TAR writer is closed")),
+        }
     }
+
     fn finish(&mut self) -> Result<()> {
-        Ok(())
+        if self.finished {
+            return Ok(());
+        }
+        self.finished = true;
+        match self.tar.take() {
+            Some(mut tar) => {
+                // The inner TAR first, so its end-of-archive blocks go through the compressor;
+                // then the compressor, so its trailer closes the stream.
+                tar.finish()?;
+                let mut outer = Box::new(tar).into_sink();
+                match outer.encoder.take() {
+                    Some(encoder) => {
+                        let sink = encoder.finish()?;
+                        self.sink = Some(sink);
+                        Ok(())
+                    }
+                    None => Err(Error::malformed("the compressed TAR writer is closed")),
+                }
+            }
+            // Taken without being finished only by `into_sink`'s backstop, which finishes on the
+            // spot; through the public API the TAR writer is always here.
+            None => Ok(()),
+        }
     }
+
     fn into_sink(self: Box<Self>) -> W {
-        self.sink.expect("a writer that never began still owns its sink")
+        let mut owned = *self;
+        // `ArchiveWriter::finish_into` — the only public route — finishes first, so the sink is
+        // already back. A caller holding the box directly gets best-effort finalization rather
+        // than a truncated stream; see `SingleStreamWriter::into_sink` for why this cannot be
+        // total under the current trait signature.
+        if owned.sink.is_none() {
+            let _ = owned.finish();
+        }
+        // Reachable only when finalization failed and took the sink with it, which the public
+        // route reports as `Err` from `finish` before ever getting here.
+        owned.sink.expect("the archive was finished before its sink was returned")
+    }
+}
+
+/// Whether `method` is a compressed-TAR format this build writes: exactly the set the reader in
+/// `formats::tar` decodes, so nothing written here is unreadable here.
+fn is_tar_compression(method: Compression) -> bool {
+    matches!(
+        method,
+        Compression::Gzip
+            | Compression::Bzip2
+            | Compression::Xz
+            | Compression::Zstd
+            | Compression::Lz4
+    )
+}
+
+/// The compressor as a `Write + Seek` sink for the inner TAR writer.
+///
+/// `TarWriter` tracks its own position and never seeks — it only ever appends — so `Seek` is
+/// carried solely to satisfy the `EntryWriter` bound: asking where it stands works, moving it is
+/// refused rather than silently corrupting the compressed stream.
+struct EncoderSink<W: Write + 'static> {
+    encoder: Option<StreamEncoder<W>>,
+    position: u64,
+}
+
+impl<W: Write + 'static> Write for EncoderSink<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        match self.encoder.as_mut() {
+            Some(encoder) => {
+                let wrote = encoder.write(buffer)?;
+                self.position += wrote as u64;
+                Ok(wrote)
+            }
+            None => Err(io::Error::other("the compressed TAR writer is closed")),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self.encoder.as_mut() {
+            Some(encoder) => encoder.flush(),
+            None => Err(io::Error::other("the compressed TAR writer is closed")),
+        }
+    }
+}
+
+impl<W: Write + 'static> Seek for EncoderSink<W> {
+    fn seek(&mut self, style: io::SeekFrom) -> io::Result<u64> {
+        // The stream is append-only from zero, so the position is also the length: every query
+        // that asks where it stands without moving it is answerable.
+        match style {
+            io::SeekFrom::Start(at) if at == self.position => Ok(self.position),
+            io::SeekFrom::Current(0) => Ok(self.position),
+            io::SeekFrom::End(0) => Ok(self.position),
+            _ => Err(io::Error::other("a compressed stream cannot be seeked")),
+        }
     }
 }
 
@@ -122,14 +249,21 @@ pub struct TarWriter<W: Write + Seek> {
 }
 
 impl<W: Write + Seek> TarWriter<W> {
-    /// Creates a TAR writer over `sink`.
-    pub fn create<W2: Write + Seek + 'static>(sink: W2, _options: &WriteOptions) -> Result<Box<dyn EntryWriter<W2>>> {
-        Ok(Box::new(TarWriter {
-            sink,
-            position: 0,
-            block: [0; BLOCK_SIZE],
-            padding: [0; BLOCK_SIZE],
-        }))
+    /// Creates a TAR writer over `sink`. Nothing is written until the first entry.
+    pub fn create<W2: Write + Seek + 'static>(
+        sink: W2,
+        options: &WriteOptions,
+    ) -> Result<Box<dyn EntryWriter<W2>>> {
+        Ok(Box::new(TarWriter::new(sink, options)))
+    }
+
+    /// The same writer, unboxed.
+    ///
+    /// `create` erases the type behind the trait object, which is right for the dispatcher and
+    /// wrong for [`CompressedTarWriter`], which drives the TAR writer directly with a compressor
+    /// as its sink. The construction lives here so both get exactly the same writer.
+    fn new(sink: W, _options: &WriteOptions) -> TarWriter<W> {
+        TarWriter { sink, position: 0, block: [0; BLOCK_SIZE], padding: [0; BLOCK_SIZE] }
     }
 
     fn emit(&mut self, bytes: &[u8]) -> Result<()> {
