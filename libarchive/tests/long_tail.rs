@@ -147,7 +147,7 @@ const TRUTH: &[Row] = &[
         format: Format::Lzh,
         fixture: "lzh/lha255e_lh5.lzh",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Lzh,
         needs_name: false,
         entries: &[Entry {
             name: "GPL-2",
@@ -161,7 +161,7 @@ const TRUTH: &[Row] = &[
         format: Format::Lzh,
         fixture: "lzh/lha_unix114i_h0_lh0.lzh",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Lzh,
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2.gz",
@@ -175,7 +175,7 @@ const TRUTH: &[Row] = &[
         format: Format::Lzh,
         fixture: "lzh/lha_unix114i_h0_lh5.lzh",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Lzh,
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
@@ -189,7 +189,7 @@ const TRUTH: &[Row] = &[
         format: Format::Lzh,
         fixture: "lzh/lha_unix114i_h1_lh5.lzh",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Lzh,
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
@@ -203,7 +203,7 @@ const TRUTH: &[Row] = &[
         format: Format::Lzh,
         fixture: "lzh/lha_unix114i_h2_lh5.lzh",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Lzh,
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
