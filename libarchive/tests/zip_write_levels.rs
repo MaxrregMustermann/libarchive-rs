@@ -254,8 +254,16 @@ fn the_level_given_to_create_reaches_write_entry_and_write_entry_from_slice() {
         });
     }
     for (from_slice, label) in [(false, "write_entry"), (true, "write_entry_from_slice")] {
-        let fast = write_via(&entries, &WriteOptions::default().with_deflate_level(1), from_slice);
-        let best = write_via(&entries, &WriteOptions::default().with_deflate_level(9), from_slice);
+        let fast = write_via(
+            &entries,
+            &WriteOptions::default().with_deflate_level(1),
+            from_slice,
+        );
+        let best = write_via(
+            &entries,
+            &WriteOptions::default().with_deflate_level(9),
+            from_slice,
+        );
         assert_ne!(
             fast, best,
             "{label}: level 1 and level 9 wrote byte-identical archives, so the level pinned at \

@@ -16,7 +16,9 @@
 use std::io::Read;
 use std::path::PathBuf;
 
-use libarchive::{ArchiveReader, ArchiveWriter, ErrorKind, Format, NewEntry, OpenOptions, WriteOptions};
+use libarchive::{
+    ArchiveReader, ArchiveWriter, ErrorKind, Format, NewEntry, OpenOptions, WriteOptions,
+};
 
 const PASSWORD: &str = "s3cret-password-42";
 
