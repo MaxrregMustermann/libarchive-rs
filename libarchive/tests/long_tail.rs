@@ -414,7 +414,7 @@ const TRUTH: &[Row] = &[
         format: Format::Zoo,
         fixture: "zoo/store.zoo",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Zoo,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -425,7 +425,7 @@ const TRUTH: &[Row] = &[
         format: Format::Zoo,
         fixture: "zoo/default.zoo",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Zoo,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -436,7 +436,7 @@ const TRUTH: &[Row] = &[
         format: Format::Zoo,
         fixture: "zoo/high_per.zoo",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Zoo,
         needs_name: false,
         entries: &[Entry {
             name: "license",
@@ -447,7 +447,7 @@ const TRUTH: &[Row] = &[
         format: Format::Zoo,
         fixture: "zoo/wrongcrc16.zoo",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Zoo,
         needs_name: false,
         entries: &[Entry {
             name: "license",
