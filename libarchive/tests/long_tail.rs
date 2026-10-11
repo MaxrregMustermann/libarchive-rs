@@ -732,7 +732,7 @@ const TRUTH: &[Row] = &[
         format: Format::Hyp,
         fixture: "hyp/license.hyp",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Hyp,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -746,7 +746,7 @@ const TRUTH: &[Row] = &[
         format: Format::Hyp,
         fixture: "hyp/stored.hyp",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Hyp,
         needs_name: false,
         entries: &[
             Entry {
@@ -776,7 +776,7 @@ const TRUTH: &[Row] = &[
         format: Format::Hyp,
         fixture: "hyp/invalid.hyp",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Hyp,
         needs_name: false,
         entries: &[Entry {
             name: "A",
