@@ -524,15 +524,18 @@ fn parse_central_directory(bytes: &[u8], limits: &Limits) -> Result<Vec<CentralR
             || uncompressed_size == 0xFFFF_FFFF
             || local_header_offset == 0xFFFF_FFFF
         {
+            let payload = zip64_payload(extra).ok_or_else(|| {
+                Error::malformed("a central record uses the ZIP64 sentinel but carries no 0x0001 extra field")
+            })?;
             let mut cursor = 0usize;
             if uncompressed_size == 0xFFFF_FFFF {
-                uncompressed_size = zip64_value(extra, &mut cursor)?;
+                uncompressed_size = zip64_value(payload, &mut cursor)?;
             }
             if compressed_size == 0xFFFF_FFFF {
-                compressed_size = zip64_value(extra, &mut cursor)?;
+                compressed_size = zip64_value(payload, &mut cursor)?;
             }
             if local_header_offset == 0xFFFF_FFFF {
-                local_header_offset = zip64_value(extra, &mut cursor)?;
+                local_header_offset = zip64_value(payload, &mut cursor)?;
             }
         }
 
@@ -563,6 +566,24 @@ fn zip64_value(extra: &[u8], cursor: &mut usize) -> Result<u64> {
         .ok_or_else(|| Error::malformed("a ZIP64 extra field is shorter than the values it claims"))?;
     *cursor = end;
     Ok(u64_at(payload, 0))
+}
+
+/// Finds the payload of the 0x0001 ZIP64 extra field: the values sit after the field's own
+/// id and size words, so a cursor over them must not start at the field header.
+fn zip64_payload(extra: &[u8]) -> Option<&[u8]> {
+    let mut at = 0usize;
+    while at + 4 <= extra.len() {
+        let id = u16_at(extra, at);
+        let size = u16_at(extra, at + 2) as usize;
+        let value_start = at + 4;
+        let value_end = value_start.saturating_add(size);
+        let value = extra.get(value_start..value_end)?;
+        if id == 0x0001 {
+            return Some(value);
+        }
+        at = value_end;
+    }
+    None
 }
 
 /// Finds the 0x7875 "UNIX permissions" extra field, which is how Info-ZIP records the mode.
