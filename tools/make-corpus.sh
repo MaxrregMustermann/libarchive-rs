@@ -45,7 +45,11 @@ for i in range(entries):
 PY
 fi
 
-echo "building the 7Z pair with 7z $(7z 2>/dev/null | sed -n '2s/^.*\) //p' | head -1)"
+# `7z i` prints "7-Zip ... 24.09" on one line; take the trailing field. The parenthesis is
+# escaped for a basic regular expression, where a bare `)` is a literal and the trailing one is
+# a syntax error - which is what this used to print on every run.
+sevenz_version=$(7z 2>/dev/null | head -2 | tail -1 | sed -n 's/.*) //p')
+echo "building the 7Z pair with 7z ${sevenz_version:-<version unknown>}"
 rm -f solid400big.7z nonsolid400big.7z
 7z a -t7z -m0=lzma2 -ms=on  solid400big.7z   big >/dev/null
 7z a -t7z -m0=lzma2 -ms=off nonsolid400big.7z big >/dev/null
