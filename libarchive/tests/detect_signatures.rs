@@ -55,7 +55,11 @@ const ROWS: &[Row] = &[
         format: Format::Rar,
         extension: "rar",
         by_content: true,
-        fixtures: &["rar/multi/unarc.part1.rar", "rar/multi/unarc.part2.rar", "rar/multi/unarc.part3.rar"],
+        fixtures: &[
+            "rar/multi/unarc.part1.rar",
+            "rar/multi/unarc.part2.rar",
+            "rar/multi/unarc.part3.rar",
+        ],
     },
     Row {
         format: Format::Arj,
@@ -78,7 +82,12 @@ const ROWS: &[Row] = &[
         format: Format::Zoo,
         extension: "zoo",
         by_content: true,
-        fixtures: &["zoo/store.zoo", "zoo/default.zoo", "zoo/high_per.zoo", "zoo/wrongcrc16.zoo"],
+        fixtures: &[
+            "zoo/store.zoo",
+            "zoo/default.zoo",
+            "zoo/high_per.zoo",
+            "zoo/wrongcrc16.zoo",
+        ],
     },
     Row {
         format: Format::Ha,
@@ -102,13 +111,24 @@ const ROWS: &[Row] = &[
         format: Format::Uc2,
         extension: "uc2",
         by_content: true,
-        fixtures: &["uc2/fast.uc2", "uc2/normal.uc2", "uc2/stight.uc2", "uc2/tight.uc2"],
+        fixtures: &[
+            "uc2/fast.uc2",
+            "uc2/normal.uc2",
+            "uc2/stight.uc2",
+            "uc2/tight.uc2",
+        ],
     },
     Row {
         format: Format::Ace,
         extension: "ace",
         by_content: true,
-        fixtures: &["ace/license1.ace", "ace/license2.ace", "ace/multi/unarc.ace", "ace/multi/unarc.c00", "ace/multi/unarc.c01"],
+        fixtures: &[
+            "ace/license1.ace",
+            "ace/license2.ace",
+            "ace/multi/unarc.ace",
+            "ace/multi/unarc.c00",
+            "ace/multi/unarc.c01",
+        ],
     },
     Row {
         format: Format::Lzh,
@@ -209,7 +229,11 @@ fn every_long_tail_fixture_is_detected_as_its_own_format() {
             );
         }
     }
-    assert!(failures.is_empty(), "detect is wrong for:\n{}", failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "detect is wrong for:\n{}",
+        failures.join("\n")
+    );
     println!("checked {checked} fixtures across {} formats", ROWS.len());
 }
 
@@ -249,7 +273,11 @@ fn an_ice_reachable_by_name_opens_and_streams_the_plaintext() {
     // The file really does start with the length of what comes out of it, which is measured here
     // rather than asserted about 0x1F 0xA0, the constant this file removed.
     let stated = u32::from_le_bytes(bytes[..4].try_into().unwrap()) as usize;
-    assert_eq!(stated, expected.len(), "ICE's first four bytes are its uncompressed size");
+    assert_eq!(
+        stated,
+        expected.len(),
+        "ICE's first four bytes are its uncompressed size"
+    );
 
     let name = Path::new("license_lha.ice");
     let mut reader = ArchiveReader::open_named(
@@ -259,7 +287,11 @@ fn an_ice_reachable_by_name_opens_and_streams_the_plaintext() {
     )
     .expect("an ICE named .ice opens");
     assert_eq!(reader.format(), Format::Ice, "the name is what got it here");
-    let listed: Vec<&str> = reader.entries().iter().map(|entry| entry.name.as_str()).collect();
+    let listed: Vec<&str> = reader
+        .entries()
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
     assert_eq!(listed, ["compressed"]);
 
     let mut streamed = Vec::new();
@@ -305,7 +337,11 @@ fn an_arc_reachable_by_name_opens_and_lists_its_entries() {
     )
     .expect("an ARC named .arc opens");
     assert_eq!(reader.format(), Format::Arc);
-    let listed: Vec<&str> = reader.entries().iter().map(|entry| entry.name.as_str()).collect();
+    let listed: Vec<&str> = reader
+        .entries()
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
     assert_eq!(listed, ["DDTZ.COM", "READ.COM"]);
 
     let mislabelled = ArchiveReader::open_named(
@@ -326,16 +362,25 @@ fn an_arc_reachable_by_name_opens_and_lists_its_entries() {
 #[test]
 fn every_long_tail_format_is_a_row_here_or_is_named_with_why() {
     let measured: std::collections::HashSet<Format> = ROWS.iter().map(|row| row.format).collect();
-    let available: std::collections::HashSet<Format> =
-        libarchive::formats::legacy::AVAILABLE.iter().copied().collect();
+    let available: std::collections::HashSet<Format> = libarchive::formats::legacy::AVAILABLE
+        .iter()
+        .copied()
+        .collect();
 
     let mut missing: Vec<Format> = available.difference(&measured).copied().collect();
     missing.sort_by_key(|format| format!("{format:?}"));
-    assert_eq!(missing, vec![Format::Ucb], "only UCB, which has no decoder and no fixture");
+    assert_eq!(
+        missing,
+        vec![Format::Ucb],
+        "only UCB, which has no decoder and no fixture"
+    );
 
     // And no name hint smuggles one back in.
     let bytes = read_fixture("ice/license_lha.ice");
-    assert_eq!(detect_header_with_name(&bytes, Some(Path::new("x.ucb"))), Format::Zip);
+    assert_eq!(
+        detect_header_with_name(&bytes, Some(Path::new("x.ucb"))),
+        Format::Zip
+    );
 }
 
 /// Every vendored fixture is a row, and every fixture a row names is on disk.
@@ -343,8 +388,10 @@ fn every_long_tail_format_is_a_row_here_or_is_named_with_why() {
 /// Without this, adding a fixture and forgetting it looks exactly like a fixture that passes.
 #[test]
 fn every_vendored_fixture_is_a_row_and_every_referenced_one_exists() {
-    let referenced: std::collections::BTreeSet<String> =
-        ROWS.iter().flat_map(|row| row.fixtures.iter().copied().map(str::to_owned)).collect();
+    let referenced: std::collections::BTreeSet<String> = ROWS
+        .iter()
+        .flat_map(|row| row.fixtures.iter().copied().map(str::to_owned))
+        .collect();
     let mut on_disk = std::collections::BTreeSet::new();
     walk(&fixtures(), &fixtures(), &mut on_disk);
     on_disk.remove("PROVENANCE.md");
@@ -353,9 +400,15 @@ fn every_vendored_fixture_is_a_row_and_every_referenced_one_exists() {
     on_disk.retain(|path| !path.starts_with("plaintext/"));
 
     let unreferenced: Vec<&String> = on_disk.difference(&referenced).collect();
-    assert!(unreferenced.is_empty(), "fixtures on disk that no row uses: {unreferenced:?}");
+    assert!(
+        unreferenced.is_empty(),
+        "fixtures on disk that no row uses: {unreferenced:?}"
+    );
     let missing: Vec<&String> = referenced.difference(&on_disk).collect();
-    assert!(missing.is_empty(), "rows naming a fixture that is not there: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "rows naming a fixture that is not there: {missing:?}"
+    );
 }
 
 fn walk(root: &Path, directory: &Path, out: &mut std::collections::BTreeSet<String>) {
