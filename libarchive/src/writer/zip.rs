@@ -4,22 +4,29 @@
 //!
 //! # The three performance rules this file exists to enforce
 //!
-//! Measured on this machine, writing an archive of 5,000 entries:
+//! Writing an archive of 5,000 entries of 512 bytes:
 //!
-//! | | before | after |
-//! |---|---|---|
-//! | time | 219.8 ms | 109.2 ms |
-//! | allocated | 1.40 GiB | 43.9 MB |
-//! | sink writes per entry | 32 | 6 |
+//! | | before | after (measured) | bar |
+//! |---|---|---|---|
+//! | allocated | 1.40 GiB | **11.64 MiB** | 43.9 MB |
+//! | sink writes per entry | 32 | **3.00** | 6 |
+//! | time | 219.8 ms | codec-bound; see below | 109.2 ms |
+//!
+//! The allocation and sink-write figures are measured and asserted in `benches/zip.rs`. The time is
+//! not: on the benchmark's deliberately high-entropy payload, 5,000 independent level-6 deflate
+//! streams cost more than 109.2 ms in the codec alone (the same bytes as one stream cost about
+//! 10 ms CPU, and the writer's own non-codec overhead is 11-40 ms), so the bar is unreachable here
+//! for reasons outside this file. On a low-alphabet payload the same writer measures about 90 ms
+//! CPU and meets it. `benches/zip.rs` carries the measurements and the comparison against
+//! `oxiarc-archive`, which does not meet the bar either.
 //!
 //! Each number comes from one change:
 //!
 //! 1. **One deflater, reset between entries** ([`ZipWriter::deflater`]). A deflate encoder holds a
-//!    32 KiB window and a hash table. Allocating one per entry is 1.35 GiB of the 1.40 GiB, and it
-//!    is why the allocation figure falls thirtyfold while the time only halves — the remaining
-//!    time is real compression work. [`flate2::Compress::reset`] is documented as "quickly resets
-//!    this compressor without having to reallocate anything", which is exactly the property, and
-//!    it writes *through* to the sink, so one encoder serves every entry in the archive.
+//!    32 KiB window and a hash table. Allocating one per entry is 1.35 GiB of the 1.40 GiB, which
+//!    is the whole of the allocation figure. [`flate2::Compress::reset`] is documented as "quickly
+//!    resets this compressor without having to reallocate anything", and it writes *through* to
+//!    the sink, so one encoder serves every entry in the archive.
 //! 2. **Headers in one write** ([`write_local_header`]). Every write crosses into Java through the
 //!    JNI boundary, where the call costs about a microsecond against about thirty for compressing
 //!    a 128 KiB block. The header is assembled in one reusable buffer and written once.
