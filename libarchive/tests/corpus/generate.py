@@ -846,10 +846,20 @@ def add_vendor_manifest(harvest):
     cursor_note = ("lists, but reading an entry fails: legacy::open's next_entry()+skip() walk "
                    "leaves unarc's backend at the end of the archive and unarc's read() starts "
                    "from the current position, not the entry's data offset. Owner: legacy.")
+    # These ten now gate rather than pend. The fix was the forward-only cursor in
+    # formats::legacy: it never calls unarc's skip(), so the backend is always positioned at
+    # the entry being read. That is justified by the oracle, not by us - unarc-rs reads all ten
+    # byte for byte (the `long_tail_the_backend_reads_what_our_reader_cannot` test proves it),
+    # so `expect_kind="ok"` with oracles=["unarc"] says "we must now agree with the reference
+    # decoder", which is a real assertion. Flipping it to ok because our own reader agrees would
+    # be the harness agreeing with itself and proving nothing.
+    #
+    # arc/license_cypted.arc stays pending: its password is published (SECRET) but unarc-rs
+    # 0.7.2 refuses that fixture even when it is supplied, so there is nothing to compare
+    # against and no way to say whether the failure is ours.
     for dest, format_, password in [
         ("arc/store.arc", "arc", None),
         ("arc/crunch.arc", "arc", None),
-        ("arc/license_cypted.arc", "arc", "SECRET"),
         ("arj/stored.arj", "arj", None),
         ("arj/method1.arj", "arj", None),
         ("arj/method4.arj", "arj", None),
@@ -858,8 +868,17 @@ def add_vendor_manifest(harvest):
         ("hyp/license.hyp", "hyp", None),
         ("hyp/stored.hyp", "hyp", None),
     ]:
-        vend(dest, format_, "pending", "legacy", password, ["unarc"], cursor_note,
-             expect_kind="error", error_kind=None)
+        vend(dest, format_, "gate", None, password, ["unarc"],
+             "the forward-only cursor in formats::legacy reads these without calling "
+             "unarc's skip(), so the backend stays positioned at the entry being read; "
+             "unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it.",
+             expect_kind="ok", error_kind=None)
+
+    vend("arc/license_cypted.arc", "arc", "pending", "legacy", "SECRET", ["unarc"],
+         "password is published, but unarc-rs 0.7.2 refuses this fixture even with it supplied, "
+         "so there is no oracle answer to compare against and the failure cannot be attributed. "
+         "Owner: legacy.",
+         expect_kind="error", error_kind=None)
 
     # SQ: opens and streams, but every entry comes out empty (0 bytes) where unarc streams the
     # full 11357. Silent wrong bytes, not an Err — the worst shape of the three.

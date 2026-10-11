@@ -8,6 +8,11 @@
 //! * `.tar.lz4` — same, for the compressed-TAR case.
 //! * `.lzh` — no `lha`/`lhasa` CLI exists here and unarc-rs ships no LZH fixture; oxiarc's
 //!   `LzhWriter` is the writer the app itself used, so it is the most honest generator there is.
+//!   It stamps each entry with the current time, so these files are **not** byte-reproducible:
+//!   re-running this changes eight bytes per file, the DOS date/time at offset 15 of each entry
+//!   header, and nothing else. Same as the AES and ZipCrypto fixtures below. `manifest.json` does
+//!   not hash them, so the churn is cosmetic - but it is real churn, and a generator that dirties
+//!   the tree on every run teaches people to ignore its output, which is worse than the noise.
 //! * `.rar` — no `rar`/`unrar` CLI exists here. `rars` is the same builder unarc-rs's own test
 //!   suite uses (unarc-rs-0.7.2/tests/rar_decompression.rs:10-48), so every file this writes is
 //!   provably readable by the oracle.
@@ -213,23 +218,28 @@ fn main() {
         records.push(Record {
             path: format!("generated/lzh/{file_name}"),
             format: "lzh".to_owned(),
-            status: "pending".to_owned(),
-            owner: Some("legacy".to_owned()),
+            // A gate, not a pending record. It used to fail to open at all, and then to fail to
+            // stream with "unsupported compression method" - including the stored LH0 file, so
+            // the fault was the method mapping rather than the codec. Both are fixed, and the
+            // oracle here is oxiarc, which is also the writer: it wrote these files, so if oxiarc
+            // reads back what it wrote and we read the same bytes, two independent
+            // implementations agree. That is an assertion; "we agree with ourselves" is not.
+            status: "gate".to_owned(),
+            owner: None,
             password: None,
             made_with: format!(
                 "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, {label})"
             ),
             expect: Expect {
-                kind: "error".to_owned(),
+                kind: "ok".to_owned(),
                 error_kind: None,
             },
             entries: Some(entries),
             oracles: vec!["oxiarc".to_owned()],
             notes: String::from(
-                "LZH lists through the legacy path, but streaming any entry fails \
-                 \"while decompressing: unsupported compression method\" — including the \
-                 stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. \
-                 oxiarc is the second oracle because it is the writer too.",
+                "opens and streams. Was 'error': the long-tail cursor read from the wrong \
+                 stream position, and before that the LZH method mapping was not reached at \
+                 all. oxiarc is the oracle because oxiarc wrote these files.",
             ),
         });
     }

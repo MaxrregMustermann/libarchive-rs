@@ -7,7 +7,7 @@
    "status": "pending",
    "owner": "sevenz",
    "password": "secret",
-   "made_with": "7z a -t7z -bso0 -bsp0 -psecret -mhe=on /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256-header.7z hello.txt data.bin empty.txt nested/inner.txt",
+   "made_with": "7z a -t7z -bso0 -bsp0 -psecret -mhe=on /home/user/libarchive-rs/libarchive/tests/corpus/generated/7z/aes256-header.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
     "kind": "error",
     "error_kind": null
@@ -24,7 +24,7 @@
    "status": "pending",
    "owner": "sevenz",
    "password": "secret",
-   "made_with": "7z a -t7z -bso0 -bsp0 -psecret /home/user/wt/vic/libarchive/tests/corpus/generated/7z/aes256.7z hello.txt data.bin empty.txt nested/inner.txt",
+   "made_with": "7z a -t7z -bso0 -bsp0 -psecret /home/user/libarchive-rs/libarchive/tests/corpus/generated/7z/aes256.7z hello.txt data.bin empty.txt nested/inner.txt",
    "expect": {
     "kind": "error",
     "error_kind": null
@@ -5003,12 +5003,12 @@
   {
    "path": "generated/lzh/lh5.lzh",
    "format": "lzh",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": [
@@ -5040,17 +5040,17 @@
    "oracles": [
     "oxiarc"
    ],
-   "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
+   "notes": "opens and streams. Was 'error': the long-tail cursor read from the wrong stream position, and before that the LZH method mapping was not reached at all. oxiarc is the oracle because oxiarc wrote these files."
   },
   {
    "path": "generated/lzh/stored.lzh",
    "format": "lzh",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": [
@@ -5082,7 +5082,7 @@
    "oracles": [
     "oxiarc"
    ],
-   "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
+   "notes": "opens and streams. Was 'error': the long-tail cursor read from the wrong stream position, and before that the LZH method mapping was not reached at all. oxiarc is the oracle because oxiarc wrote these files."
   },
   {
    "path": "generated/rar/rar15.rar",
@@ -6244,19 +6244,19 @@
   {
    "path": "vendor/unarc-rs-0.7.2/arc/crunch.arc",
    "format": "arc",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/arc/crunch.arc, sha256=bdd0fdc6500d0717…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arc/license_cypted.arc",
@@ -6273,75 +6273,75 @@
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "password is published, but unarc-rs 0.7.2 refuses this fixture even with it supplied, so there is no oracle answer to compare against and the failure cannot be attributed. Owner: legacy."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arc/store.arc",
    "format": "arc",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/arc/store.arc, sha256=3e3272f20848b95e…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/method1.arj",
    "format": "arj",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method1.arj, sha256=a610180da1a37246…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/method4.arj",
    "format": "arj",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/method4.arj, sha256=3a1e1ebcf4cdc3dd…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/arj/stored.arj",
    "format": "arj",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/arj/stored.arj, sha256=3108cf45a88a657c…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/bz2/LICENSE.bz2",
@@ -6382,70 +6382,70 @@
   {
    "path": "vendor/unarc-rs-0.7.2/ha/copy.ha",
    "format": "ha",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/ha/copy.ha, sha256=3655b396502df3d4…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ha/hsc.ha",
    "format": "ha",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/ha/hsc.ha, sha256=cf860a56029e89a1…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/hyp/license.hyp",
    "format": "hyp",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/license.hyp, sha256=82d9980aad1fcc81…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/hyp/stored.hyp",
    "format": "hyp",
-   "status": "pending",
-   "owner": "legacy",
+   "status": "gate",
+   "owner": null,
    "password": null,
    "made_with": "harvested from unarc-rs 0.7.2 tests/hyp/stored.hyp, sha256=5c2ab9ae603dd0c5…",
    "expect": {
-    "kind": "error",
+    "kind": "ok",
     "error_kind": null
    },
    "entries": null,
    "oracles": [
     "unarc"
    ],
-   "notes": "lists, but reading an entry fails: legacy::open's next_entry()+skip() walk leaves unarc's backend at the end of the archive and unarc's read() starts from the current position, not the entry's data offset. Owner: legacy."
+   "notes": "the forward-only cursor in formats::legacy reads these without calling unarc's skip(), so the backend stays positioned at the entry being read; unarc-rs 0.7.2 reads all nine byte for byte and we must now agree with it."
   },
   {
    "path": "vendor/unarc-rs-0.7.2/ice/license_lha.ice",

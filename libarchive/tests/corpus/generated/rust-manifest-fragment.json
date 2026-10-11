@@ -91,12 +91,12 @@
     {
       "path": "generated/lzh/stored.lzh",
       "format": "lzh",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh0 (store))",
       "expect": {
-        "kind": "error",
+        "kind": "ok",
         "error_kind": null
       },
       "entries": [
@@ -128,17 +128,17 @@
       "oracles": [
         "oxiarc"
       ],
-      "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
+      "notes": "opens and streams. Was 'error': the long-tail cursor read from the wrong stream position, and before that the LZH method mapping was not reached at all. oxiarc is the oracle because oxiarc wrote these files."
     },
     {
       "path": "generated/lzh/lh5.lzh",
       "format": "lzh",
-      "status": "pending",
-      "owner": "legacy",
+      "status": "gate",
+      "owner": null,
       "password": null,
       "made_with": "cargo run -p libarchive --example gen_corpus (oxiarc LzhWriter 93b17af, lh5)",
       "expect": {
-        "kind": "error",
+        "kind": "ok",
         "error_kind": null
       },
       "entries": [
@@ -170,7 +170,7 @@
       "oracles": [
         "oxiarc"
       ],
-      "notes": "LZH lists through the legacy path, but streaming any entry fails \"while decompressing: unsupported compression method\" — including the stored LH0 file, so it is the method mapping, not the codec. Owner: legacy. oxiarc is the second oracle because it is the writer too."
+      "notes": "opens and streams. Was 'error': the long-tail cursor read from the wrong stream position, and before that the LZH method mapping was not reached at all. oxiarc is the oracle because oxiarc wrote these files."
     },
     {
       "path": "generated/rar/rar15.rar",
