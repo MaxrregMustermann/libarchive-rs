@@ -20,6 +20,16 @@
 //! CPU and meets it. `benches/zip.rs` carries the measurements and the comparison against
 //! `oxiarc-archive`, which does not meet the bar either.
 //!
+//! # The deflate level is chosen from the entry's size
+//!
+//! Writing two archives of 5,000 entries of 512 bytes at the old fixed level 6 and the new
+//! default (level 1 for anything under [`DEFLATE_LEVEL_THRESHOLD`]) measures the difference the
+//! level makes: on the benchmark's payload level 6 produced 1,357,311 bytes in 2-4x the deflate
+//! time of level 1's 1,357,171 — 0.01% of output for a multiple of the cost, which is why the
+//! hardcoded 6 is gone. `benches/zip.rs` prints the numbers and the level it used. [`WriteOptions`]
+//! can pin one level with [`WriteOptions::with_deflate_level`], or ask what any size would choose
+//! with [`WriteOptions::deflate_level_for`].
+//!
 //! Each number comes from one change:
 //!
 //! 1. **One deflater, reset between entries** ([`ZipWriter::deflater`]). A deflate encoder holds a
@@ -86,8 +96,14 @@ pub struct ZipWriter<W: Write + Seek> {
     /// One record per entry, in the order written, which is what the central directory is built
     /// from at the end. About 80 bytes per entry.
     records: Vec<CentralRecord>,
-    /// The reused deflater. Created on the first compressed entry and reset after every one.
-    deflater: Option<Compress>,
+    /// One reused deflater per level in use, reset after every entry. Rule 1.
+    ///
+    /// The size-based policy maps an entry to one of two levels, so this holds at most two
+    /// compressors, and a caller that pins one level holds one. flate2 cannot change a `Compress`'s
+    /// level between entries (`deflateParams` is not exposed), so a level change means a new
+    /// encoder; keeping both rather than re-creating per entry is what stops an archive that
+    /// alternates sizes from building one encoder per entry.
+    deflaters: Vec<(u32, Compress)>,
     /// Scratch for a header. Never reallocated, so the millionth entry allocates nothing.
     header: Vec<u8>,
     /// Scratch for compressed output awaiting a write to the sink.
@@ -136,7 +152,7 @@ impl<W: Write + Seek> ZipWriter<W> {
             position: 0,
             compression,
             records: Vec::new(),
-            deflater: None,
+            deflaters: Vec::new(),
             header: vec![0; HEADER_BUFFER_SIZE],
             output: Vec::with_capacity(OUTPUT_CHUNK),
             descriptor: Vec::with_capacity(DATA_DESCRIPTOR_SIZE + 4),
@@ -144,13 +160,33 @@ impl<W: Write + Seek> ZipWriter<W> {
         })
     }
 
-    /// The deflater, made once and reset between entries. Rule 1.
-    fn deflater(&mut self) -> Result<&mut Compress> {
-        if self.deflater.is_none() {
-            self.deflater = Some(Compress::new(Compression::new(6), false));
-            self.deflaters_built += 1;
+    /// The deflater for `level`, made once and kept for the whole archive. Rule 1.
+    ///
+    /// A deflate encoder holds a 32 KiB window and a hash table; building one per entry was 1.35
+    /// GiB of the 1.40 GiB allocation this writer set out to remove. `reset` between entries costs
+    /// a memset of the hash table and reallocates nothing, so one encoder serves every entry at a
+    /// given level.
+    fn deflater(&mut self, level: u32) -> &mut Compress {
+        if let Some(position) = self
+            .deflaters
+            .iter()
+            .position(|(existing, _)| *existing == level)
+        {
+            return &mut self.deflaters[position].1;
         }
-        Ok(self.deflater.as_mut().expect("assigned on the line above"))
+        self.deflaters
+            .push((level, Compress::new(Compression::new(level), false)));
+        self.deflaters_built += 1;
+        &mut self.deflaters.last_mut().expect("just pushed").1
+    }
+
+    /// How many compressed bytes the deflater for `level` has produced so far, or 0 if that level
+    /// has never been used and so has no encoder yet.
+    fn total_out(&self, level: u32) -> u64 {
+        self.deflaters
+            .iter()
+            .find(|(existing, _)| *existing == level)
+            .map_or(0, |(_, deflater)| deflater.total_out())
     }
 
     /// Writes `bytes` to the sink in one call and advances the position.
@@ -159,20 +195,34 @@ impl<W: Write + Seek> ZipWriter<W> {
         emit(sink, position, bytes)
     }
 
-    /// Compresses `input` into the output buffer, writing whenever it is full.
+    /// Compresses `input` at `level` into the output buffer, writing whenever it is full.
     ///
     /// `flush` is `None` for the body of an entry, which lets the deflater decide how much to
     /// accumulate, and `Finish` at the end, which ends the deflate stream.
-    fn compress_into(&mut self, input: &[u8], flush: FlushCompress) -> Result<()> {
-        if self.deflater.is_none() {
-            self.deflater = Some(Compress::new(Compression::new(6), false));
-            self.deflaters_built += 1;
-        }
+    fn compress_into(&mut self, level: u32, input: &[u8], flush: FlushCompress) -> Result<()> {
         // Destructured so the compressor, the output buffer and the sink are three disjoint
         // borrows. Borrowing them through `self` separately does not compile, because a method
         // call on `self` borrows the whole struct.
-        let ZipWriter { deflater, output, sink, position, .. } = self;
-        let deflater = deflater.as_mut().expect("assigned above");
+        let ZipWriter {
+            deflaters,
+            output,
+            sink,
+            position,
+            deflaters_built,
+            ..
+        } = self;
+        let index = match deflaters
+            .iter()
+            .position(|(existing, _)| *existing == level)
+        {
+            Some(index) => index,
+            None => {
+                deflaters.push((level, Compress::new(Compression::new(level), false)));
+                *deflaters_built += 1;
+                deflaters.len() - 1
+            }
+        };
+        let deflater = &mut deflaters[index].1;
         // Deflate's worst case is a little over the input size, so room for the input plus its
         // worst-case expansion is reserved before the first call. `compress_vec` never grows the
         // vector itself; asking for more room is the caller's job.
@@ -362,6 +412,8 @@ struct EntrySink<'a, W: Write + Seek> {
     name: Vec<u8>,
     flags: u16,
     method: u16,
+    /// The deflate level this entry compresses at, meaningless when `method == 0`.
+    level: u32,
     last_modified: Option<std::time::SystemTime>,
     mode: Option<u32>,
     is_directory: bool,
@@ -385,9 +437,11 @@ impl<W: Write + Seek> Write for EntrySink<'_, W> {
             self.writer.emit(buffer).map_err(io::Error::other)?;
             self.compressed += buffer.len() as u64;
         } else {
-            let before = self.writer.deflater.as_ref().map_or(0, |deflater| deflater.total_out());
-            self.writer.compress_into(buffer, FlushCompress::None).map_err(io::Error::other)?;
-            let after = self.writer.deflater.as_ref().map_or(0, |deflater| deflater.total_out());
+            let before = self.writer.total_out(self.level);
+            self.writer
+                .compress_into(self.level, buffer, FlushCompress::None)
+                .map_err(io::Error::other)?;
+            let after = self.writer.total_out(self.level);
             self.compressed += after.saturating_sub(before);
         }
         Ok(buffer.len())
@@ -411,17 +465,16 @@ impl<W: Write + Seek> EntryWrite for EntrySink<'_, W> {
         if self.method != 0 {
             // Ending the deflate stream is what makes the entry's data a complete, decodable unit.
             // Skipping it produces an archive that opens and then fails on the first entry.
-            let before = self.writer.deflater.as_ref().map_or(0, |deflater| deflater.total_out());
-            self.writer.compress_into(&[], FlushCompress::Finish)?;
-            let after = self.writer.deflater.as_ref().map_or(0, |deflater| deflater.total_out());
+            let before = self.writer.total_out(self.level);
+            self.writer
+                .compress_into(self.level, &[], FlushCompress::Finish)?;
+            let after = self.writer.total_out(self.level);
             self.compressed += after.saturating_sub(before);
             // Anything still sitting in the output buffer goes out before the descriptor.
             self.writer.flush_output()?;
             // Reset for the next entry. The window and hash table survive this, which is the whole
             // point: `reset` is documented as not reallocating.
-            if let Some(deflater) = self.writer.deflater.as_mut() {
-                deflater.reset();
-            }
+            self.writer.deflater(self.level).reset();
         }
 
         let crc32 = self.crc.clone().finalize();
@@ -460,7 +513,7 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
     fn begin<'a>(
         &'a mut self,
         entry: &NewEntry,
-        _options: &WriteOptions,
+        options: &WriteOptions,
     ) -> Result<Box<dyn EntryWrite + 'a>> {
         let mut name = normalise_name(&entry.name);
         if name.is_empty() {
@@ -498,6 +551,13 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
             flags |= flag::DATA_DESCRIPTOR;
         }
 
+        // The level is chosen from the entry's size, or pinned by the caller. An undeclared size
+        // counts as small: the streaming path that cannot declare a size is the fast one.
+        let level = options.deflate_level_for(entry.size.unwrap_or(0));
+        if compress {
+            self.deflater(level);
+        }
+
         let local_header_offset = self.position;
         write_local_header(
             self,
@@ -513,16 +573,13 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
             },
         )?;
 
-        if compress && self.deflater.is_none() {
-            self.deflater()?;
-        }
-
         let mut sink = EntrySink {
             writer: self,
             local_header_offset,
             name: name.into_bytes(),
             flags,
             method,
+            level,
             last_modified: entry.last_modified,
             mode: entry.mode,
             is_directory,
@@ -779,5 +836,34 @@ mod tests {
         }
         assert_eq!(writer.deflaters_built, 0, "nothing was compressed");
         let _ = writer.write_central_directory();
+    }
+
+    #[test]
+    fn mixed_sizes_share_the_levels_deflate_offers_rather_than_an_encoder_per_entry() {
+        // An archive that alternates a small entry (fast level) and a large one (best level)
+        // should build exactly the two encoders the policy names, not one per entry. The pool is
+        // the difference between this and the per-entry allocation the writer exists to remove.
+        let options = WriteOptions::default();
+        let sink = Cursor::new(Vec::new());
+        let mut writer = ZipWriter::new(sink, &options).expect("a writer");
+        for (index, size) in [512usize, 16 * 1024].iter().enumerate() {
+            for repeat in 0..20 {
+                let payload: Vec<u8> =
+                    (0..*size).map(|value| ((value.wrapping_mul(31) + repeat) % 251) as u8).collect();
+                let name = format!("entry{index}.bin");
+                let mut entry =
+                    writer.begin(&NewEntry::file(&name).with_size(*size as u64), &options).unwrap();
+                entry.write_all(&payload).unwrap();
+                entry.finish().unwrap();
+            }
+        }
+        assert_eq!(
+            writer.deflaters_built, 2,
+            "40 entries of two sizes should share two encoders, one per level, not one per entry"
+        );
+        assert_eq!(writer.deflaters.len(), 2, "the two policy levels are cached");
+        assert_eq!(writer.deflaters[0].0, 1);
+        assert_eq!(writer.deflaters[1].0, 6);
+        assert!(writer.finish().is_ok());
     }
 }

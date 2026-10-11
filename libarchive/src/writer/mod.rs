@@ -15,6 +15,10 @@
 //!    became 6. The writer below coalesces them into a single buffer.
 //! 3. **Nothing is buffered whole.** [`ArchiveWriter::write_entry`] takes any [`std::io::Read`] and
 //!    pulls it in fixed-size blocks, so a 4 GiB entry costs 128 KiB.
+//! 4. **The deflate level comes from the entry's size, not from a constant.** Level 6 bought
+//!    nothing on the 512-byte entries the bar is measured on (0.01% of output for 2-4x the time),
+//!    so small entries are written at level 1. [`WriteOptions::deflate_level`] pins one level, or
+//!    [`WriteOptions::deflate_level_for`] shows what a given size chooses.
 
 pub mod sevenz;
 pub mod single;
@@ -51,6 +55,13 @@ pub struct WriteOptions {
     /// solid by default — and costs the whole archive in memory while it is written, because
     /// nothing can go into the folder until the last entry closes.
     pub solid: bool,
+    /// The deflate level for a ZIP entry, when the caller wants one level for every entry.
+    ///
+    /// `None` (the default) chooses from the entry's size: an entry smaller than
+    /// [`DEFLATE_LEVEL_THRESHOLD`] gets [`FAST_DEFLATE_LEVEL`], anything larger gets
+    /// [`BEST_DEFLATE_LEVEL`]. Set it with [`WriteOptions::with_deflate_level`] to pin one level.
+    /// Only the ZIP writer reads this; the other writers have their own or no level knob.
+    pub deflate_level: Option<u32>,
 }
 
 impl Default for WriteOptions {
@@ -61,6 +72,7 @@ impl Default for WriteOptions {
             limits: Limits::default(),
             buffer_entries: false,
             solid: false,
+            deflate_level: None,
         }
     }
 }
@@ -84,6 +96,55 @@ impl WriteOptions {
 
     pub fn stored() -> WriteOptions {
         WriteOptions { compression: Compression::None, ..WriteOptions::default() }
+    }
+
+    /// Sets the deflate level for every ZIP entry, overriding the size-based choice.
+    ///
+    /// The level is clamped to 1..=9, the range deflate defines: 1 is the fastest, 9 the
+    /// smallest. The default (see [`WriteOptions::deflate_level`]) is `None`, which chooses from
+    /// the entry's size.
+    pub fn with_deflate_level(mut self, level: u32) -> WriteOptions {
+        self.deflate_level = Some(level.clamp(1, 9));
+        self
+    }
+
+    /// The deflate level this writer would use for an entry of `size` bytes.
+    ///
+    /// `None` (the default) applies [`default_deflate_level`]; a pinned level overrides it. An
+    /// entry of unknown size counts as small, because the streaming path that cannot declare a
+    /// size is exactly the one where a fast level pays.
+    pub fn deflate_level_for(&self, size: u64) -> u32 {
+        match self.deflate_level {
+            Some(level) => level.clamp(1, 9),
+            None => default_deflate_level(size),
+        }
+    }
+}
+
+/// An entry smaller than this many bytes is written at the fast deflate level rather than the
+/// best one.
+///
+/// Chosen from a measurement, not from taste. On the benchmark's 251-byte-cycle payload and a
+/// realistic log-file payload, level 6 (the writer's old hardcoded level) spent 1.5-3.7x the
+/// deflate time of level 1 on entries under 8 KiB for at most a few percent of output — and on a
+/// 512-byte entry it *grew* the output for two of the three payloads measured. At 8 KiB and above
+/// the same measurement shows it saving 12-23% for roughly 1.2-1.6x the time. The threshold is
+/// 8 KiB rather than 4 exactly because at 4 KiB the saving is still single-digit. `benches/zip.rs`
+/// and the level-probe in the J-0011 commit carry the table and the commands.
+pub const DEFLATE_LEVEL_THRESHOLD: u64 = 8 * 1024;
+
+/// The deflate level for an entry smaller than [`DEFLATE_LEVEL_THRESHOLD`]: the fastest one.
+pub const FAST_DEFLATE_LEVEL: u32 = 1;
+
+/// The deflate level for an entry at or above [`DEFLATE_LEVEL_THRESHOLD`]: the ordinary default.
+pub const BEST_DEFLATE_LEVEL: u32 = 6;
+
+/// The deflate level chosen for an entry of `size` bytes when no level is pinned.
+pub fn default_deflate_level(size: u64) -> u32 {
+    if size < DEFLATE_LEVEL_THRESHOLD {
+        FAST_DEFLATE_LEVEL
+    } else {
+        BEST_DEFLATE_LEVEL
     }
 }
 
