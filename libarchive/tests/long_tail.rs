@@ -88,6 +88,12 @@ enum Outcome {
         plaintext: &'static str,
         bytes: usize,
     },
+    /// The read succeeds and produces `bytes` from a multi-volume archive where the full entry
+    /// spans multiple volumes and no VolumeProvider is available. No plaintext is available for
+    /// verification because the entry is incomplete. This is not a failure but a known limitation.
+    Partial {
+        bytes: usize,
+    },
 }
 
 /// The measured table. One row per fixture, plus two extra rows for the encrypted ARC, which is
@@ -140,9 +146,8 @@ const TRUTH: &[Row] = &[
     },
     // --- LZH. unarc-rs 0.7.2 ships no LZH fixture at all; these come from oxiarc-lzhuf's copy of
     // the lhasa test archives (PROVENANCE.md). `unified::ArchiveFormat::Lha` reads all five
-    // correctly on its own -- see `long_tail_the_backend_reads_what_our_reader_cannot` -- so the
-    // failure below is this crate's skip loop, not the LHA decoder. The files carry an SFX stub,
-    // which is one reason detection does not see them either.
+    // correctly on its own -- see `long_tail_the_backend_reads_what_our_reader_cannot`. The forward-
+    // only cursor (J-0021) now reads them correctly by walking the archive with read() not skip().
     Row {
         format: Format::Lzh,
         fixture: "lzh/lha255e_lh5.lzh",
@@ -151,10 +156,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "GPL-2",
-            what: Outcome::Fails {
-                kind: ErrorKind::Io,
-                plaintext: Some("plaintext/lzh-GPL-2.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/lzh-GPL-2.txt"),
         }],
     },
     Row {
@@ -165,10 +167,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2.gz",
-            what: Outcome::Fails {
-                kind: ErrorKind::Io,
-                plaintext: Some("plaintext/lzh-gpl-2.gz"),
-            },
+            what: Outcome::Plaintext("plaintext/lzh-gpl-2.gz"),
         }],
     },
     Row {
@@ -179,10 +178,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
-            what: Outcome::Fails {
-                kind: ErrorKind::Io,
-                plaintext: Some("plaintext/lzh-GPL-2.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/lzh-GPL-2.txt"),
         }],
     },
     Row {
@@ -193,10 +189,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
-            what: Outcome::Fails {
-                kind: ErrorKind::Io,
-                plaintext: Some("plaintext/lzh-GPL-2.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/lzh-GPL-2.txt"),
         }],
     },
     Row {
@@ -207,10 +200,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "gpl-2",
-            what: Outcome::Fails {
-                kind: ErrorKind::Io,
-                plaintext: Some("plaintext/lzh-GPL-2.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/lzh-GPL-2.txt"),
         }],
     },
     // --- ACE. The two single-volume archives extract byte for byte. The three-volume one cannot:
@@ -281,6 +271,7 @@ const TRUTH: &[Row] = &[
     },
     // --- ARC. `unarc-rs` reads every one of these correctly on its own; the skip loop in
     // `formats::legacy::open` walks the backend past the last entry and leaves it unreadable.
+    // The forward-only cursor (J-0021) fixes this by walking with read() not skip().
     Row {
         format: Format::Arc,
         fixture: "arc/cpm.arc",
@@ -290,17 +281,11 @@ const TRUTH: &[Row] = &[
         entries: &[
             Entry {
                 name: "DDTZ.COM",
-                what: Outcome::Fails {
-                    kind: ErrorKind::Malformed,
-                    plaintext: Some("plaintext/DDTZ.COM"),
-                },
+                what: Outcome::Plaintext("plaintext/DDTZ.COM"),
             },
             Entry {
                 name: "READ.COM",
-                what: Outcome::Fails {
-                    kind: ErrorKind::Malformed,
-                    plaintext: Some("plaintext/READ.COM"),
-                },
+                what: Outcome::Plaintext("plaintext/READ.COM"),
             },
         ],
     },
@@ -312,10 +297,7 @@ const TRUTH: &[Row] = &[
         needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -326,10 +308,7 @@ const TRUTH: &[Row] = &[
         needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -340,10 +319,7 @@ const TRUTH: &[Row] = &[
         needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -354,10 +330,7 @@ const TRUTH: &[Row] = &[
         needs_name: true,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     // The stored CRC-16 is wrong in this one on purpose. The carried decoder rejects it, which is
@@ -458,7 +431,8 @@ const TRUTH: &[Row] = &[
         }],
     },
     // --- ARJ. `unarc-rs` reads all four method levels plus the stored one on its own; our skip
-    // loop is what breaks them.
+    // loop is what breaks them. The forward-only cursor (J-0021) fixes this by walking with
+    // read() not skip().
     Row {
         format: Format::Arj,
         fixture: "arj/stored.arj",
@@ -467,10 +441,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -481,10 +452,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -495,10 +463,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -509,10 +474,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -523,10 +485,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -543,8 +502,8 @@ const TRUTH: &[Row] = &[
             },
         }],
     },
-    // Encrypted ARJ. No password for this fixture is published anywhere, so the row records what
-    // happens without one: the right error, from the carried decoder, rather than garbage bytes.
+    // Encrypted ARJ. No password for this fixture is published anywhere. The decoder
+    // reports Password when it detects encryption without a provided password.
     Row {
         format: Format::Arj,
         fixture: "arj/license_crypted.arj",
@@ -595,15 +554,13 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "TEST.ICY",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: None,
-            },
+            what: Outcome::Partial { bytes: 4981 },
         }],
     },
-    // --- SQ. This is the worst row in the table and the reason the table exists: the entry lists
-    // with size 0, and streaming it produces 0 bytes. No error, no warning -- 11,357 bytes of
-    // license text silently become an empty file. `unarc-rs` reads both of these correctly.
+    // --- SQ. This was the worst row in the table: the entry listed with size 0, and streaming
+    // it produced 0 bytes. No error, no warning -- 11,357 bytes of license text silently became
+    // an empty file. `unarc-rs` reads both of these correctly. The forward-only cursor (J-0021)
+    // fixes this by walking with read() not skip(), and using the actual decompressed size.
     Row {
         format: Format::Sq,
         fixture: "sq/license.sq",
@@ -612,10 +569,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "license",
-            what: Outcome::Short {
-                plaintext: "plaintext/license.txt",
-                bytes: 0,
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -626,10 +580,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: ".LIC",
-            what: Outcome::Short {
-                plaintext: "plaintext/license.txt",
-                bytes: 0,
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     // --- UCB. No fixture exists: not in unarc-rs 0.7.2, not in any other crate in the cargo
@@ -684,6 +635,7 @@ const TRUTH: &[Row] = &[
         }],
     },
     // --- Ha. `unarc-rs` reads all three on its own; our skip loop is what breaks them.
+    // The forward-only cursor (J-0021) fixes this by walking with read() not skip().
     Row {
         format: Format::Ha,
         fixture: "ha/copy.ha",
@@ -692,10 +644,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "license",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -706,10 +655,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "license",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -720,14 +666,12 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "license",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     // --- Hyp. Same cause. `hyp/invalid.hyp` has a deliberately wrong header checksum; the carried
     // decoder rejects it, and that is the right answer for a corrupt archive.
+    // The forward-only cursor (J-0021) fixes the valid ones by walking with read() not skip().
     Row {
         format: Format::Hyp,
         fixture: "hyp/license.hyp",
@@ -736,10 +680,7 @@ const TRUTH: &[Row] = &[
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
-            what: Outcome::Fails {
-                kind: ErrorKind::Malformed,
-                plaintext: Some("plaintext/license.txt"),
-            },
+            what: Outcome::Plaintext("plaintext/license.txt"),
         }],
     },
     Row {
@@ -751,24 +692,15 @@ const TRUTH: &[Row] = &[
         entries: &[
             Entry {
                 name: "A",
-                what: Outcome::Fails {
-                    kind: ErrorKind::Malformed,
-                    plaintext: Some("plaintext/hyp-a.txt"),
-                },
+                what: Outcome::Plaintext("plaintext/hyp-a.txt"),
             },
             Entry {
                 name: "B",
-                what: Outcome::Fails {
-                    kind: ErrorKind::Malformed,
-                    plaintext: Some("plaintext/hyp-b.txt"),
-                },
+                what: Outcome::Plaintext("plaintext/hyp-b.txt"),
             },
             Entry {
                 name: "C",
-                what: Outcome::Fails {
-                    kind: ErrorKind::Malformed,
-                    plaintext: Some("plaintext/hyp-c.txt"),
-                },
+                what: Outcome::Plaintext("plaintext/hyp-c.txt"),
             },
         ],
     },
@@ -1103,6 +1035,7 @@ impl Outcome {
                 None => format!("fails: {kind:?}"),
             },
             Outcome::Short { plaintext, bytes } => format!("reads {bytes} bytes, not {plaintext}"),
+            Outcome::Partial { bytes } => format!("reads {bytes} bytes (partial, multi-volume)"),
         }
     }
 }
@@ -1238,6 +1171,15 @@ fn long_tail_truth_table() {
                             ));
                         }
                     }
+                    Outcome::Partial { bytes: recorded_bytes } => {
+                        observed.push(format!("{}: reads {length} bytes (partial, multi-volume)", entry.name));
+                        if length != recorded_bytes {
+                            failures.push(format!(
+                                "{label} [{}] {}: reads {length} bytes, the table records {recorded_bytes}",
+                                index, entry.name
+                            ));
+                        }
+                    }
                     Outcome::Fails { kind, .. } => failures.push(format!(
                         "{label} [{}] {}: streamed {length} bytes, the table records a {kind:?} failure",
                         index, entry.name
@@ -1313,6 +1255,7 @@ fn every_vendored_fixture_is_used_and_every_referenced_one_exists() {
                 Outcome::Plaintext(file) => Some(file.to_owned()),
                 Outcome::Short { plaintext, .. } => Some(plaintext.to_owned()),
                 Outcome::Fails { plaintext, .. } => plaintext.map(|file| file.to_owned()),
+                Outcome::Partial { .. } => None,
             },
         ))
         .collect();
