@@ -26,7 +26,7 @@
 //! # Encrypted entries
 //!
 //! Listing an encrypted entry works and marks it. Reading one needs the traditional PKWARE cipher
-//! or WinZip AES; see [`crate::formats::zip::crypt`].
+//! or WinZip AES; see [`crypt`].
 
 use std::io::{self, Read, Seek, SeekFrom};
 
@@ -36,6 +36,9 @@ use crate::error::{Error, Result};
 use crate::format::Compression;
 use crate::limits::Limits;
 use crate::reader::{lock, EntryRead, EntrySource, EntryStream, OpenOptions, Shared};
+
+/// The two ways an entry's bytes can be encrypted, and the streaming readers that undo them.
+pub mod crypt;
 
 /// The four bytes every ZIP structure starts with.
 pub const LOCAL_FILE_HEADER: &[u8] = b"PK\x03\x04";
@@ -112,6 +115,10 @@ struct CentralRecord {
     /// Whether the external attributes say this is a directory, which is how a ZIP written on
     /// unix records one that has no trailing slash in its name.
     is_directory: bool,
+    /// WinZip AES parameters, when the entry carries the AES extra field. `None` covers both
+    /// the plain case and the traditional ZipCrypto case, which needs no parameters beyond the
+    /// password itself.
+    aes: Option<crypt::AesParams>,
 }
 
 impl CentralRecord {
@@ -124,7 +131,23 @@ impl CentralRecord {
     }
 
     fn compression(&self) -> Compression {
+        // An AES entry's own method field reads 99; the real method is in the extra field.
+        if let Some(aes) = self.aes {
+            return aes.method;
+        }
         Compression::from_zip_method(self.method)
+    }
+
+    /// The check byte a ZipCrypto header is verified against: the CRC's high byte, or the
+    /// modification time's high byte when a data descriptor means no CRC was recorded yet.
+    /// This is the Info-ZIP variation every writer follows, because a streaming writer has no
+    /// CRC when it encrypts.
+    fn zipcrypto_check(&self) -> u8 {
+        if self.has_data_descriptor() {
+            (self.dos_time >> 8) as u8
+        } else {
+            (self.crc32 >> 24) as u8
+        }
     }
 }
 
@@ -134,6 +157,9 @@ pub struct ZipReader<R: Read + Seek + Send + 'static> {
     entries: Vec<Entry>,
     records: Vec<CentralRecord>,
     limits: Limits,
+    /// The password for encrypted entries, as bytes: the specification never says how a password
+    /// is encoded, so it is carried through untouched rather than via a `String` assumption.
+    password: Option<Vec<u8>>,
 }
 
 impl<R: Read + Seek + Send + 'static> EntrySource<R> for ZipReader<R> {
@@ -168,6 +194,9 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for ZipReader<R> {
             record.crc32,
             Some(record.uncompressed_size),
             record.is_encrypted(),
+            self.password.as_deref(),
+            record.aes,
+            record.zipcrypto_check(),
         )?;
         Ok(EntryStream::new(Box::new(contents)))
     }
@@ -216,6 +245,7 @@ impl<R: Read + Seek + Send + 'static> ZipReader<R> {
             entries,
             records,
             limits: options.limits.clone(),
+            password: options.password.clone().map(|text| text.into_bytes()),
         }))
     }
 
@@ -518,6 +548,7 @@ fn parse_central_directory(bytes: &[u8], limits: &Limits) -> Result<Vec<CentralR
             dos_date: u16_at(header, 14),
             unix_mode: unix_mode_from_extra(extra),
             is_directory: is_directory_attributes(version_made_by, external_attributes, flags),
+            aes: crypt::parse_aes_extra(extra),
         });
         at = variable_end;
     }
@@ -592,6 +623,10 @@ pub mod entry_reader {
         /// `compressed_size` of zero means "the end is wherever the codec says it is", which is
         /// the case a streaming writer with a data descriptor produces and the reason the length
         /// is an `Option` rather than a number.
+        ///
+        /// `password` is the password to try when `encrypted` is set; `aes` carries the WinZip
+        /// AES parameters when the entry has them (`None` means traditional ZipCrypto), and
+        /// `zipcrypto_check` is the byte a ZipCrypto header is verified against.
         #[allow(clippy::too_many_arguments)]
         pub fn new<R: Read + Seek + Send + 'static>(
             source: Shared<R>,
@@ -601,17 +636,45 @@ pub mod entry_reader {
             expected_crc: u32,
             expected_size: Option<u64>,
             encrypted: bool,
+            password: Option<&[u8]>,
+            aes: Option<crate::formats::zip::crypt::AesParams>,
+            zipcrypto_check: u8,
         ) -> Result<EntryDecoder> {
-            if encrypted {
-                // Refused here rather than at the codec, because silently returning bytes that are
-                // actually ciphertext would be worse than an error.
-                return Err(Error::password(
-                    "This entry is encrypted; a password is needed to read it",
-                ));
-            }
             let limit = (compressed_size != 0).then_some(compressed_size);
             let raw = crate::reader::RawReader::new(source, data_offset, limit);
-            let decoded = compression::decode(method, Box::new(raw))?;
+            // Decryption wraps the raw bytes and the decompressor wraps the decryption, because
+            // what is encrypted is the *compressed* data. The password check runs here, eagerly,
+            // so a missing or wrong password is `ErrorKind::Password` at open rather than an
+            // I/O error mid-read.
+            let decrypted: Box<dyn Read + Send> = if encrypted {
+                let password = password.ok_or_else(|| {
+                    Error::password("This entry is encrypted; a password is needed to read it")
+                })?;
+                if let Some(params) = aes {
+                    // WinZip AES needs the whole-entry size to separate data from salt and
+                    // trailer; a streaming entry that never recorded one cannot be AES.
+                    if compressed_size == 0 {
+                        return Err(Error::malformed(
+                            "a WinZip AES entry with no recorded size cannot be decrypted",
+                        ));
+                    }
+                    Box::new(crate::formats::zip::crypt::AesReader::open(
+                        raw,
+                        compressed_size,
+                        password,
+                        params,
+                    )?)
+                } else {
+                    Box::new(crate::formats::zip::crypt::ZipCryptoReader::open(
+                        raw,
+                        password,
+                        zipcrypto_check,
+                    )?)
+                }
+            } else {
+                Box::new(raw)
+            };
+            let decoded = compression::decode(method, decrypted)?;
             Ok(EntryDecoder {
                 inner: decoded,
                 remaining: expected_size,

@@ -32,7 +32,10 @@ ppmd-rust = "1.5"
 zstd = { version = "0.14", default-features = false }
 aes = "0.9"
 aes-gcm = "0.10"
-sha1 = "0.10"
+# 0.11, not 0.10: `hmac`/`pbkdf2` 0.13 need `digest` 0.11, which `sha1` 0.10 does not speak, so
+# the two cannot be combined. WinZip AES key derivation is PBKDF2-HMAC-SHA1 and is not negotiable
+# about the hash, hence this version. (`zip` 8.6 in this same tree pins the identical stack.)
+sha1 = "0.11"
 hmac = "0.13"
 pbkdf2 = "0.13"
 # Reused wholesale for the long tail of legacy formats. See libarchive/src/lib.rs.
