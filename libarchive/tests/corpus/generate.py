@@ -5,6 +5,13 @@ Reproducible from the repository: python3 stdlib plus the CLI tools on PATH (7z,
 bzip2, xz, zstd) plus cargo for the handful of codecs no CLI here can write (lz4, brotli, LZH,
 RAR — see examples/gen_corpus.rs, which this script runs).
 
+Determinism contract: every plaintext is a fixed constant and every staged file is stamped with
+FIXED_MTIME, so unencrypted archives regenerate byte-for-byte. Two families cannot, by format
+design: encrypted archives carry a random salt (zip -P, 7z -p), and the LZH fixtures are written
+by oxiarc's LzhWriter, which stamps the current time into every header. For those, regeneration
+changes the archive bytes and nothing else — the entry ground truth in the manifest is computed
+from the plaintext and never moves.
+
 The manifest is the contract; the archive files are its evidence. Entry ground truth (name, size,
 crc32) is computed from the *plaintext* the archives were made from, never by reading an archive
 back, so a bug that every reader shares cannot hide in the corpus.
@@ -15,7 +22,6 @@ Run:  python3 libarchive/tests/corpus/generate.py
 import hashlib
 import json
 import os
-import random
 import shutil
 import struct
 import subprocess
@@ -31,6 +37,11 @@ REPO = CORPUS.parent.parent.parent
 GENERATED = CORPUS / "generated"
 VENDOR = CORPUS / "vendor"
 MANIFEST = CORPUS / "manifest.json"
+
+# 2000-01-01T00:00:00Z. Every staged file, every tar header and every zip header carries this
+# timestamp, so the archive bytes do not depend on when the generator ran.
+FIXED_MTIME = 946684800
+FIXED_ZIP_DATE = (2000, 1, 1, 0, 0, 0)
 
 # ---------------------------------------------------------------------------
 # The plaintext every generated archive is made from. Fixed constants, so a
@@ -70,11 +81,20 @@ def entries_of(files=PLAINTEXT):
 
 
 def stage(dirpath: Path, files=PLAINTEXT):
-    """Writes the plaintext tree for the CLI tools."""
+    """Writes the plaintext tree for the CLI tools, stamped with the fixed timestamp."""
     for name, content in files:
         path = dirpath / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content())
+        os.utime(path, (FIXED_MTIME, FIXED_MTIME))
+    for directory in [dirpath, *dirpath.rglob("*")]:
+        if directory.is_dir() and not directory.is_symlink():
+            os.utime(directory, (FIXED_MTIME, FIXED_MTIME))
+
+
+def zinfo(name: str) -> zipfile.ZipInfo:
+    """A ZipInfo with the fixed timestamp, so python's zipfile output is byte-reproducible."""
+    return zipfile.ZipInfo(name, date_time=FIXED_ZIP_DATE)
 
 
 def run(argv, **kwargs):
@@ -248,7 +268,7 @@ def gen_zip(tmp: Path):
         out = GENERATED / "zip" / name
         with zipfile.ZipFile(out, "w", compress) as zf:
             for entry, content in PLAINTEXT:
-                zf.writestr(entry, content())
+                zf.writestr(zinfo(entry), content())
         made[name] = f"python3 zipfile, compress={label}"
         add_file(zip_path(name), "zip", made[name], entries=entries_of(), oracles=["unarc", "oxiarc"])
 
@@ -265,7 +285,7 @@ def gen_zip(tmp: Path):
     sink = NonSeekable()
     with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
         for entry, content in PLAINTEXT:
-            zf.writestr(entry, content())
+            zf.writestr(zinfo(entry), content())
     (GENERATED / "zip" / "data-descriptor.zip").write_bytes(sink.buf)
     add_file(zip_path("data-descriptor.zip"), "zip",
              "python3 zipfile over a non-seekable sink (forces GPBF bit 3)",
@@ -275,7 +295,7 @@ def gen_zip(tmp: Path):
     utf8_names = [("héllo wörld.txt", b"umlauts\n"), ("日本語.txt", b"nihongo\n")]
     with zipfile.ZipFile(GENERATED / "zip" / "utf8-names.zip", "w", zipfile.ZIP_DEFLATED) as zf:
         for name, content in utf8_names:
-            zf.writestr(name, content)
+            zf.writestr(zinfo(name), content)
     add_file(zip_path("utf8-names.zip"), "zip", "python3 zipfile, non-ASCII names (GPBF bit 11)",
              entries=[{"name": n, "size": len(c), "crc32": zlib.crc32(c) & 0xFFFFFFFF, "dir": False}
                       for n, c in utf8_names],
@@ -330,8 +350,13 @@ def gen_zip(tmp: Path):
     link_tree = tmp / "linktree"
     link_tree.mkdir(parents=True)
     (link_tree / "hello.txt").write_bytes(hello())
+    os.utime(link_tree / "hello.txt", (FIXED_MTIME, FIXED_MTIME))
     (link_tree / "link.txt").symlink_to("hello.txt")
-    subprocess.run(["zip", "-q", "-y", str(GENERATED / "zip" / "symlink.zip"), "hello.txt", "link.txt"],
+    os.utime(link_tree / "link.txt", (FIXED_MTIME, FIXED_MTIME), follow_symlinks=False)
+    # -X drops Info-ZIP's extended-timestamp extra field, which carries atime and ctime and
+    # would make the archive change every run.
+    subprocess.run(["zip", "-q", "-y", "-X", str(GENERATED / "zip" / "symlink.zip"),
+                    "hello.txt", "link.txt"],
                    cwd=link_tree, check=True)
     add_file(zip_path("symlink.zip"), "zip", "zip -y over a symlink tree",
              entries=None, oracles=[],
@@ -339,7 +364,8 @@ def gen_zip(tmp: Path):
                    "test in differential.rs (kind Symlink, target hello.txt), not the generic "
                    "comparison.")
 
-    # ZipCrypto encryption, via zip -P.
+    # ZipCrypto encryption, via zip -P. The password check bytes carry a random salt, so this
+    # archive is not byte-reproducible; its entry plaintext is.
     subprocess.run(["zip", "-q", "-P", "secret", str(GENERATED / "zip" / "zipcrypto.zip")] +
                    [e[0] for e in PLAINTEXT],
                    cwd=tree, check=True)
@@ -374,11 +400,13 @@ def gen_7z(tmp: Path):
     enc = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret",
                str(GENERATED / "7z" / "aes256.7z"), *files], cwd=tree)
     add_file("generated/7z/aes256.7z", "7z", enc, password="secret", entries=entries_of(),
-             oracles=["sevenz"], notes="AES-256, data encrypted only; listing works without the password.")
+             oracles=["sevenz"], notes="AES-256, data encrypted only; listing works without the "
+                                       "password. Random salt: not byte-reproducible.")
     enc_h = run(["7z", "a", "-t7z", "-bso0", "-bsp0", "-psecret", "-mhe=on",
                  str(GENERATED / "7z" / "aes256-header.7z"), *files], cwd=tree)
     add_file("generated/7z/aes256-header.7z", "7z", enc_h, password="secret", entries=entries_of(),
-             oracles=["sevenz"], notes="AES-256 with header encryption: opening itself needs the password.")
+             oracles=["sevenz"], notes="AES-256 with header encryption: opening itself needs the "
+                                       "password. Random salt: not byte-reproducible.")
 
     # The 400-entry solid pair behind the 15.5 s vs 204 ms measurement in lib.rs — correctness
     # input today, benchmark input for whoever writes the solid benchmark.
@@ -388,7 +416,9 @@ def gen_7z(tmp: Path):
         expected = []
         for i in range(400):
             content = bytes(((i + j) * 17) % 256 for j in range(200))
-            (big / f"f{i:03}.bin").write_bytes(content)
+            path = big / f"f{i:03}.bin"
+            path.write_bytes(content)
+            os.utime(path, (FIXED_MTIME, FIXED_MTIME))
             expected.append({"name": f"f{i:03}.bin", "size": len(content),
                              "crc32": zlib.crc32(content) & 0xFFFFFFFF, "dir": False})
         flag = "-ms=on" if solid_on else "-ms=off"
@@ -406,8 +436,12 @@ def gen_tar(tmp: Path):
 
     for fmt, name in [("ustar", "ustar.tar"), ("gnu", "gnu.tar"), ("posix", "posix.tar")]:
         out = GENERATED / "tar" / name
-        run(["tar", f"--format={fmt}", "-cf", str(out), "-T", str(listing)], cwd=tree)
-        add_file(f"generated/tar/{name}", "tar", f"tar --format={fmt} -cf {name} -T list",
+        # posix/pax records atime and ctime in an extended header, and the kernel bumps atime
+        # while tar reads the file, so without the delete options the archive changes every run.
+        extra = ["--pax-option=delete=atime,delete=ctime"] if fmt == "posix" else []
+        run(["tar", f"--format={fmt}", *extra, "-cf", str(out), "-T", str(listing)], cwd=tree)
+        add_file(f"generated/tar/{name}", "tar",
+                 f"tar --format={fmt} {' '.join(extra)} -cf {name} -T list".replace("  ", " "),
                  entries=entries_of(), oracles=["unarc", "oxiarc"])
 
     # A tar with the awkward cases: a directory, a symlink, an executable, a >100-char name.
@@ -416,18 +450,22 @@ def gen_tar(tmp: Path):
         info = tarfile.TarInfo("dir")
         info.type = tarfile.DIRTYPE
         info.mode = 0o755
+        info.mtime = FIXED_MTIME
         tf.addfile(info)
         info = tarfile.TarInfo("exec.sh")
         info.size = len(hello())
         info.mode = 0o755
+        info.mtime = FIXED_MTIME
         tf.addfile(info, fileobj=__import__("io").BytesIO(hello()))
         info = tarfile.TarInfo("link.txt")
         info.type = tarfile.SYMTYPE
         info.linkname = "exec.sh"
+        info.mtime = FIXED_MTIME
         tf.addfile(info)
         long_name = "a" * 120 + ".txt"
         info = tarfile.TarInfo(long_name)
         info.size = len(inner())
+        info.mtime = FIXED_MTIME
         tf.addfile(info, fileobj=__import__("io").BytesIO(inner()))
     shutil.copyfile(awkward, GENERATED / "tar" / "awkward.tar")
     add_file("generated/tar/awkward.tar", "tar",
@@ -441,16 +479,21 @@ def gen_tar(tmp: Path):
              oracles=["unarc", "oxiarc"],
              notes="link.txt is a symlink: contents are not compared, kind and target are.")
 
-    # Compressed tars.
+    # Compressed tars. The tar is built once and piped through each compressor from python, so
+    # gzip gets -n: the CLI's tar -czf embeds the tar's mtime in the gzip header.
     streams = [
-        ("tar.gz", ["tar", "-czf"], "tar -czf"),
-        ("tar.bz2", ["tar", "-cjf"], "tar -cjf"),
-        ("tar.xz", ["tar", "-cJf"], "tar -cJf"),
-        ("tar.zst", ["tar", "--zstd", "-cf"], "tar --zstd -cf"),
+        ("tar.gz", ["gzip", "-n", "-c"], "tar --format=ustar | gzip -n"),
+        ("tar.bz2", ["bzip2", "-c"], "tar --format=ustar | bzip2"),
+        ("tar.xz", ["xz", "-c"], "tar --format=ustar | xz"),
+        ("tar.zst", ["zstd", "-q", "-c"], "tar --format=ustar | zstd -q"),
     ]
+    tar_bytes = subprocess.run(
+        ["tar", "--format=ustar", "-cf", "-", "-T", str(listing)],
+        cwd=tree, check=True, capture_output=True,
+    ).stdout
     for name, argv, label in streams:
         out = GENERATED / "streams" / f"plain.{name}"  # plain.tar.gz, plain.tar.bz2, …
-        run(argv + [str(out), "-T", str(listing)], cwd=tree)
+        out.write_bytes(subprocess.run(argv, input=tar_bytes, check=True, capture_output=True).stdout)
         add_file(f"generated/streams/plain.{name}", name,
                  f"{label} over the standard plaintext tree",
                  entries=entries_of(), oracles=["unarc"])
@@ -653,7 +696,7 @@ def gen_malformed(tmp: Path):
     traversal_body = b" traversal payload \n"
     with zipfile.ZipFile(out_dir / "traversal.zip", "w", zipfile.ZIP_STORED) as zf:
         for name in traversal_names:
-            zf.writestr(name, traversal_body)
+            zf.writestr(zinfo(name), traversal_body)
     add_malformed("generated/malformed/traversal.zip", "traversal", "zip", expect="open_no_panic",
                   notes="well-formed ZIP with ../../, absolute and backslash names; must list "
                         "and stream, with names normalised, never panic")
@@ -662,6 +705,7 @@ def gen_malformed(tmp: Path):
         for name in traversal_names:
             info = tarfile.TarInfo(name)
             info.size = len(traversal_body)
+            info.mtime = FIXED_MTIME
             tf.addfile(info, io.BytesIO(traversal_body))
     add_malformed("generated/malformed/traversal.tar", "traversal", "tar", expect="open_no_panic",
                   notes="ditto, TAR flavour")
@@ -707,6 +751,11 @@ def gen_malformed(tmp: Path):
 # ---------------------------------------------------------------------------
 
 def main():
+    # Start from nothing: a stale file left by an interrupted run would be picked up by the
+    # mutation pass and committed as if the manifest knew about it.
+    for stale in (GENERATED, VENDOR):
+        if stale.exists():
+            shutil.rmtree(stale)
     for sub in ["zip", "7z", "tar", "streams", "malformed"]:
         (GENERATED / sub).mkdir(parents=True, exist_ok=True)
     VENDOR.mkdir(parents=True, exist_ok=True)
@@ -731,7 +780,9 @@ def main():
             "The corpus contract. Regenerate with: python3 libarchive/tests/corpus/generate.py. "
             "Entry ground truth comes from the plaintext, never from reading an archive back. "
             "status=gate records must pass the differential harness; status=pending records "
-            "assert today's honest Err and name the owner who flips them when their reader lands."
+            "assert today's honest behaviour and name the owner who flips them when their reader "
+            "lands. Unencrypted archives regenerate byte-for-byte; encrypted archives (random "
+            "salt) and the LZH fixtures (writer timestamps) do not."
         ),
         "files": FILES,
         "malformed": MALFORMED,

@@ -1,5 +1,5 @@
 {
- "comment": "The corpus contract. Regenerate with: python3 libarchive/tests/corpus/generate.py. Entry ground truth comes from the plaintext, never from reading an archive back. status=gate records must pass the differential harness; status=pending records assert today's honest Err and name the owner who flips them when their reader lands.",
+ "comment": "The corpus contract. Regenerate with: python3 libarchive/tests/corpus/generate.py. Entry ground truth comes from the plaintext, never from reading an archive back. status=gate records must pass the differential harness; status=pending records assert today's honest behaviour and name the owner who flips them when their reader lands. Unencrypted archives regenerate byte-for-byte; encrypted archives (random salt) and the LZH fixtures (writer timestamps) do not.",
  "files": [
   {
    "path": "generated/7z/aes256-header.7z",
@@ -41,7 +41,7 @@
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256 with header encryption: opening itself needs the password."
+   "notes": "AES-256 with header encryption: opening itself needs the password. Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/aes256.7z",
@@ -83,7 +83,7 @@
    "oracles": [
     "sevenz"
    ],
-   "notes": "AES-256, data encrypted only; listing works without the password."
+   "notes": "AES-256, data encrypted only; listing works without the password. Random salt: not byte-reproducible."
   },
   {
    "path": "generated/7z/lzma.7z",
@@ -5516,7 +5516,7 @@
    "status": "gate",
    "owner": null,
    "password": null,
-   "made_with": "tar -cjf over the standard plaintext tree",
+   "made_with": "tar --format=ustar | bzip2 over the standard plaintext tree",
    "expect": {
     "kind": "ok",
     "error_kind": null
@@ -5558,7 +5558,7 @@
    "status": "gate",
    "owner": null,
    "password": null,
-   "made_with": "tar -czf over the standard plaintext tree",
+   "made_with": "tar --format=ustar | gzip -n over the standard plaintext tree",
    "expect": {
     "kind": "ok",
     "error_kind": null
@@ -5640,7 +5640,7 @@
    "status": "gate",
    "owner": null,
    "password": null,
-   "made_with": "tar -cJf over the standard plaintext tree",
+   "made_with": "tar --format=ustar | xz over the standard plaintext tree",
    "expect": {
     "kind": "ok",
     "error_kind": null
@@ -5682,7 +5682,7 @@
    "status": "gate",
    "owner": null,
    "password": null,
-   "made_with": "tar --zstd -cf over the standard plaintext tree",
+   "made_with": "tar --format=ustar | zstd -q over the standard plaintext tree",
    "expect": {
     "kind": "ok",
     "error_kind": null
@@ -5810,7 +5810,7 @@
    "status": "gate",
    "owner": null,
    "password": null,
-   "made_with": "tar --format=posix -cf posix.tar -T list",
+   "made_with": "tar --format=posix --pax-option=delete=atime,delete=ctime -cf posix.tar -T list",
    "expect": {
     "kind": "ok",
     "error_kind": null
@@ -6969,7 +6969,7 @@
    "format": "7z",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/7z/lzma.7z truncated to 0 of 522 bytes"
+   "notes": "generated/7z/lzma.7z truncated to 0 of 515 bytes"
   },
   {
    "path": "generated/malformed/trunc-0-generated_streams_payload_bz2",
@@ -7009,7 +7009,7 @@
    "format": "tar.bz2",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.bz2 truncated to 0 of 874 bytes"
+   "notes": "generated/streams/plain.tar.bz2 truncated to 0 of 875 bytes"
   },
   {
    "path": "generated/malformed/trunc-0-generated_streams_plain_tar_gz",
@@ -7017,7 +7017,7 @@
    "format": "tar.gz",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.gz truncated to 0 of 531 bytes"
+   "notes": "generated/streams/plain.tar.gz truncated to 0 of 529 bytes"
   },
   {
    "path": "generated/malformed/trunc-0-generated_streams_plain_tar_xz",
@@ -7169,7 +7169,7 @@
    "format": "7z",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/7z/lzma.7z truncated to 1 of 522 bytes"
+   "notes": "generated/7z/lzma.7z truncated to 1 of 515 bytes"
   },
   {
    "path": "generated/malformed/trunc-1-generated_streams_payload_bz2",
@@ -7209,7 +7209,7 @@
    "format": "tar.bz2",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.bz2 truncated to 1 of 874 bytes"
+   "notes": "generated/streams/plain.tar.bz2 truncated to 1 of 875 bytes"
   },
   {
    "path": "generated/malformed/trunc-1-generated_streams_plain_tar_gz",
@@ -7217,7 +7217,7 @@
    "format": "tar.gz",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.gz truncated to 1 of 531 bytes"
+   "notes": "generated/streams/plain.tar.gz truncated to 1 of 529 bytes"
   },
   {
    "path": "generated/malformed/trunc-1-generated_streams_plain_tar_xz",
@@ -7500,6 +7500,14 @@
    "notes": "generated/streams/plain.tar.zst truncated to 242 of 485 bytes"
   },
   {
+   "path": "generated/malformed/trunc-257-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 257 of 515 bytes"
+  },
+  {
    "path": "generated/malformed/trunc-258-generated_streams_plain_tar_xz",
    "case": "truncated",
    "format": "tar.xz",
@@ -7508,12 +7516,12 @@
    "notes": "generated/streams/plain.tar.xz truncated to 258 of 516 bytes"
   },
   {
-   "path": "generated/malformed/trunc-261-generated_7z_lzma_7z",
+   "path": "generated/malformed/trunc-264-generated_streams_plain_tar_gz",
    "case": "truncated",
-   "format": "7z",
+   "format": "tar.gz",
    "expect": "open_no_panic",
    "error_kind": null,
-   "notes": "generated/7z/lzma.7z truncated to 261 of 522 bytes"
+   "notes": "generated/streams/plain.tar.gz truncated to 264 of 529 bytes"
   },
   {
    "path": "generated/malformed/trunc-2641-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
@@ -7522,14 +7530,6 @@
    "expect": "open_no_panic",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 2641 of 5282 bytes"
-  },
-  {
-   "path": "generated/malformed/trunc-265-generated_streams_plain_tar_gz",
-   "case": "truncated",
-   "format": "tar.gz",
-   "expect": "open_no_panic",
-   "error_kind": null,
-   "notes": "generated/streams/plain.tar.gz truncated to 265 of 531 bytes"
   },
   {
    "path": "generated/malformed/trunc-2725-vendor_unarc-rs-0_7_2_zoo_default_zoo",
@@ -7633,7 +7633,7 @@
    "format": "tar.bz2",
    "expect": "open_no_panic",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.bz2 truncated to 437 of 874 bytes"
+   "notes": "generated/streams/plain.tar.bz2 truncated to 437 of 875 bytes"
   },
   {
    "path": "generated/malformed/trunc-4540-generated_zip_store_zip",
@@ -7657,7 +7657,7 @@
    "format": "7z",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/7z/lzma.7z truncated to 512 of 522 bytes"
+   "notes": "generated/7z/lzma.7z truncated to 512 of 515 bytes"
   },
   {
    "path": "generated/malformed/trunc-512-generated_streams_payload_bz2",
@@ -7673,7 +7673,7 @@
    "format": "tar.bz2",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.bz2 truncated to 512 of 874 bytes"
+   "notes": "generated/streams/plain.tar.bz2 truncated to 512 of 875 bytes"
   },
   {
    "path": "generated/malformed/trunc-512-generated_streams_plain_tar_gz",
@@ -7681,7 +7681,7 @@
    "format": "tar.gz",
    "expect": "err",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.gz truncated to 512 of 531 bytes"
+   "notes": "generated/streams/plain.tar.gz truncated to 512 of 529 bytes"
   },
   {
    "path": "generated/malformed/trunc-512-generated_streams_plain_tar_xz",
@@ -7828,6 +7828,14 @@
    "notes": "generated/tar/ustar.tar truncated to 5120 of 10240 bytes"
   },
   {
+   "path": "generated/malformed/trunc-514-generated_7z_lzma_7z",
+   "case": "truncated",
+   "format": "7z",
+   "expect": "open_no_panic",
+   "error_kind": null,
+   "notes": "generated/7z/lzma.7z truncated to 514 of 515 bytes"
+  },
+  {
    "path": "generated/malformed/trunc-515-generated_streams_plain_tar_xz",
    "case": "truncated",
    "format": "tar.xz",
@@ -7836,12 +7844,12 @@
    "notes": "generated/streams/plain.tar.xz truncated to 515 of 516 bytes"
   },
   {
-   "path": "generated/malformed/trunc-521-generated_7z_lzma_7z",
+   "path": "generated/malformed/trunc-528-generated_streams_plain_tar_gz",
    "case": "truncated",
-   "format": "7z",
+   "format": "tar.gz",
    "expect": "open_no_panic",
    "error_kind": null,
-   "notes": "generated/7z/lzma.7z truncated to 521 of 522 bytes"
+   "notes": "generated/streams/plain.tar.gz truncated to 528 of 529 bytes"
   },
   {
    "path": "generated/malformed/trunc-5281-vendor_unarc-rs-0_7_2_Z_LICENSE_Z",
@@ -7850,14 +7858,6 @@
    "expect": "open_no_panic",
    "error_kind": null,
    "notes": "vendor/unarc-rs-0.7.2/Z/LICENSE.Z truncated to 5281 of 5282 bytes"
-  },
-  {
-   "path": "generated/malformed/trunc-530-generated_streams_plain_tar_gz",
-   "case": "truncated",
-   "format": "tar.gz",
-   "expect": "open_no_panic",
-   "error_kind": null,
-   "notes": "generated/streams/plain.tar.gz truncated to 530 of 531 bytes"
   },
   {
    "path": "generated/malformed/trunc-5450-vendor_unarc-rs-0_7_2_zoo_default_zoo",
@@ -7924,12 +7924,12 @@
    "notes": "vendor/unarc-rs-0.7.2/sq/license.sq truncated to 6716 of 6717 bytes"
   },
   {
-   "path": "generated/malformed/trunc-873-generated_streams_plain_tar_bz2",
+   "path": "generated/malformed/trunc-874-generated_streams_plain_tar_bz2",
    "case": "truncated",
    "format": "tar.bz2",
    "expect": "open_no_panic",
    "error_kind": null,
-   "notes": "generated/streams/plain.tar.bz2 truncated to 873 of 874 bytes"
+   "notes": "generated/streams/plain.tar.bz2 truncated to 874 of 875 bytes"
   },
   {
    "path": "generated/malformed/wrongmagic-generated_7z_lzma_7z",
