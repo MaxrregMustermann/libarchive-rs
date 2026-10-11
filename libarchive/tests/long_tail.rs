@@ -219,7 +219,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ace,
         fixture: "ace/license1.ace",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ace,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -230,7 +230,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ace,
         fixture: "ace/license2.ace",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ace,
         needs_name: false,
         entries: &[Entry {
             name: "LICENSE",
@@ -241,7 +241,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ace,
         fixture: "ace/multi/unarc.ace",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ace,
         needs_name: false,
         entries: &[Entry {
             name: "UNARC",
@@ -255,7 +255,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ace,
         fixture: "ace/multi/unarc.c00",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ace,
         needs_name: false,
         entries: &[Entry {
             name: "UNARC",
@@ -269,7 +269,7 @@ const TRUTH: &[Row] = &[
         format: Format::Ace,
         fixture: "ace/multi/unarc.c01",
         password: None,
-        detected: Format::Zip,
+        detected: Format::Ace,
         needs_name: false,
         entries: &[Entry {
             name: "UNARC",
