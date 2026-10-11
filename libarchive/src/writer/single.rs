@@ -263,6 +263,10 @@ impl<W: Write + Seek + 'static> EntryWriter<W> for SingleStreamWriter<W> {
         }
         // Reachable only when finalization failed and took the sink with it, which the public
         // route reports as `Err` from `finish` before ever getting here.
+        // The exception lib.rs allows: unreachable, and `into_sink` returns `W` so there is no
+        // error to return. The sink is taken only by `finish`, and a caller holding this handle
+        // has already been given the `Err` that says so.
+        #[allow(clippy::expect_used, reason = "unreachable: the sink is returned only after finish, whose failure is already reported")]
         owned.sink.expect("the stream was finished before its sink was returned")
     }
 }

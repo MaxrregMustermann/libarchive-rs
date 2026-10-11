@@ -178,7 +178,7 @@ pub mod legacy {
             entries,
             format_archive,
             reading_backend: None,
-            cursor: 0,
+            cursor: std::cell::Cell::new(0),
         }))
     }
 }
@@ -250,35 +250,61 @@ struct LegacyCursor<R: Read + Seek + Send + 'static> {
     reading_backend: Option<unarc_rs::unified::UnifiedArchive<Shared<R>>>,
     /// How many entries have been consumed from the reading backend.
     /// The reading backend's stream is positioned at the header of entry `cursor`.
-    cursor: usize,
+    ///
+    /// A `Cell` rather than a plain `usize`: both methods that move the cursor hold a borrow of
+    /// the backend for as long as they walk, and a plain field could not be written on the way
+    /// out without either ending that borrow early or asserting the backend was still there. The
+    /// cell makes the write unconditional and the invariant checkable by the compiler's absence
+    /// rather than by an `expect`.
+    cursor: std::cell::Cell<usize>,
 }
 
 impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
-    /// Ensure the reading backend exists, creating it if necessary.
-    fn ensure_reading_backend(&mut self) -> Result<()> {
-        if self.reading_backend.is_none() {
-            // Seek the shared source back to the start, since the listing backend may have
-            // consumed it entirely.
-            self.source.lock()?.seek(SeekFrom::Start(0))?;
-            let backend = unarc_rs::unified::UnifiedArchive::open_with_format(
-                self.source.clone(),
-                self.format_archive,
-            )?;
-            self.reading_backend = Some(backend);
-            self.cursor = 0;
+    /// Opens the archive for reading if it is not open already, and hands the backend back.
+    ///
+    /// Returns it rather than only storing it, which is what lets `open_entry` read the next
+    /// header without asserting the backend is still there. Takes the fields it needs rather than
+    /// `&mut self`: a borrow of the whole struct would outlive the return and make the cursor
+    /// unreachable for the length of the walk, which is the borrow error this shape exists to
+    /// avoid. Returns `None` when there is nothing to hand back, which `open_entry` turns into an
+    /// error rather than an `expect`.
+    fn open_for_reading<'a>(
+        reading_backend: &'a mut Option<unarc_rs::unified::UnifiedArchive<Shared<R>>>,
+        source: &Shared<R>,
+        format_archive: unarc_rs::unified::ArchiveFormat,
+        cursor: &std::cell::Cell<usize>,
+    ) -> Result<Option<&'a mut unarc_rs::unified::UnifiedArchive<Shared<R>>>> {
+        if reading_backend.is_none() {
+            // Seek the shared source back to the start, since the listing pass may have consumed
+            // it entirely.
+            source.lock()?.seek(SeekFrom::Start(0))?;
+            *reading_backend = Some(unarc_rs::unified::UnifiedArchive::open_with_format(
+                source.clone(),
+                format_archive,
+            )?);
+            cursor.set(0);
         }
-        Ok(())
+        Ok(reading_backend.as_mut())
     }
 
-    /// Advance the reading backend forward to the target index by reading entries.
+    /// Advance the reading backend forward to `target` by reading entries.
     ///
-    /// Precondition: `self.cursor <= target` and reading_backend exists.
-    /// Postcondition: `self.cursor == target`, and the reading backend's stream is
-    /// positioned at the header of entry `target` (or at EOF if `target == entries.len()`).
-    fn advance_to(&mut self, target: usize) -> Result<()> {
-        let backend = self.reading_backend.as_mut().expect("reading backend must exist");
+    /// Postcondition: `cursor == target`, and the returned backend's stream is positioned at the
+    /// header of entry `target` (or at EOF if `target == entries.len()`).
+    fn advance_to<'a>(
+        reading_backend: &'a mut Option<unarc_rs::unified::UnifiedArchive<Shared<R>>>,
+        source: &Shared<R>,
+        format_archive: unarc_rs::unified::ArchiveFormat,
+        cursor: &std::cell::Cell<usize>,
+        target: usize,
+    ) -> Result<Option<&'a mut unarc_rs::unified::UnifiedArchive<Shared<R>>>> {
+        let backend = match Self::open_for_reading(reading_backend, source, format_archive, cursor)? {
+            Some(backend) => backend,
+            None => return Ok(None),
+        };
 
-        while self.cursor < target {
+        let mut walked = cursor.get();
+        while walked < target {
             match backend.next_entry() {
                 Ok(Some(entry)) => {
                     // Read and discard this entry's data to advance the stream position.
@@ -286,7 +312,7 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
                     // the data and leaves the stream at the next header, while skip()
                     // seeks from the current position and breaks ARC/ARJ/Ha/Hyp.
                     let _ = backend.read(&entry)?;
-                    self.cursor += 1;
+                    walked += 1;
                 }
                 Ok(None) => {
                     // No more entries.
@@ -297,13 +323,17 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
                 }
             }
         }
-        Ok(())
+        cursor.set(walked);
+        Ok(Some(backend))
     }
 
     /// Re-open the archive from the start and walk forward to the target index by reading.
     ///
-    /// Used when `target < self.cursor` (out-of-order read). Costs O(target).
-    fn reopen_and_walk_to(&mut self, target: usize) -> Result<()> {
+    /// Used when `target` is behind the cursor (an out-of-order read). Costs O(target).
+    fn reopen_and_walk_to<'a>(
+        &'a mut self,
+        target: usize,
+    ) -> Result<&'a mut unarc_rs::unified::UnifiedArchive<Shared<R>>> {
         // Seek the shared source back to the start.
         self.source.lock()?.seek(SeekFrom::Start(0))?;
         // Create a fresh backend from the start.
@@ -328,8 +358,11 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
         }
 
         self.reading_backend = Some(backend);
-        self.cursor = walked;
-        Ok(())
+        self.cursor.set(walked);
+        match self.reading_backend.as_mut() {
+            Some(backend) => Ok(backend),
+            None => Err(Error::malformed("the long-tail reading backend could not be reopened")),
+        }
     }
 
     /// Open the entry at `index`, returning a streaming reader over its decompressed data.
@@ -341,20 +374,30 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
             )));
         }
 
-        // Ensure we have a reading backend.
-        self.ensure_reading_backend()?;
-
-        // If the requested index is behind the cursor, re-open and walk forward.
-        // If it's at or ahead of the cursor, advance forward.
-        if index < self.cursor {
-            self.reopen_and_walk_to(index)?;
+        // If the requested index is behind the cursor, re-open and walk forward; if it is at or
+        // ahead, advance. Both hand the backend back rather than only storing it, so nothing here
+        // asserts that it is present: an assertion here is how a future edit turns a caller error
+        // into a process abort across the JNI boundary, which is the one thing this crate promises
+        // never happens.
+        let cursor = self.cursor.get();
+        let backend = if index < cursor {
+            self.reopen_and_walk_to(index)?
         } else {
-            self.advance_to(index)?;
-        }
+            let Self {
+                reading_backend,
+                source,
+                format_archive,
+                cursor,
+                ..
+            } = self;
+            match Self::advance_to(reading_backend, source, *format_archive, cursor, index)? {
+                Some(backend) => backend,
+                None => return Err(Error::malformed("the long-tail reading backend is not open")),
+            }
+        };
 
-        // Now the reading backend is positioned at the header of entry `index`.
+        // The backend is now positioned at the header of entry `index`.
         // Read it to get the decompressed data.
-        let backend = self.reading_backend.as_mut().expect("reading backend must exist");
         let entry = match backend.next_entry() {
             Ok(Some(entry)) => entry,
             Ok(None) => {
@@ -370,7 +413,7 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
         let decoded_data = backend.read(&entry)?;
 
         // The cursor is now at the header of the NEXT entry (index + 1).
-        self.cursor = index + 1;
+        self.cursor.set(index + 1);
 
         // Wrap the decompressed data in a streaming reader.
         // Use the actual decompressed size, not the listed size (which may be wrong, e.g., SQ).

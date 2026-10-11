@@ -146,23 +146,31 @@ impl<E: Finishable> Encoder<E> {
 
 impl<E: Finishable> Write for Encoder<E> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.inner
-            .as_mut()
-            .expect("writing after finishing")
-            .write(buffer)
+        // Writing after `finish` is a caller error rather than bad input, and `std::io::Write`
+        // has no way to say "you already closed this" other than an error. `io::Error::other`
+        // carries it as an ordinary write failure, which is what keeps the no-panic promise: a
+        // writer used after being finished gets an `Err`, not an abort across the JNI boundary.
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            std::io::Error::other("write called after the encoder was finished")
+        })?;
+        inner.write(buffer)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.as_mut().expect("flushing after finishing").flush()
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            std::io::Error::other("flush called after the encoder was finished")
+        })?;
+        inner.flush()
     }
 }
 
 impl<E: Finishable> Encoded for Encoder<E> {
     fn finish(mut self: Box<Self>) -> Result<()> {
-        let inner = self
-            .inner
-            .take()
-            .expect("finish consumes the encoder, so it can only happen once");
+        // `take` rather than a borrow, so the encoder is left empty and a second `finish` finds
+        // nothing here and says so, rather than finishing a codec twice.
+        let inner = self.inner.take().ok_or_else(|| {
+            Error::malformed("the encoder was already finished")
+        })?;
         inner.finish_into()
     }
 }

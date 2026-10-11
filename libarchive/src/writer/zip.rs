@@ -198,7 +198,8 @@ impl<W: Write + Seek> ZipWriter<W> {
         self.deflaters
             .push((level, Compress::new(Compression::new(level), false)));
         self.deflaters_built += 1;
-        &mut self.deflaters.last_mut().expect("just pushed").1
+        let position = self.deflaters.len() - 1;
+        &mut self.deflaters[position].1
     }
 
     /// How many compressed bytes the deflater for `level` has produced so far, or 0 if that level

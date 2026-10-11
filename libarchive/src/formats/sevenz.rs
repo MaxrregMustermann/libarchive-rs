@@ -315,7 +315,13 @@ impl Read for SevenZEntry {
             }
             self.buffer = Some(data);
         }
-        let buffer = self.buffer.as_ref().expect("filled on the first read");
+        // Filled on the first read, above. `as_ref` rather than an index because the branch above
+        // assigns it and the borrow checker cannot see that; `ok_or_else` turns the impossible
+        // case into a read error instead of an abort, which is what the crate's no-panic rule is
+        // about. There is no path that reaches here with it still empty.
+        let buffer = self.buffer.as_ref().ok_or_else(|| {
+            std::io::Error::other("the 7z folder buffer was not filled before the read")
+        })?;
         let start = self.produced as usize;
         let count = output.len().min(buffer.len().saturating_sub(start));
         output[..count].copy_from_slice(&buffer[start..start + count]);
