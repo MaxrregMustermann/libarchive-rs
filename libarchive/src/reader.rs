@@ -314,7 +314,7 @@ impl<R: Read + Seek + Send + 'static> ArchiveReader<R> {
     /// Detection reads the signature rather than trusting a name, because the bytes say what a file
     /// is and the name says what somebody called it.
     pub fn open(mut source: R, options: &OpenOptions) -> Result<ArchiveReader<R>> {
-        let format = crate::detect::detect(&mut source)?;
+        let format = crate::detect::detect(&mut source, &options.limits)?;
         Self::open_as(source, format, options)
     }
 
@@ -329,7 +329,7 @@ impl<R: Read + Seek + Send + 'static> ArchiveReader<R> {
         name: Option<&std::path::Path>,
         options: &OpenOptions,
     ) -> Result<ArchiveReader<R>> {
-        let format = crate::detect::detect_with_name(&mut source, name)?;
+        let format = crate::detect::detect_with_name(&mut source, name, &options.limits)?;
         Self::open_as(source, format, options)
     }
 

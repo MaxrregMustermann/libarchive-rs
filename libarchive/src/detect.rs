@@ -25,12 +25,24 @@
 //! end-of-file marker, which appears in files that are not archives at all. Inventing a signature
 //! for either would turn a text file into a Zoo. Those two are reachable by name instead, through
 //! [`detect_header_with_name`], which is consulted only after the bytes have said nothing.
+//!
+//! ## Compressed TAR sniffing
+//!
+//! A `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` or `.tar.lz4` file has the same leading bytes as
+//! a raw `.gz`, `.bz2`, `.xz`, `.zst` or `.lz4` file. The only way to tell them apart is to
+//! decompress far enough to reach the TAR magic (`ustar` at offset 257). This module does that
+//! sniff when the leading bytes match a known compressor, reading at most one TAR block (512
+//! bytes) of decompressed data. The sniff is bounded by [`Limits::max_metadata_size`] so that a
+//! hostile stream cannot force unbounded decompression during detection.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::compression::decode;
 use crate::error::{Error, Result};
 use crate::format::{Compression, Format};
+use crate::limits::Limits;
+use crate::reader::RawReader;
 
 /// How many bytes detection reads.
 ///
@@ -38,6 +50,12 @@ use crate::format::{Compression, Format};
 /// ACE marker wherever it lands. Reading more than this on every open costs time and, on a
 /// channel-backed source, a JNI round trip.
 pub const HEADER_SIZE: usize = 512;
+
+/// How many decompressed bytes to read when sniffing for a compressed TAR.
+///
+/// One TAR block (512 bytes) is enough to reach the ustar magic at offset 257 and confirm the
+/// format. Reading more would cost time without adding certainty.
+const SNIFF_SIZE: usize = 512;
 
 const SEVEN_Z: &[u8] = &[0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C];
 const XZ: &[u8] = &[0xFD, b'7', b'z', b'X', b'Z', 0x00];
@@ -112,16 +130,21 @@ const NAME_HINTS: &[(&str, Format)] = &[
 ///
 /// The read is a loop rather than one `read_exact`, because a source backed by a channel hands
 /// back short reads and a single call would miss the signature.
-pub fn detect<R: Read + Seek>(source: &mut R) -> Result<Format> {
-    detect_with_name(source, None)
+pub fn detect<R: Read + Seek + Send>(source: &mut R, limits: &Limits) -> Result<Format> {
+    detect_with_name(source, None, limits)
 }
 
-/// [`detect`], with the name the caller already has as a fallback.
+/// [`detect`], with the name the caller already has as a fallback, and limits to bound any
+/// decompression sniffing.
 ///
 /// The name is consulted only when the bytes identified nothing, so it can make a format with no
 /// signature reachable without ever overriding a format the file really is. See
 /// [`detect_header_with_name`].
-pub fn detect_with_name<R: Read + Seek>(source: &mut R, name: Option<&Path>) -> Result<Format> {
+pub fn detect_with_name<R: Read + Seek + Send>(
+    source: &mut R,
+    name: Option<&Path>,
+    limits: &Limits,
+) -> Result<Format> {
     let start = source.stream_position()?;
     let mut header = [0u8; HEADER_SIZE];
     let mut filled = 0;
@@ -138,12 +161,18 @@ pub fn detect_with_name<R: Read + Seek>(source: &mut R, name: Option<&Path>) -> 
     if let Err(error) = source.seek(SeekFrom::Start(start)) {
         return Err(Error::io(error).context("the archive source is not seekable"));
     }
-    Ok(detect_header_with_name(&header[..filled], name))
+    Ok(detect_header_with_name(
+        &header[..filled],
+        name,
+        source,
+        start,
+        limits,
+    ))
 }
 
 /// Works out the format from bytes already in hand.
 pub fn detect_header(header: &[u8]) -> Format {
-    detect_header_with_name(header, None)
+    detect_header_with_name(header, None, &mut std::io::empty(), 0, &Limits::default())
 }
 
 /// [`detect_header`], falling back to `name` when the bytes identified nothing.
@@ -151,11 +180,37 @@ pub fn detect_header(header: &[u8]) -> Format {
 /// `name` is the path the app already has in its hand; only its extension is read, lowercased, so
 /// `LICENSE.ICE` and `license.ice` are the same answer. It is a fallback and not an override: a
 /// Zoo file called `photo.jpg` is a Zoo, and this returns [`Format::Zoo`].
-pub fn detect_header_with_name(header: &[u8], name: Option<&Path>) -> Format {
+///
+/// The `source` and `start` parameters are used for compressed TAR sniffing: if the header matches
+/// a known compressor (gzip, bzip2, xz, zstd, lz4), the source is rewound to `start` and up to
+/// `SNIFF_SIZE` decompressed bytes are read to check for the TAR magic at offset 257. If `source`
+/// is empty (e.g., `std::io::empty()`), sniffing is skipped.
+pub fn detect_header_with_name<R: Read + Seek + Send>(
+    header: &[u8],
+    name: Option<&Path>,
+    source: &mut R,
+    start: u64,
+    limits: &Limits,
+) -> Format {
     // A TAR has no signature at offset zero. Its magic is the word "ustar" 257 bytes in, inside
     // what is otherwise a block of mostly zeroes, so it is checked last: it is the weakest signal
     // here and the only one that needs the header to be long enough to reach.
     if let Some(format) = detect_signed(header) {
+        // For compressors that can wrap a TAR, sniff the decompressed content.
+        if let Format::SingleStream(compression) = format {
+            if matches!(
+                compression,
+                Compression::Gzip
+                    | Compression::Bzip2
+                    | Compression::Xz
+                    | Compression::Zstd
+                    | Compression::Lz4
+            ) {
+                if let Ok(true) = sniff_compressed_tar(source, start, compression, limits) {
+                    return Format::CompressedTar(compression);
+                }
+            }
+        }
         return format;
     }
     if header.len() > 262 && header[257..262] == *b"ustar" {
@@ -169,6 +224,72 @@ pub fn detect_header_with_name(header: &[u8], name: Option<&Path>) -> Format {
     // Nothing recognised. ZIP is the fallback because it can report a meaningful error for a file
     // that is not an archive, rather than "unknown format".
     Format::Zip
+}
+
+/// Sniffs a compressed stream to check if it contains a TAR archive.
+///
+/// Reads up to `max_compressed` bytes from `source` starting at `start`, creates a decoder for
+/// `compression`, and reads up to `SNIFF_SIZE` decompressed bytes. Returns `Ok(true)` if the TAR
+/// magic (`ustar` at offset 257) is found, `Ok(false)` otherwise. Returns an error if the source
+/// cannot be rewound or if the decompression fails in a way that is not EOF.
+///
+/// The read is bounded by `limits.max_metadata_size` to prevent a hostile stream from forcing
+/// unbounded decompression during detection.
+fn sniff_compressed_tar<R: Read + Seek>(
+    source: &mut R,
+    start: u64,
+    compression: Compression,
+    limits: &Limits,
+) -> Result<bool> {
+    // Rewind to the start of the compressed stream.
+    source.seek(SeekFrom::Start(start))?;
+
+    // Read up to 64 KiB of compressed data (enough to produce 512 decompressed bytes for any
+    // realistic compression ratio, and bounded for hostile inputs).
+    const MAX_COMPRESSED: u64 = 64 * 1024;
+    let mut compressed = Vec::new();
+    let mut limited = source.take(MAX_COMPRESSED);
+    std::io::copy(&mut limited, &mut compressed)?;
+
+    // Create a decoder over the compressed buffer.
+    let cursor = std::io::Cursor::new(compressed);
+    let mut decoder = match decode(compression, Box::new(cursor)) {
+        Ok(d) => d,
+        Err(_) => {
+            source.seek(SeekFrom::Start(start))?;
+            return Ok(false);
+        }
+    };
+
+    // Read up to SNIFF_SIZE decompressed bytes, charging against the metadata limit.
+    let mut buf = [0u8; SNIFF_SIZE];
+    let mut total_read = 0usize;
+    while total_read < SNIFF_SIZE {
+        let want = SNIFF_SIZE - total_read;
+        match decoder.read(&mut buf[total_read..total_read + want]) {
+            Ok(0) => break,
+            Ok(n) => {
+                total_read += n;
+                // Charge against the metadata limit.
+                if let Err(_) = limits.check_metadata_size(total_read as u64) {
+                    source.seek(SeekFrom::Start(start))?;
+                    return Ok(false);
+                }
+            }
+            Err(_) => {
+                source.seek(SeekFrom::Start(start))?;
+                return Ok(false);
+            }
+        }
+    }
+
+    // Check for TAR magic at offset 257.
+    let is_tar = total_read >= 262 && &buf[257..262] == b"ustar";
+
+    // Rewind the source again for the actual reader.
+    source.seek(SeekFrom::Start(start))?;
+
+    Ok(is_tar)
 }
 
 /// The long-tail format an extension names, if it names one.
@@ -402,39 +523,50 @@ mod tests {
     #[test]
     fn a_name_settles_only_what_the_bytes_cannot() {
         let ice = [0x5Du8, 0x1C, 0x00, 0x00, 0xAA, 0x00];
+        let mut empty = std::io::empty();
+        let limits = Limits::default();
         // Content first, and then the name, which is how an ARC and an ICE become reachable at all.
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("a.ice"))),
+            detect_header_with_name(&ice, Some(Path::new("a.ice")), &mut empty, 0, &limits),
             Format::Ice
         );
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("a.zip"))),
+            detect_header_with_name(&ice, Some(Path::new("a.zip")), &mut empty, 0, &limits),
             Format::Zip
         );
-        assert_eq!(detect_header_with_name(&ice, None), Format::Zip);
+        assert_eq!(
+            detect_header_with_name(&ice, None, &mut empty, 0, &limits),
+            Format::Zip
+        );
         // Case and a second dot do not matter; a name with no extension does not either.
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("a.ICE"))),
+            detect_header_with_name(&ice, Some(Path::new("a.ICE")), &mut empty, 0, &limits),
             Format::Ice
         );
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("archive.tar.ice"))),
+            detect_header_with_name(
+                &ice,
+                Some(Path::new("archive.tar.ice")),
+                &mut empty,
+                0,
+                &limits
+            ),
             Format::Ice
         );
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("ice"))),
+            detect_header_with_name(&ice, Some(Path::new("ice")), &mut empty, 0, &limits),
             Format::Zip
         );
         // A real archive keeps its real format whatever it is called.
         let mut zoo = vec![0u8; HEADER_SIZE];
         zoo[..ZOO.len()].copy_from_slice(ZOO);
         assert_eq!(
-            detect_header_with_name(&zoo, Some(Path::new("photo.jpg"))),
+            detect_header_with_name(&zoo, Some(Path::new("photo.jpg")), &mut empty, 0, &limits),
             Format::Zoo
         );
         // And there is no name that says UCB, because nothing here can read one.
         assert_eq!(
-            detect_header_with_name(&ice, Some(Path::new("a.ucb"))),
+            detect_header_with_name(&ice, Some(Path::new("a.ucb")), &mut empty, 0, &limits),
             Format::Zip
         );
     }
@@ -443,8 +575,16 @@ mod tests {
     fn a_file_with_nothing_recognisable_falls_back_to_zip_rather_than_failing() {
         // ZIP is the fallback because it can report a real error for a non-archive, rather than
         // "unknown format", which tells the caller nothing.
-        assert_eq!(detect_header(b"this is a text file"), Format::Zip);
-        assert_eq!(detect_header(&[]), Format::Zip);
+        let mut empty = std::io::empty();
+        let limits = Limits::default();
+        assert_eq!(
+            detect_header_with_name(b"this is a text file", None, &mut empty, 0, &limits),
+            Format::Zip
+        );
+        assert_eq!(
+            detect_header_with_name(&[], None, &mut empty, 0, &limits),
+            Format::Zip
+        );
     }
 
     #[test]
@@ -452,7 +592,7 @@ mod tests {
         let bytes = [0x37u8, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04];
         let mut source = Cursor::new(bytes.to_vec());
         source.seek(SeekFrom::Start(0)).unwrap();
-        assert_eq!(detect(&mut source).unwrap(), Format::SevenZ);
+        assert_eq!(detect(&mut source, &Limits::default()).unwrap(), Format::SevenZ);
         assert_eq!(
             source.stream_position().unwrap(),
             0,
@@ -495,7 +635,7 @@ mod tests {
             data: SEVEN_Z.to_vec(),
             position: 0,
         };
-        assert_eq!(detect(&mut source).unwrap(), Format::SevenZ);
+        assert_eq!(detect(&mut source, &Limits::default()).unwrap(), Format::SevenZ);
         assert_eq!(source.position, 0);
     }
 }

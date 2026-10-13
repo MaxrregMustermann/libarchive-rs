@@ -1,54 +1,46 @@
-//! What a compressed TAR actually lists, checked against what is inside it.
+//! Compressed TARs are detected as TARs, not as raw compressed streams.
 //!
-//! ## Status: this is the failing half of a known defect, not a passing gate
+//! ## The defect this exists for
 //!
-//! Both tests below are `#[ignore]`d, and `cargo test --offline --test compressed_tar` reports
-//! **0 passed, 2 ignored**. That is deliberate and it is the honest report: run
-//!
-//! ```text
-//! $ cargo test --offline --test compressed_tar -- --ignored --nocapture
-//! ```
-//!
-//! and they fail, because a compressed TAR is not read as a TAR.
-//!
-//! ## What is wrong, and where it was found
-//!
-//! Found on the device, not here. `BridgeInstrumentation.proveTheFormats` opened `plain.tar.gz`,
-//! made by GNU tar on the host, and the app listed one entry named `content` where `tar` lists
-//! `license.txt`. `content` is [`SINGLE_ENTRY_NAME`] - `libarchive/src/formats/single.rs:39`, the
-//! name this crate gives the one entry of a *raw* compressed stream - so the `.tar.gz` was taken
-//! as a gzip file rather than as a compressed TAR. The same file reproduces it on the host.
+//! Found on the API 24 emulator, not on the host. `BridgeInstrumentation.proveTheFormats` opened
+//! `plain.tar.gz`, made by GNU tar on this machine, and the app listed **one entry named
+//! `content`** where `tar` lists four. `content` is [`SINGLE_ENTRY_NAME`] -
+//! `libarchive/src/formats/single.rs:39`, the name this crate gives the single entry of a *raw*
+//! compressed stream - so the file was being taken as a gzip rather than as a compressed TAR, and
+//! extracting it would have written one blob instead of the files.
 //!
 //! [`SINGLE_ENTRY_NAME`]: crate::formats::single::SINGLE_ENTRY_NAME
 //!
-//! The cause is in detection. `Format::CompressedTar` exists and `CompressedTarReader` works, but
-//! nothing ever produces that variant:
+//! All five supported compressed TARs did it: `.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tar.zst` and
+//! `.tar.lz4`. The cause was that nothing ever produced `Format::CompressedTar`:
 //!
 //! ```text
-//! $ rg -n 'CompressedTar' libarchive/src/detect.rs
+//! $ rg -n 'CompressedTar' libarchive/src/detect.rs     # before the fix
 //! (nothing)
 //! ```
 //!
-//! `detect_header_with_name` maps `GZIP`, `BZIP2`, `XZ`, `ZSTD` and `LZ4` unconditionally to
-//! `Format::SingleStream(..)` (`libarchive/src/detect.rs:204-220`), so a compressed TAR can never
-//! be recognised as one. Deciding it needs a bounded peek at the decompressed head - the same
-//! "ustar" check the plain-TAR arm does at offset 257 - which is a real change to `detect` and
-//! belongs to whoever owns it, not to a device-verification commit.
+//! `detect_header_with_name` mapped GZIP, BZIP2, XZ, ZSTD and LZ4 unconditionally to
+//! `Format::SingleStream(..)`. So "compressed TAR read and write" was true only of the interior
+//! code: `CompressedTarReader` worked perfectly and nothing ever selected it.
+//!
+//! ## The fix
+//!
+//! A bounded peek at the decompressed head, checking the same `ustar` magic at offset 257 that the
+//! plain-TAR arm already checks. Content decides, never the file name: a `.tar.gz` renamed `.gz` is
+//! still a TAR, and a plain `.gz` renamed `.tar.gz` is still one raw stream.
 //!
 //! ## Why the corpus manifest did not catch it
 //!
-//! `libarchive/tests/corpus/manifest.json` already says what is in these archives. For
-//! `generated/streams/plain.tar.gz` it records four entries - `hello.txt` (22 B), `data.bin`
-//! (4096 B), `empty.txt` (0 B) and `nested/inner.txt` (13 B) - with `"status": "gate"` and
-//! `"expect": {"kind": "ok"}`. No test reads that field for these archives, so a manifest entry
-//! that disagrees with the code reads the same as one that agrees. That is worth knowing on its
-//! own: the manifest is currently documentation rather than a check for at least these rows.
+//! `libarchive/tests/corpus/manifest.json` already records four entries for
+//! `generated/streams/plain.tar.gz`, with `"status": "gate"`. **No test read that field for these
+//! archives**, so a manifest entry that disagreed with the code read exactly like one that agreed.
+//! That is worth knowing on its own and it is the reason these tests exist as executable checks
+//! rather than as manifest rows.
 //!
 //! ## Why there is a test here at all
 //!
 //! Because the alternative is a comment. A comment saying "compressed TARs are broken" is checked
-//! by nobody and is gone the moment someone reformats the file; these two tests fail the moment
-//! the defect is fixed by accident, which is the earliest possible warning.
+//! by nobody and is gone the moment someone reformats the file.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -130,7 +122,6 @@ fn require_cases() -> Vec<(PathBuf, Vec<(&'static str, u64)>)> {
 }
 
 #[test]
-#[ignore = "a compressed TAR is listed as one raw stream named `content`; see the module docs"]
 fn a_compressed_tar_is_listed_as_a_tar_not_as_one_raw_stream() {
     let cases = require_cases();
     let mut wrong = Vec::new();
@@ -159,7 +150,6 @@ fn a_compressed_tar_is_listed_as_a_tar_not_as_one_raw_stream() {
 }
 
 #[test]
-#[ignore = "a compressed TAR is listed as one raw stream named `content`; see the module docs"]
 fn an_entry_in_a_compressed_tar_is_the_file_inside_it_and_not_the_archive() {
     let cases = require_cases();
     for (path, expected) in &cases {

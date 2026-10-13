@@ -35,7 +35,7 @@ use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
-use libarchive::{detect_header, detect_header_with_name, ArchiveReader, Format};
+use libarchive::{detect_header, detect_header_with_name, ArchiveReader, Format, Limits};
 
 /// One long-tail format and what every vendored fixture of it is detected as.
 struct Row {
@@ -210,7 +210,9 @@ fn every_long_tail_fixture_is_detected_as_its_own_format() {
                 PathBuf::from(format!("archive.{}", row.extension)),
                 fixtures().join(fixture),
             ] {
-                let named = detect_header_with_name(&bytes, Some(&name));
+                let mut empty = std::io::empty();
+                let limits = Limits::default();
+                let named = detect_header_with_name(&bytes, Some(&name), &mut empty, 0, &limits);
                 if named != row.format {
                     failures.push(format!(
                         "{fixture}: with {name:?} as a hint detect says {named:?}, expected {:?}",
@@ -218,15 +220,6 @@ fn every_long_tail_fixture_is_detected_as_its_own_format() {
                     ));
                 }
             }
-            println!(
-                "{fixture:28} first 12 {:<36} content={detected:<9?} name={}",
-                bytes[..12.min(bytes.len())]
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                detect_header_with_name(&bytes, Some(&fixtures().join(fixture))),
-            );
         }
     }
     assert!(
@@ -247,7 +240,9 @@ fn a_zip_name_does_not_reach_the_formats_only_the_name_can_reach() {
     for row in ROWS.iter().filter(|row| !row.by_content) {
         for fixture in row.fixtures {
             let bytes = read_fixture(fixture);
-            let named = detect_header_with_name(&bytes, Some(Path::new("mislabelled.zip")));
+            let mut empty = std::io::empty();
+            let limits = Limits::default();
+            let named = detect_header_with_name(&bytes, Some(Path::new("mislabelled.zip")), &mut empty, 0, &limits);
             assert_eq!(
                 named,
                 Format::Zip,
@@ -377,8 +372,10 @@ fn every_long_tail_format_is_a_row_here_or_is_named_with_why() {
 
     // And no name hint smuggles one back in.
     let bytes = read_fixture("ice/license_lha.ice");
+    let mut empty = std::io::empty();
+    let limits = Limits::default();
     assert_eq!(
-        detect_header_with_name(&bytes, Some(Path::new("x.ucb"))),
+        detect_header_with_name(&bytes, Some(Path::new("x.ucb")), &mut empty, 0, &limits),
         Format::Zip
     );
 }

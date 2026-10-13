@@ -1053,7 +1053,9 @@ fn long_tail_truth_table() {
 
         // 1. What the file is, for a caller that has both the bytes and the name.
         let name = fixtures().join(row.fixture);
-        let detected = detect_header_with_name(&bytes, Some(&name));
+        let mut empty = std::io::empty();
+        let limits = Limits::default();
+        let detected = detect_header_with_name(&bytes, Some(&name), &mut empty, 0, &limits);
         if detected != row.detected {
             failures.push(format!(
                 "{label}: detect says {detected:?} with the file's name, the table records {:?}",
