@@ -93,10 +93,23 @@ say "push the corpus"
 "$ADB" shell "chmod 755 $REMOTE/bench_workloads"
 
 say "run on device"
+# One workload per process, on both machines, and this is load-bearing rather than tidiness.
+#
+# `read all` moves 583.7 MiB of ZIP through the process. On this machine it evicts the 5.1 MiB solid
+# 7Z out of the page cache, and the *next* workload in the same process then reads from cold cache
+# instead of warm. Measured, host, revision 03809d3: `extract` is 470.14 ms when it is the only
+# workload in the process and 865.13 ms when `read all` runs in front of it. Neither number is
+# wrong and the 1.8x gap between them is entirely cache state. A host-vs-device table built from
+# one process running everything would be reporting that artefact, not the library.
+#
 # `LIBARCHIVE_REVISION` is passed through the environment rather than baked in twice over, so
 # the number on the device and the number on the host name the same commit.
-"$ADB" shell "cd $REMOTE && LIBARCHIVE_REVISION=$REVISION ./bench_workloads \
-    $REMOTE/bench/big.zip $REMOTE/bench/solid400big.7z" | tr -d '\r'
+for workload in list first read extract write; do
+    say "device: $workload"
+    "$ADB" shell "cd $REMOTE && LIBARCHIVE_REVISION=$REVISION ./bench_workloads \
+        $REMOTE/bench/big.zip $REMOTE/bench/solid400big.7z $workload" | tr -d '\r' \
+        | sed -n '/^---/,$p' | grep -Ev '^(---|$)|^Compare like with like' || true
+done
 
 say "the same source on the host, for comparison"
 # Run the host build last, so a device number is never reported without its host counterpart
@@ -104,13 +117,27 @@ say "the same source on the host, for comparison"
 # to a fresh device binary is exactly the comparison that produces a confident wrong answer.
 HOST_TARGET="${HOST_TARGET:-/home/user/cargo-target-host}"
 printf '  target        %s\n' "$HOST_TARGET"
-if CARGO_TARGET_DIR="$HOST_TARGET" cargo build --release --offline --example bench_workloads >/dev/null 2>&1; then
-    LIBARCHIVE_REVISION="$REVISION" \
-        "$HOST_TARGET/release/examples/bench_workloads" \
-        "$CORPUS/big.zip" "$CORPUS/solid400big.7z" | tr -d '\r'
-else
-    echo "  (the host build failed; run it by hand to get the other half of this comparison)"
+if ! CARGO_TARGET_DIR="$HOST_TARGET" cargo build --release --offline \
+        --example bench_workloads >/dev/null 2>&1; then
+    # Loudly, and fatally. This branch used to print one parenthetical line and let the script
+    # exit 0, so a run whose host half produced nothing looked exactly like a run whose host half
+    # had nothing to say. A missing host number is a failed comparison, not a quiet one.
+    echo "  THE HOST BUILD FAILED, so there is no host half to compare against." >&2
+    echo "  Run it by hand to find out why:" >&2
+    echo "    CARGO_TARGET_DIR=$HOST_TARGET cargo build --release --offline --example bench_workloads" >&2
+    exit 1
 fi
+HOST_BINARY="$HOST_TARGET/release/examples/bench_workloads"
+if [[ ! -x $HOST_BINARY ]]; then
+    echo "  no host binary at $HOST_BINARY" >&2
+    exit 1
+fi
+for workload in list first read extract write; do
+    say "host: $workload"
+    LIBARCHIVE_REVISION="$REVISION" "$HOST_BINARY" \
+        "$CORPUS/big.zip" "$CORPUS/solid400big.7z" "$workload" 2>&1 \
+        | sed -n '/^---/,$p' | grep -Ev '^(---|$)|^Compare like with like' || true
+done
 
 printf '\nRead the two blocks above together. The device here is x86 on the same silicon as\n'
 printf 'the host, so these ratios are about 32-bit Android and not about a phone.\n'
