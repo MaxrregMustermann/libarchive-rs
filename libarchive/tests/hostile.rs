@@ -302,20 +302,20 @@ enum Verdict {
     Bad(String),
 }
 
-/// Reads one entry to the end with an output cap, returning the byte count or the failure.
+/// Reads one entry to the end with an output cap, returning the bytes or the failure.
 fn stream_capped(
     reader: &mut ArchiveReader<Cursor<Vec<u8>>>,
     index: usize,
-) -> std::result::Result<u64, String> {
+) -> std::result::Result<Vec<u8>, String> {
     let mut stream = reader.open_entry(index).map_err(|e| format!("open_entry: {e:?}"))?;
-    let mut total = 0u64;
+    let mut out = Vec::new();
     let mut chunk = vec![0u8; 997];
     loop {
         match stream.read(&mut chunk) {
-            Ok(0) => return Ok(total),
+            Ok(0) => return Ok(out),
             Ok(read) => {
-                total += read as u64;
-                if total > MAX_HOSTILE_OUTPUT {
+                out.extend_from_slice(&chunk[..read]);
+                if out.len() as u64 > MAX_HOSTILE_OUTPUT {
                     return Err(format!(
                         "produced over {MAX_HOSTILE_OUTPUT} bytes without error (bomb-like)"
                     ));
@@ -332,7 +332,17 @@ fn stream_capped(
 /// decoder becomes a named hang instead of a stuck suite). A hung thread is abandoned, not
 /// killed — Rust cannot kill threads — so the HA cases run in their own test
 /// (`hostile_mutations_ha`) where the leaked threads die with the process.
-fn drive(bytes: Vec<u8>, format: Option<Format>, limits: Limits) -> Verdict {
+///
+/// `ground` carries the written payload per entry index for writer-produced samples: a read
+/// that succeeds must produce exactly those bytes, since silent corruption (right length,
+/// wrong bytes, no error) is otherwise invisible. `None` for vendored fixtures, where the
+/// valid-input table in `long_tail.rs` already owns ground truth.
+fn drive(
+    bytes: Vec<u8>,
+    format: Option<Format>,
+    limits: Limits,
+    ground: Option<Vec<Vec<u8>>>,
+) -> Verdict {
     let job = move || -> Verdict {
         let options = OpenOptions::default().with_limits(limits);
         let mut reader = match format {
@@ -355,10 +365,10 @@ fn drive(bytes: Vec<u8>, format: Option<Format>, limits: Limits) -> Verdict {
             match stream_capped(&mut reader, index) {
                 Ok(produced) => {
                     if let Some(size) = claimed {
-                        if size != produced {
+                        if size != produced.len() as u64 {
                             return Verdict::Bad(format!(
-                                "entry {index} claims size {size} but produced {produced} bytes \
-                                 without error (Ok with nonsense)"
+                                "entry {index} claims size {size} but produced {} bytes \
+                                 without error (Ok with nonsense)", produced.len()
                             ));
                         }
                     }
@@ -386,7 +396,7 @@ fn drive(bytes: Vec<u8>, format: Option<Format>, limits: Limits) -> Verdict {
 fn drive_guarded(label: &str, bytes: Vec<u8>, format: Option<Format>, limits: Limits) -> Verdict {
     let (tx, rx) = std::sync::mpsc::channel();
     if std::thread::Builder::new().name(format!("hostile:{label}")).spawn(move || {
-        let verdict = drive(bytes, format, limits);
+        let verdict = drive(bytes, format, limits, None);
         let _ = tx.send(verdict);
     }).is_err() {
         return Verdict::Bad("could not spawn watchdog thread".to_owned());
