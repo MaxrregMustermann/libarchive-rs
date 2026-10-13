@@ -33,6 +33,8 @@ The following files/modules from `unarc-rs` are carried across (or adapted) in `
 - `unarc-rs/src/z` — Z (Unix compress) reader
 - `unarc-rs/src/zoo` — Zoo reader
 
+`libarchive-rs` also uses a **vendored, patched** copy of `unarc-rs` 0.7.2 at `vendor/unarc-rs/`, as a path dependency. Every difference from upstream is recorded in `vendor/unarc-rs/PATCHES.md`: two functional fixes to the Ha decoder (a bounded decode loop and header validation for `Dir`/`Special` entries) and a whole-tree `rustfmt` reflow, which exists because the crate is a workspace member and upstream is not formatted to this project's configuration. `unarc-rs` was vendored rather than patched in place because hostile input made its decoders panic, and a panic at the JNI boundary aborts the process on Android.
+
 All carried code retains its original Apache-2.0 licence headers. The adaptation to `libarchive-rs`'s streaming `EntrySource` trait and panic-free error model is a derivative work also licensed Apache-2.0.
 
 ## sevenz-rust2 0.23.0
