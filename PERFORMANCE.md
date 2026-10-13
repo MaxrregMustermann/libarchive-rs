@@ -1,109 +1,191 @@
 # Performance baselines
 
-Every row below is a number produced by a command in this repository. A claim without a command is a guess, and this project has already shipped a benchmark asserting a property that had never compiled.
+Every number below was measured by the orchestrator or by a named agent, in this wave, with the
+command printed beside it. A number without a command is a guess, and this repository has a history
+of shipping exactly that: the previous `PERFORMANCE.md` had eleven numbers for benchmarks that did
+not exist. The rule from that is simple and it is the only reason this document can be trusted:
 
-## ZIP write — 5,000 entries x 512 B (251-byte cycle payload)
+> **If a row here cannot be reproduced by running the command in that row, the row is wrong.**
 
-| Metric | Code being replaced (oxiarc @ 93b17af) | This crate | Bar | Status | Command |
-|---|---|---|---|---|---|
-| Time (deflate, level 6) | **268.1 ms** wall / 260 ms cpu | **231.9 ms** wall / 220 ms cpu | 109.2 ms | **NOT MET** | `cargo bench --bench zip --offline -- zip-write-5000-entries/deflate` |
-| Time (stored) | — | **13.9 ms** wall / 10 ms cpu | 60 ms | MET | `cargo bench --bench zip --offline -- zip-write-5000-entries/stored` |
-| Sink writes per entry | 32 | **3.00** | 6 | MET | `cargo bench --bench zip --offline -- sink-writes-per-entry` |
-| Allocated per archive | 1.40 GiB | **12.20 MB** (11.64 MiB, 12,202,175 B) in 40,036 calls | 43.9 MB | MET | `cargo bench --bench zip --offline -- allocated-bytes-per-archive` |
+Where a number could not be measured on an idle machine it says so, rather than being quietly
+presented as a result.
 
-## ZIP write — 5,000 entries x 512 B (low-alphabet "recycled deflater " payload)
+## The one thing to read first: the host is not the target
 
-| Metric | Code being replaced (oxiarc @ 93b17af) | This crate | Bar | Status | Command |
-|---|---|---|---|---|---|
-| Time (deflate, level 6) | **45.3 ms** wall / 40 ms cpu | **92.3 ms** wall / 90 ms cpu | — | **2× slower** | `cargo bench --bench zip --offline -- zip-write-5000-entries/deflate` (see notes) |
+The device is **1.1x to 2.9x slower than the host depending on the workload**, and the 5,000-entry
+ZIP write is **not met on the device**. Every "this crate" figure below is a host figure unless the
+row says otherwise.
 
-Notes:
-- The deflate path does not meet the 109.2 ms bar. The stored path does, which places the gap
-  squarely in the codec: ~232 ms total against ~14 ms of structural work means roughly 44 us per
-  entry is deflate of 512 bytes. Whether 109.2 ms is reachable on this machine depends on the
-  deflate backend — this crate uses `zlib-rs` (via `flate2`'s `zlib-rs` feature, unified by
-  `unarc-rs`) while the bar was measured against oxiarc, whose deflate may differ.
-- **On the benchmark's own 251-byte-cycle payload this crate is faster than oxiarc** (232 vs 268 ms
-  wall min, both at level 6 in the same process). The 109.2 ms bar was not produced by oxiarc on
-  this machine; the reference implementation agrees the bar is not met by either writer on this
-  payload.
-- **On a low-alphabet payload ("recycled deflater " 18-byte cycle) this crate is ~2× slower than
-  oxiarc** (92 vs 45 ms wall min). The benchmark prints both payloads via `timing_report()`; run
-  `cargo bench --bench zip --offline -- zip-write-5000-entries` to see the before/after rows.
-- **These numbers move with machine load.** The same benchmark reports ~230 ms on an idle machine
-  and ~300 ms with several agents running. Read the allocation and sink-write figures instead: both
-  are deterministic, and both are asserted.
-- Sink writes per entry and allocation are asserted by the benchmark (`sink-writes-per-entry`,
-  `allocated-bytes-per-archive`), so a regression fails the test rather than quietly producing a
-  worse number.
+| workload | API 24 emulator | host | ratio |
+|---|---|---|---|
+| list, 20,000 entries, 249 MB ZIP | 17.81 ms | 12.50 ms | 1.42x |
+| first byte of a 2.9 MB entry | 56.03 us | 33.30 us | 1.68x |
+| read all, 612 MB out | 3,099.57 ms | 1,084.78 ms | **2.86x** |
+| extract, solid 7Z, 401 entries | 546.66 ms | 494.46 ms | 1.11x |
+| **write, 5,000 entries, deflate** | **168.72 ms** | **97.43 ms** | **1.73x** |
+
+    tools/run-on-device.sh /home/user/bench-corpus      # runs the device block, then the host
+                                                       # block, from the same source, same commit
+
+A second run of the same command gave `write 119.26 ms device / 71.29 ms host (1.67x)` and
+`extract 500.47 / 378.39 (1.32x)`, so read the device column as *this emulator, this load*, not as a
+constant. The ranking is the finding: the device penalty tracks **bytes decompressed**, not
+operations, which is why read-all is 2.9x and extract only 1.1x.
+
+**These are not phone numbers and must not be quoted as such.** `adb shell getprop
+ro.product.cpu.abi` reports `x86` and the process is `qemu-system-i386-headless`: the API 24 emulator
+runs a **32-bit** binary and the host is x86-64. Most of the gap is word size, not our code. There
+are no ARM numbers on this machine; one x86 AVD is what exists.
+
+## ZIP write — 5,000 entries x 512 B, 251-byte-cycle payload
+
+| | oxiarc @ 93b17af (replaced) | this crate | bar | status |
+|---|---|---|---|---|
+| Time, level chosen by entry size (**default**) | — | **70.1 ms** wall / 70 ms cpu | 109.2 ms | MET (host) |
+| Time, level 6 pinned (the old fixed behaviour) | — | 216.9 ms / 210 ms | 109.2 ms | not met |
+| Time, same payload, oxiarc | **240.9 ms** / 240 ms | — | — | — |
+| Time, stored (structural only) | — | 5.29 ms | 60 ms | MET |
+| One-entry floor | — | 1.21 ms | — | — |
+| Allocated per archive | 1.40 GiB | **12,275,429 B (11.71 MiB) in 40,037 calls** | 43.9 MB | MET |
+| Sink writes per entry | 32 | **3.00** | 6 | MET |
+
+    cargo bench --offline --bench zip
+
+One command prints all of it: the benchmark's own `timing_report()` runs both writers interleaved in
+one process and prints min-of-12 wall and cpu for each. **These were taken on a loaded machine**
+(load average 5.8 to 20), so treat the milliseconds as an upper bound; the allocation and sink-write
+figures are deterministic and are the ones worth quoting. Those two are also **asserted by the
+benchmark**, so a regression fails `cargo bench` rather than quietly producing a worse number nobody
+reads.
+
+The default picks the deflate level from the entry size (`DEFLATE_LEVEL_THRESHOLD`, 8 KiB), so these
+512-byte entries run at level 1. On this payload level 6 costs 3x the time for 0.01% more bytes,
+which is why the default exists; `timing_report()` prints both so the benchmark is its own
+before/after.
+
+## ZIP write — the one real gap: 18-byte low-alphabet cycle
+
+| payload | this crate | oxiarc @ 93b17af |
+|---|---|---|
+| 251-byte cycle (above) | **70.1 ms** | 240.9 ms |
+| 18-byte low-alphabet cycle | **57.4 ms** | **44.4 ms** |
+
+    cargo bench --offline --bench zip
+
+On the bench's own payload we are 3.4x faster than the code we replace. On the low-alphabet
+payload we are **~29% slower**, and we are not trading size for it. That is J-0026, and the profile
+that explains it is J-0029:
+
+    perf record -g --call-graph=dwarf    # on the low-alphabet write
+    perf report
+
+    76.83%  __memset_avx2_unaligned_erms  (libc.so.6)
+    called from zlib-rs Compress::reset()
+
+`Compress::reset()` memsets zlib's 64 KiB hash table, once per entry, 5,000 times, for entries of
+512 bytes. That is the whole of the remaining gap. The reset itself cannot be removed — each ZIP
+entry is an independently decodable stream — so the lever is `memLevel`, which *is* the hash-table
+size. Whether closing it works is J-0029 and is not yet known.
 
 ## Listing — bytes touched
 
-| Metric | Code being replaced | This crate | Bar | Status | Command |
-|---|---|---|---|---|---|
-| Archive size | 1,463,092 B | 1,463,092 B | — | — | `cargo bench --bench listing --offline` |
-| Bytes read to list 3,355 entries | 54.6 MB | **277,579 B (18.97%)** | 1,024,000 B | MET | `cargo bench --bench listing --offline` |
-| Listing time | 671 ms (inc. build) | **2.60 ms** | 3.4 ms | MET | `cargo bench --bench listing --offline` |
+| | value |
+|---|---|
+| Archive size | 1,459,737 B |
+| Bytes read to list 3,355 entries | **277,579 B (19.02%)** |
+| Bar | 1,024,000 B — MET |
+| Listing time | 1.93 ms, ~1.0 GiB/s |
 
-Notes:
-- The old `BufReader` bug read 54.6 MB of the archive just to list it (every refill was thrown away). This crate reads only the central directory and the local headers it needs.
-- The byte count is asserted at startup (`listing_stays_small`), so a regression that makes listing read more of the archive fails before any benchmark runs.
-- The listing time of 2.60 ms is the wall-clock minimum from criterion; the assertion bound is 3.4 ms.
+    cargo bench --offline --bench listing
 
-## Solid 7Z vs non-solid 7Z — 401 entries, 15,465,403 bytes
-
-| Metric | read_file (one call per entry, by name) | open_entry (in order, block reuse) | open_entry (non-solid) | Command |
-|---|---|---|---|---|
-| Time | **224.6 s** | **789 ms** | **2.02 s** | `LIBARCHIVE_BENCH_CORPUS=/home/user/bench-corpus cargo test --release --test sevenz_solid --offline -- the_crate_being_replaced_is_the_slow_one --ignored --nocapture` (read_file) / `solid_is_not_quadratic` (open_entry) |
-| Speedup vs read_file | 1× | **285×** | — | same |
-| Solid vs non-solid ratio | — | **0.6×** (solid faster) | 1× | `LIBARCHIVE_BENCH_CORPUS=/home/user/bench-corpus cargo test --release --test sevenz_solid --offline -- solid_is_not_quadratic --ignored --nocapture` |
-
-Notes:
-- The orchestrator's trusted measurement from the same test on this machine (different load): `read_file` 354.4 s, `open_entry` in order 1.24 s, non-solid 1.29 s. The difference is machine load and CPU scaling; the property (hundreds of seconds vs sub-second, solid not quadratic) is identical.
-- The solid archive is *faster* than the non-solid one because the shared block is decoded once. The ratio < 1.0 is the property this crate exists to prove: a solid block costs one decode, not one per entry.
-- The quadratic assertion (`ratio < 4.0`) passes: 0.6× is well within the bound.
+`listing_stays_small()` asserts the byte count **at startup, before any number is printed**, so a
+regression that starts reading more of the archive fails before the benchmark runs. The old
+`BufReader` bug read 54.6 MB just to list the archive; this reads only the central directory and the
+local headers it needs.
 
 ## First-byte latency — 64 MiB stored entry
 
-| Metric | Code being replaced (oxiarc) | This crate | Bar | Status | Command |
-|---|---|---|---|---|---|
-| Time to first byte | ~1 s (whole-entry buffer) | **193 ns** | 5 ms | MET | `cargo bench --bench zip --offline -- zip-first-byte` |
+| | value |
+|---|---|
+| Time to first byte | **~170 ns** |
+| Bar | 5 ms — MET by four orders of magnitude |
 
-Notes:
-- 193 ns, measured, not the assertion bound. The benchmark builds a 256 MiB archive of four
-  64 MiB stored entries, opens it once outside the timed section, and measures from `open_entry(0)`
-  to the first `read_exact(&mut [0u8; 1])`.
-- The payload is shared behind an `Arc` with a per-cursor position. The first version of this
-  benchmark did `Cursor::new(bytes.clone())` on a 256 MiB archive *inside* the timed closure and
-  reported 149 ms, which was a memcpy rather than a reader.
-- The assertion (`assert_first_byte_is_cheap`) fails if the first byte takes ≥ 5 ms, which would mean an entry is being materialised.
+    cargo bench --offline --bench zip -- zip-first-byte
+
+Measured, not the assertion bound. The payload is shared behind an `Arc` with a per-cursor position;
+the benchmark opens the archive once outside the timed section and times from `open_entry(0)` to the
+first `read_exact(&mut [0u8; 1])`. An earlier version of this benchmark cloned a 256 MiB buffer
+*inside* the timed closure and reported 149 ms, which was a memcpy rather than a reader.
 
 ## Reading every entry in order — 5,000 entries, deflate
 
-| Metric | This crate | Command |
+| | value |
+|---|---|
+| Time | 16.5 ms, ~120 MiB/s |
+
+    cargo bench --offline --bench zip -- zip-read/all-entries-in-order
+
+No bar is set: the bottleneck is the deflate codec, not this crate's overhead.
+
+## Solid 7Z
+
+Not re-measured in this wave. The banked figures are 441 ms solid / 678 ms non-solid for 401 entries,
+and 354.4 s to 1.24 s (285x) against the old `read_file` path. The device run above measures solid
+extraction independently and gets 546.66 ms device / 494.46 ms host, which is the same order and is
+consistent with the banked host figure.
+
+    LIBARCHIVE_BENCH_CORPUS=/home/user/bench-corpus \
+      cargo test --release --test sevenz_solid --offline -- --ignored --nocapture
+
+## Robustness: hostile input
+
+Not a performance number, but it is the bar that matters most for a file manager, and it is a gate.
+
+    cargo test --offline --test hostile
+
+| | before this wave | after |
 |---|---|---|
-| Time | **2.1 s** (measured) | `cargo bench --bench zip --offline -- zip-read/all-entries-in-order` |
+| cases | 7,618 | 7,861 |
+| **panics** | **10** | **0** |
+| **hangs** | **11** | **0** |
+| silent wrong-length | 79 | 0 bad, 73 size-disagreeing (reported) |
+| **total bad** | **100** | **0** |
 
-Notes:
-- This is the throughput number for a realistic workload. No bar is set because the bottleneck is the deflate codec, not the crate's overhead.
+A panic at the JNI boundary aborts the process on Android rather than raising a Java exception, so
+those 21 were app crashes reachable from a slightly corrupt `.ha`, `.sq` or `.arc` file. They are
+fixed in the vendored `unarc-rs`; see `vendor/unarc-rs/PATCHES.md`, which also records one commit
+message that claimed a patch that was never applied.
 
-## How to run the full suite
+The 73 "size-disagreeing" cases are reported, not failed, and the reason is checked rather than
+assumed: `ha/ha_archive.rs:100`, `arc/arc_archive.rs:100` and `hyp/hyp_archive.rs:30` each verify a
+CRC over the entry data, so a read that returned `Ok` has had its *bytes* verified. What disagrees is
+the header's size field, which the CRC does not cover.
 
-```sh
-export PATH="$HOME/.cargo/bin:$PATH"
-export CARGO_TARGET_DIR=/home/user/cargo-target/<your-unique-dir>
+## Correctness gates that exist because of this project
 
-# ZIP write + listing + first byte + read all
-cargo bench --bench zip --bench listing --offline
+    cargo test --offline --test differential -- --nocapture
+    compared 64 archives, 79 oracle pairs, 1910 entry answers
 
-# Solid 7Z (needs the corpus built once)
-sh tools/make-corpus.sh /home/user/bench-corpus
-LIBARCHIVE_BENCH_CORPUS=/home/user/bench-corpus cargo test --release --test sevenz_solid --offline -- --ignored --nocapture
-```
+against unarc-rs 0.7.2, sevenz-rust2 0.23.0 and oxiarc @ 93b17af. Thirteen disagreements are
+`pending` in the corpus manifest with named owners; everything else is a failure.
 
-## What the bars mean
+    cargo test --offline --test writer_external
+    cargo test --offline --test zip_integrity
 
-- **MET**: the current number is at or better than the bar.
-- **NOT MET**: the current number exceeds the bar. The row is kept (not omitted) so the gap is visible.
-- Bars are derived from the code being replaced (`oxiarc` @ 93b17af for ZIP, `unarc-rs` + `sevenz-rust2` for 7Z) or from the property the crate exists to enforce (listing bytes, solid-block reuse, first-byte latency).
-- A benchmark that asserts rather than reports is a test that fails on regression. A benchmark that only reports lets a regression slip into a number nobody reads.
+`writer_external` proves every writer against the tool that owns that format — `tar`, `xz`,
+`bzip2`, `gzip`, `zstd`, `lz4`, `7z`, `unzip`, python — comparing bytes and entry names rather than
+exit status. A missing tool is a loud failure, never a skip.
+
+## Reproducing all of it
+
+    export PATH="$HOME/.cargo/bin:$PATH"
+    export CARGO_TARGET_DIR=/home/user/cargo-target/<yours>
+    export TMPDIR=/home/user/tmp          # /tmp is a 7.7 GiB tmpfs and filled to 98% in wave 2
+
+    cargo bench --offline --bench zip --bench listing     # every host number above
+    tools/run-on-device.sh /home/user/bench-corpus         # the device table; emulator must be up
+    cargo test --offline                                  # 530 tests, including hostile + differential
+
+For any wall-clock number, check `uptime` first. These were taken at load 5.8 to 20 and are upper
+bounds; the deterministic figures (allocations, sink writes, bytes touched, case counts) are the ones
+to hold us to.
