@@ -102,7 +102,10 @@ fn main() {
                                 &NewEntry::file(spec.name).with_size(spec.contents.len() as u64),
                                 &spec.contents,
                             )
-                            .unwrap_or_else(|e| { println!("{format}/{label} WRITER REFUSED: {e}"); return; });
+                            .unwrap_or_else(|e| {
+                                println!("{format}/{label} WRITER REFUSED: {e}");
+                                return;
+                            });
                     }
                 }
                 _ => {
@@ -114,7 +117,10 @@ fn main() {
                         };
                         writer
                             .write_entry(&entry, &mut &spec.contents[..])
-                            .unwrap_or_else(|e| { println!("{format}/{label} WRITER REFUSED: {e}"); return; });
+                            .unwrap_or_else(|e| {
+                                println!("{format}/{label} WRITER REFUSED: {e}");
+                                return;
+                            });
                     }
                 }
             }
@@ -127,7 +133,9 @@ fn main() {
     }
     let _ = EntryKind::File;
     // Second pass: read the UTF-8-named archives back with this crate's own reader.
-    for ext in ["tar", "zip", "7z", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "tar.lz4"] {
+    for ext in [
+        "tar", "zip", "7z", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "tar.lz4",
+    ] {
         let path = out.join(format!("utf8.{ext}"));
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,

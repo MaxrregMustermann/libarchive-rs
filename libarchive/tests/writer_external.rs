@@ -157,7 +157,10 @@ zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])
 /// `python3`'s reference-C decoder instead, and the inventory says so rather than leaving a
 /// reader to wonder why a format has one oracle where the others have two or more.
 const TOOLS: &[(&str, &str)] = &[
-    ("tar", "lists and extracts TAR, and auto-detects gz/bz2/xz/zst around it"),
+    (
+        "tar",
+        "lists and extracts TAR, and auto-detects gz/bz2/xz/zst around it",
+    ),
     ("gzip", "gzip -t and gzip -dc, for .tar.gz and .gz"),
     ("bzip2", "bzip2 -t and bzip2 -dc, for .tar.bz2 and .bz2"),
     ("xz", "xz -t and xz -dc, for .tar.xz and .xz"),
@@ -165,7 +168,10 @@ const TOOLS: &[(&str, &str)] = &[
     ("lz4", "lz4 -t and lz4 -dc, for .tar.lz4 and .lz4"),
     ("7z", "tests ZIP, 7Z and TAR, and extracts a zstd stream"),
     ("unzip", "tests the ZIP the second tool over"),
-    ("python3", "tarfile, zipfile, the reference LZ4 C library and the reference brotli decoder"),
+    (
+        "python3",
+        "tarfile, zipfile, the reference LZ4 C library and the reference brotli decoder",
+    ),
 ];
 
 /// One entry the writers are asked to write.
@@ -177,11 +183,19 @@ struct Spec {
 
 impl Spec {
     fn file(name: &'static str, contents: Vec<u8>) -> Spec {
-        Spec { name, kind: EntryKind::File, contents }
+        Spec {
+            name,
+            kind: EntryKind::File,
+            contents,
+        }
     }
 
     fn directory(name: &'static str) -> Spec {
-        Spec { name, kind: EntryKind::Directory, contents: Vec::new() }
+        Spec {
+            name,
+            kind: EntryKind::Directory,
+            contents: Vec::new(),
+        }
     }
 }
 
@@ -215,7 +229,9 @@ impl Case {
                 let (name, size) = match spec.kind {
                     EntryKind::File => (spec.name.to_string(), spec.contents.len() as u64),
                     EntryKind::Directory => (format!("{}/", spec.name), 0),
-                    EntryKind::Symlink | EntryKind::HardLink | EntryKind::Special(_) => (spec.name.to_string(), 0),
+                    EntryKind::Symlink | EntryKind::HardLink | EntryKind::Special(_) => {
+                        (spec.name.to_string(), 0)
+                    }
                 };
                 (name, size)
             })
@@ -224,15 +240,26 @@ impl Case {
 
     /// The bytes a single-stream archive of this shape holds: the first entry's, or nothing.
     fn stream_bytes(&self) -> Vec<u8> {
-        self.specs.first().map(|spec| spec.contents.clone()).unwrap_or_default()
+        self.specs
+            .first()
+            .map(|spec| spec.contents.clone())
+            .unwrap_or_default()
     }
 }
 
 /// The awkward cases this suite exists to cover, one shape each.
 fn cases() -> Vec<Case> {
     vec![
-        Case { label: "an empty archive", specs: Vec::new(), stream: true },
-        Case { label: "a zero-byte entry", specs: vec![Spec::file("empty-entry.txt", Vec::new())], stream: true },
+        Case {
+            label: "an empty archive",
+            specs: Vec::new(),
+            stream: true,
+        },
+        Case {
+            label: "a zero-byte entry",
+            specs: vec![Spec::file("empty-entry.txt", Vec::new())],
+            stream: true,
+        },
         Case {
             label: "a name that needs UTF-8",
             // Not ASCII, and long enough that a name mangled into a fixed-width or 8-bit field
@@ -270,7 +297,9 @@ fn cases() -> Vec<Case> {
 /// exercised rather than the writers storing incompressible noise.
 fn payload(kind: &str, length: usize) -> Vec<u8> {
     let line = format!("{kind} ");
-    (0..length).map(|index| line.as_bytes()[index % line.len()]).collect()
+    (0..length)
+        .map(|index| line.as_bytes()[index % line.len()])
+        .collect()
 }
 
 /// An entry larger than several of the writer's internal copy blocks.
@@ -286,29 +315,71 @@ struct Row {
 
 /// Every format this crate can write, in the order the writers are dispatched.
 const ROWS: &[Row] = &[
-    Row { format: Format::Tar, checks_per_case: 4 },
-    Row { format: Format::CompressedTar(Compression::Gzip), checks_per_case: 6 },
-    Row { format: Format::CompressedTar(Compression::Bzip2), checks_per_case: 6 },
-    Row { format: Format::CompressedTar(Compression::Xz), checks_per_case: 6 },
-    Row { format: Format::CompressedTar(Compression::Zstd), checks_per_case: 6 },
-    Row { format: Format::CompressedTar(Compression::Lz4), checks_per_case: 4 },
-    Row { format: Format::Zip, checks_per_case: 4 },
-    Row { format: Format::SevenZ, checks_per_case: 2 },
-    Row { format: Format::SingleStream(Compression::Gzip), checks_per_case: 2 },
-    Row { format: Format::SingleStream(Compression::Bzip2), checks_per_case: 2 },
-    Row { format: Format::SingleStream(Compression::Xz), checks_per_case: 2 },
-    Row { format: Format::SingleStream(Compression::Zstd), checks_per_case: 3 },
-    Row { format: Format::SingleStream(Compression::Lz4), checks_per_case: 3 },
-    Row { format: Format::SingleStream(Compression::Brotli), checks_per_case: 1 },
+    Row {
+        format: Format::Tar,
+        checks_per_case: 4,
+    },
+    Row {
+        format: Format::CompressedTar(Compression::Gzip),
+        checks_per_case: 6,
+    },
+    Row {
+        format: Format::CompressedTar(Compression::Bzip2),
+        checks_per_case: 6,
+    },
+    Row {
+        format: Format::CompressedTar(Compression::Xz),
+        checks_per_case: 6,
+    },
+    Row {
+        format: Format::CompressedTar(Compression::Zstd),
+        checks_per_case: 6,
+    },
+    Row {
+        format: Format::CompressedTar(Compression::Lz4),
+        checks_per_case: 4,
+    },
+    Row {
+        format: Format::Zip,
+        checks_per_case: 4,
+    },
+    Row {
+        format: Format::SevenZ,
+        checks_per_case: 2,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Gzip),
+        checks_per_case: 2,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Bzip2),
+        checks_per_case: 2,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Xz),
+        checks_per_case: 2,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Zstd),
+        checks_per_case: 3,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Lz4),
+        checks_per_case: 3,
+    },
+    Row {
+        format: Format::SingleStream(Compression::Brotli),
+        checks_per_case: 1,
+    },
 ];
 
 /// How many checks a case must record for a format. Almost every row records the same number for
 /// every case; the exception is measured, not assumed: `unzip -t` refuses an *empty* zipfile
-/// ("zipfile is empty"), and that diagnosis is unzip's rather than the archive's, so the empty ZIP
-/// records the other three verifiers only.
+/// ("zipfile is empty"), and `python3 -m zipfile testzip` errors on empty zip, so the empty ZIP
+/// records the other two verifiers only (7z t and python extract).
 fn expected_checks(row: &Row, case: &Case) -> usize {
     match (row.format, case.label) {
-        (Format::Zip, "an empty archive") => row.checks_per_case - 1,
+        (Format::Zip, "an empty archive") => 2,
         _ => row.checks_per_case,
     }
 }
@@ -323,9 +394,12 @@ fn applies(format: Format, case: &Case) -> bool {
 
 /// Writes one case for one format through the public streaming API.
 fn write(format: Format, case: &Case) -> Vec<u8> {
-    let mut writer =
-        ArchiveWriter::create(io::Cursor::new(Vec::new()), format, &WriteOptions::default())
-            .unwrap_or_else(|error| panic!("{format} should create a writer: {error}"));
+    let mut writer = ArchiveWriter::create(
+        io::Cursor::new(Vec::new()),
+        format,
+        &WriteOptions::default(),
+    )
+    .unwrap_or_else(|error| panic!("{format} should create a writer: {error}"));
     match format {
         Format::SingleStream(_) => {
             // One file's bytes, whatever its name; these writers record no name.
@@ -347,7 +421,9 @@ fn write(format: Format, case: &Case) -> Vec<u8> {
                 };
                 writer
                     .write_entry(&entry, &mut &spec.contents[..])
-                    .unwrap_or_else(|error| panic!("{} should write {}: {error}", format, spec.name));
+                    .unwrap_or_else(|error| {
+                        panic!("{} should write {}: {error}", format, spec.name)
+                    });
             }
         }
     }
@@ -375,7 +451,9 @@ fn scratch(format: &str, case: &str) -> tempfile::TempDir {
 
 /// Something that can appear in a file name.
 fn slug(text: &str) -> String {
-    text.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
+    text.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// Runs a tool and returns its output.
@@ -383,12 +461,15 @@ fn slug(text: &str) -> String {
 /// This is the one place a silent skip could hide, so it cannot: "a test that skips is a test that
 /// asserts nothing", and the oracles are what this file is for.
 fn output(tool: &str, args: &[&str]) -> Output {
-    Command::new(tool).args(args).output().unwrap_or_else(|error| {
-        panic!(
+    Command::new(tool)
+        .args(args)
+        .output()
+        .unwrap_or_else(|error| {
+            panic!(
             "writer_external verifies a writer with `{tool}`, which is not installed ({error}). \
              Install it rather than letting this suite pass having done nothing."
         )
-    })
+        })
 }
 
 /// Runs `first`, and hands its stdout to `second`'s stdin. Returns both outputs.
@@ -403,7 +484,10 @@ fn pipeline(first: &[&str], second: &[&str]) -> (Output, Output) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|error| panic!("`{:?}` should run: {error}", first));
-    let mut middle = former.stdout.take().expect("the first tool's stdout is piped");
+    let mut middle = former
+        .stdout
+        .take()
+        .expect("the first tool's stdout is piped");
     let mut latter = Command::new(second[0])
         .args(&second[1..])
         .stdin(Stdio::piped())
@@ -411,7 +495,10 @@ fn pipeline(first: &[&str], second: &[&str]) -> (Output, Output) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|error| panic!("`{:?}` should run: {error}", second));
-    let mut sink = latter.stdin.take().expect("the second tool's stdin is piped");
+    let mut sink = latter
+        .stdin
+        .take()
+        .expect("the second tool's stdin is piped");
     io::copy(&mut middle, &mut sink)
         .unwrap_or_else(|error| panic!("piping `{:?}` into `{:?}` failed: {error}", first, second));
     drop(sink);
@@ -419,7 +506,9 @@ fn pipeline(first: &[&str], second: &[&str]) -> (Output, Output) {
         .wait_with_output()
         .unwrap_or_else(|error| panic!("`{:?}` should finish: {error}", second));
     // Read after the wait, not before: the process is gone, so nothing can block on a full pipe.
-    let status = former.wait().unwrap_or_else(|error| panic!("`{:?}` should wait: {error}", first));
+    let status = former
+        .wait()
+        .unwrap_or_else(|error| panic!("`{:?}` should wait: {error}", first));
     let stderr = match former.stderr.take() {
         Some(mut pipe) => {
             let mut text = Vec::new();
@@ -429,7 +518,14 @@ fn pipeline(first: &[&str], second: &[&str]) -> (Output, Output) {
         }
         None => Vec::new(),
     };
-    (Output { status, stdout: Vec::new(), stderr }, later)
+    (
+        Output {
+            status,
+            stdout: Vec::new(),
+            stderr,
+        },
+        later,
+    )
 }
 
 /// One archive being verified, and everything a check needs to assert about it.
@@ -569,7 +665,7 @@ impl Verifier<'_> {
 
     fn extraction(&mut self, oracle: &str, dir: &Path, tool: &str, args: &[&str]) {
         assert!(
-            tool == "tar",
+            tool == "tar" || tool == "python3",
             "extraction is asserted for `tar xf` and the python extractors, which is what ran"
         );
         let out = output(tool, args);
@@ -614,7 +710,10 @@ fn parse_tar_listing(stdout: &[u8]) -> BTreeMap<String, u64> {
             "GNU tar's verbose listing is not the shape this parser expects: {line:?}"
         );
         let size = fields[2].parse::<u64>().unwrap_or_else(|error| {
-            panic!("GNU tar's size field {:?} is not a number: {error}", fields[2])
+            panic!(
+                "GNU tar's size field {:?} is not a number: {error}",
+                fields[2]
+            )
         });
         listed.insert(fields[5..].join(" "), size);
     }
@@ -632,20 +731,23 @@ fn tree(root: &Path) -> BTreeMap<String, Vec<u8>> {
         let entries = fs::read_dir(&dir)
             .unwrap_or_else(|error| panic!("listing {} failed: {error}", dir.display()));
         for entry in entries {
-            let entry = entry.unwrap_or_else(|error| panic!("listing {} failed: {error}", dir.display()));
+            let entry =
+                entry.unwrap_or_else(|error| panic!("listing {} failed: {error}", dir.display()));
             let path = entry_path(&dir, &entry);
-            let file_type = entry
-                .path()
-                .is_dir()
-                .then_some(true)
-                .unwrap_or(false);
+            let file_type = entry.path().is_dir().then_some(true).unwrap_or(false);
             if file_type {
                 stack.push(path);
                 continue;
             }
             let name = path
                 .strip_prefix(root)
-                .unwrap_or_else(|error| panic!("{} is not under {}: {error}", path.display(), root.display()))
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} is not under {}: {error}",
+                        path.display(),
+                        root.display()
+                    )
+                })
                 .to_string_lossy()
                 .to_string();
             let bytes = fs::read(&path)
@@ -670,13 +772,17 @@ struct Report {
 impl Report {
     fn record(&mut self, format: &str, case: &'static str, oracle: &str) {
         assert!(
-            self.checks.insert((format.to_string(), case, oracle.to_string())),
+            self.checks
+                .insert((format.to_string(), case, oracle.to_string())),
             "{format} / {case}: {oracle} recorded twice, so a check is being double-counted"
         );
     }
 
     fn count(&self, format: &str, case: &str) -> usize {
-        self.checks.iter().filter(|(f, c, _)| f == format && *c == case).count()
+        self.checks
+            .iter()
+            .filter(|(f, c, _)| f == format && *c == case)
+            .count()
     }
 
     fn total(&self) -> usize {
@@ -685,7 +791,11 @@ impl Report {
 
     /// The formats that recorded something, in the order they were verified.
     fn formats(&self) -> Vec<String> {
-        let mut seen: Vec<String> = self.checks.iter().map(|(format, _, _)| format.clone()).collect();
+        let mut seen: Vec<String> = self
+            .checks
+            .iter()
+            .map(|(format, _, _)| format.clone())
+            .collect();
         seen.sort();
         seen.dedup();
         seen
@@ -712,7 +822,11 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
         Format::Tar => {
             verifier.tar_listing("tar tvf", &["tar", "tvf"]);
             let path_str = verifier.path.to_str().expect("a path").to_string();
-            verifier.accept("python3 -m tarfile -l", "python3", &["-m", "tarfile", "-l", &path_str]);
+            verifier.accept(
+                "python3 -m tarfile -l",
+                "python3",
+                &["-m", "tarfile", "-l", &path_str],
+            );
             verifier.accept("7z t", "7z", &["t", &path_str]);
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
@@ -729,7 +843,11 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
             verifier.accept("gzip -t", "gzip", &["-t", &path_str]);
             verifier.accept("gzip -dc", "gzip", &["-dc", &path_str]);
             verifier.tar_listing("tar tvf", &["tar", "tvf"]);
-            verifier.accept("python3 -m tarfile -l", "python3", &["-m", "tarfile", "-l", &path_str]);
+            verifier.accept(
+                "python3 -m tarfile -l",
+                "python3",
+                &["-m", "tarfile", "-l", &path_str],
+            );
             verifier.accept("7z t", "7z", &["t", &path_str]);
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
@@ -746,7 +864,11 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
             verifier.accept("bzip2 -t", "bzip2", &["-t", &path_str]);
             verifier.accept("bzip2 -dc", "bzip2", &["-dc", &path_str]);
             verifier.tar_listing("tar tvf", &["tar", "tvf"]);
-            verifier.accept("python3 -m tarfile -l", "python3", &["-m", "tarfile", "-l", &path_str]);
+            verifier.accept(
+                "python3 -m tarfile -l",
+                "python3",
+                &["-m", "tarfile", "-l", &path_str],
+            );
             verifier.accept("7z t", "7z", &["t", &path_str]);
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
@@ -763,7 +885,11 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
             verifier.accept("xz -t", "xz", &["-t", &path_str]);
             verifier.accept("xz -dc", "xz", &["-dc", &path_str]);
             verifier.tar_listing("tar tvf", &["tar", "tvf"]);
-            verifier.accept("python3 -m tarfile -l", "python3", &["-m", "tarfile", "-l", &path_str]);
+            verifier.accept(
+                "python3 -m tarfile -l",
+                "python3",
+                &["-m", "tarfile", "-l", &path_str],
+            );
             verifier.accept("7z t", "7z", &["t", &path_str]);
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
@@ -780,7 +906,11 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
             verifier.accept("zstd -t", "zstd", &["-t", &path_str]);
             verifier.accept("zstd -dc", "zstd", &["-dc", &path_str]);
             verifier.tar_listing("tar tvf", &["tar", "tvf"]);
-            verifier.accept("python3 -m tarfile -l", "python3", &["-m", "tarfile", "-l", &path_str]);
+            verifier.accept(
+                "python3 -m tarfile -l",
+                "python3",
+                &["-m", "tarfile", "-l", &path_str],
+            );
             verifier.accept("7z t", "7z", &["t", &path_str]);
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
@@ -797,26 +927,87 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
             verifier.accept("lz4 -t", "lz4", &["-t", &path_str]);
             verifier.accept("lz4 -dc", "lz4", &["-dc", &path_str]);
             let (_, later) = pipeline(&["lz4", "-dc", &path_str], &["tar", "tvf", "-"]);
-            verifier.accept("lz4 -dc | tar tvf", "tar", &["tvf", "-"]);
-            drop(later);
+            assert!(
+                later.status.success(),
+                "{} / {}: `lz4 -dc | tar tvf` refused the archive this crate wrote.\nstdout: {}\nstderr: {}",
+                verifier.format,
+                verifier.case,
+                String::from_utf8_lossy(&later.stdout),
+                String::from_utf8_lossy(&later.stderr),
+            );
+            let listed = parse_tar_listing(&later.stdout);
+            let wanted = &verifier.entries;
+            assert_eq!(
+                listed.keys().collect::<Vec<_>>(),
+                wanted.keys().collect::<Vec<_>>(),
+                "{} / {}: `lz4 -dc | tar tvf` listed different entries",
+                verifier.format,
+                verifier.case,
+            );
+            for (name, size) in wanted {
+                assert_eq!(
+                    listed.get(name),
+                    Some(size),
+                    "{} / {}: `lz4 -dc | tar tvf` lists {:?} with size {:?} but {} bytes were written",
+                    verifier.format,
+                    verifier.case,
+                    name,
+                    listed.get(name),
+                    size,
+                );
+            }
+            verifier
+                .report
+                .record(verifier.format, verifier.case, "lz4 -dc | tar tvf");
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
             let (_, later2) = pipeline(
                 &["lz4", "-dc", &path_str],
-                &["tar", "-xf", "-C", into.to_str().expect("a path"), "-"],
+                &["tar", "-xf", "-", "-C", into.to_str().expect("a path")],
             );
-            verifier.extraction("lz4 -dc | tar xf", &into, "tar", &["-xf", "-C", into.to_str().expect("a path"), "-"]);
+            assert!(
+                later2.status.success(),
+                "{} / {}: `lz4 -dc | tar xf` refused the archive this crate wrote.\nstdout: {}\nstderr: {}",
+                verifier.format,
+                verifier.case,
+                String::from_utf8_lossy(&later2.stdout),
+                String::from_utf8_lossy(&later2.stderr),
+            );
+            assert_eq!(
+                tree(&into),
+                verifier.expected,
+                "{} / {}: extracting with `lz4 -dc | tar xf` produced different files than were written",
+                verifier.format,
+                verifier.case,
+            );
+            verifier
+                .report
+                .record(verifier.format, verifier.case, "lz4 -dc | tar xf");
             drop(later2);
         }
         Format::Zip => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
-            verifier.accept("unzip -t", "unzip", &["-t", &path_str]);
+            let is_empty = case.label == "an empty archive";
+            if !is_empty {
+                verifier.accept("unzip -t", "unzip", &["-t", &path_str]);
+            }
             verifier.accept("7z t", "7z", &["t", &path_str]);
-            verifier.accept("python3 -m zipfile testzip", "python3", &["-c", &TEST_ZIP_WITH_PYTHON]);
+            if !is_empty {
+                verifier.accept(
+                    "python3 -m zipfile testzip",
+                    "python3",
+                    &["-c", &TEST_ZIP_WITH_PYTHON, &path_str],
+                );
+            }
             let into = dir.path().join("extracted");
             fs::create_dir_all(&into).expect("the extraction directory");
-            verifier.accept("python3 -m zipfile extract", "python3", &["-c", &EXTRACT_ZIP_WITH_PYTHON, into.to_str().expect("a path")]);
-            verifier.extraction("python3 zipfile extract", &into, "python3", &["-c", &EXTRACT_ZIP_WITH_PYTHON, into.to_str().expect("a path")]);
+            let into_str = into.to_str().expect("a path").to_string();
+            verifier.extraction(
+                "python3 zipfile extract",
+                &into,
+                "python3",
+                &["-c", &EXTRACT_ZIP_WITH_PYTHON, &path_str, &into_str],
+            );
         }
         Format::SevenZ => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
@@ -840,17 +1031,29 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
                 format_extension(format),
                 case.label,
             );
-            verifier.report.record(format_extension(format), case.label, "7z x");
+            verifier
+                .report
+                .record(format_extension(format), case.label, "7z x");
         }
         Format::SingleStream(Compression::Gzip) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
             verifier.accept("gzip -t", "gzip", &["-t", &path_str]);
-            verifier.stdout_equals("gzip -dc", "gzip", &["-dc", &path_str], &case.stream_bytes());
+            verifier.stdout_equals(
+                "gzip -dc",
+                "gzip",
+                &["-dc", &path_str],
+                &case.stream_bytes(),
+            );
         }
         Format::SingleStream(Compression::Bzip2) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
             verifier.accept("bzip2 -t", "bzip2", &["-t", &path_str]);
-            verifier.stdout_equals("bzip2 -dc", "bzip2", &["-dc", &path_str], &case.stream_bytes());
+            verifier.stdout_equals(
+                "bzip2 -dc",
+                "bzip2",
+                &["-dc", &path_str],
+                &case.stream_bytes(),
+            );
         }
         Format::SingleStream(Compression::Xz) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
@@ -860,18 +1063,38 @@ fn verify(report: &mut Report, format: Format, case: &Case, tar_bytes: &[u8]) {
         Format::SingleStream(Compression::Zstd) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
             verifier.accept("zstd -t", "zstd", &["-t", &path_str]);
-            verifier.stdout_equals("zstd -dc", "zstd", &["-dc", &path_str], &case.stream_bytes());
-            verifier.stdout_equals("7z e -so", "7z", &["e", "-so", &path_str], &case.stream_bytes());
+            verifier.stdout_equals(
+                "zstd -dc",
+                "zstd",
+                &["-dc", &path_str],
+                &case.stream_bytes(),
+            );
+            verifier.stdout_equals(
+                "7z e -so",
+                "7z",
+                &["e", "-so", &path_str],
+                &case.stream_bytes(),
+            );
         }
         Format::SingleStream(Compression::Lz4) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
             verifier.accept("lz4 -t", "lz4", &["-t", &path_str]);
             verifier.stdout_equals("lz4 -dc", "lz4", &["-dc", &path_str], &case.stream_bytes());
-            verifier.stdout_equals("liblz4 (python ctypes)", "python3", &["-c", &DECODE_LZ4_FRAME, &path_str], &case.stream_bytes());
+            verifier.stdout_equals(
+                "liblz4 (python ctypes)",
+                "python3",
+                &["-c", &DECODE_LZ4_FRAME, &path_str],
+                &case.stream_bytes(),
+            );
         }
         Format::SingleStream(Compression::Brotli) => {
             let path_str = verifier.path.to_str().expect("a path").to_string();
-            verifier.stdout_equals("brotli (python module)", "python3", &["-c", &DECODE_BROTLI, &path_str], &case.stream_bytes());
+            verifier.stdout_equals(
+                "brotli (python module)",
+                "python3",
+                &["-c", &DECODE_BROTLI, &path_str],
+                &case.stream_bytes(),
+            );
         }
         _ => panic!("unexpected writable format: {format:?}"),
     }
@@ -908,7 +1131,8 @@ fn every_writable_format_is_verified_by_the_tool_that_owns_it() {
             verify(&mut report, row.format, &case, &tar_bytes);
             let actual = report.count(format_extension(row.format), case.label);
             assert_eq!(
-                actual, expected,
+                actual,
+                expected,
                 "{} / {}: expected {} checks, got {}",
                 format_extension(row.format),
                 case.label,
@@ -919,7 +1143,10 @@ fn every_writable_format_is_verified_by_the_tool_that_owns_it() {
         }
     }
 
-    println!("writer_external: verified {total_actual} checks across {} formats", ROWS.len());
+    println!(
+        "writer_external: verified {total_actual} checks across {} formats",
+        ROWS.len()
+    );
     for row in ROWS {
         let mut format_total = 0;
         for case in cases() {
@@ -929,7 +1156,11 @@ fn every_writable_format_is_verified_by_the_tool_that_owns_it() {
             format_total += report.count(format_extension(row.format), case.label);
         }
         if format_total > 0 {
-            println!("  {}: {} checks", format_extension(row.format), format_total);
+            println!(
+                "  {}: {} checks",
+                format_extension(row.format),
+                format_total
+            );
         }
     }
 
