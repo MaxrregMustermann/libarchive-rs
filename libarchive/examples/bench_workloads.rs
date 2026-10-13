@@ -261,7 +261,7 @@ fn first_byte(path: &str, runs: usize) -> Result<String, String> {
     let (mut best, mut entry_name, mut entry_size) = (Duration::MAX, String::new(), 0u64);
     for _ in 0..runs {
         let file = File::open(path).map_err(|error| format!("{path}: {error}"))?;
-        let reader = ArchiveReader::open(file, &OpenOptions::default())
+        let mut reader = ArchiveReader::open(file, &OpenOptions::default())
             .map_err(|error| error.to_string())?;
         // Read the whole list every run rather than caching the index across runs: opening the
         // archive is part of what is being measured, and a cached list would hide it.

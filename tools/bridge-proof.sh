@@ -37,6 +37,12 @@ readonly INSTRUMENTATION=me.zhanghai.android.files/me.zhanghai.android.files.bri
 #
 readonly LIBARCHIVE_RS_PATH=${LIBARCHIVE_RS_PATH:-/home/user/libarchive-rs}
 export LIBARCHIVE_RS_PATH
+# This script's own directory, so `tools/make-bridge-fixtures.sh` is found next to it rather than
+# relative to whatever the caller happened to be in.
+readonly REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# Where the fixtures are built on the host before being pushed. Under the user's home rather than
+# /tmp, which is a 7.7 GiB tmpfs that filled to 98% during wave 2.
+readonly FIXTURES_HOST_DIR=${FIXTURES_HOST_DIR:-/home/user/bridge-fixtures}
 
 # The split SDK. See tools/bridge-emulator.md section 1.
 readonly BUILD_SDK=/opt/android-sdk
@@ -114,13 +120,54 @@ fi
 say "assembling"
 # --no-daemon because an idle Gradle daemon costs 1.6 GB on a machine running seven agents, and
 # that is the difference between this finishing and being OOM-killed.
-(cd "$APP" && ./gradlew --no-daemon -PlibarchiveRsPath="$LIBARCHIVE_RS_PATH" :app:assembleDebug)
+(cd "$APP" && ./gradlew --no-daemon --offline -PlibarchiveRsPath="$LIBARCHIVE_RS_PATH" :app:assembleDebug)
 apk=$APP/app/build/outputs/apk/debug/app-debug.apk
 [[ -f $apk ]] || { echo "no APK at $apk" >&2; exit 1; }
 echo "apk          $(stat -c %s "$apk") bytes"
 
 say "installing"
 adb install -r "$apk"
+
+say "making the fixtures"
+# Built here rather than checked in, so the bytes on the device were made by tar, gzip, bzip2, xz
+# and 7z and not by the code under test. See tools/make-bridge-fixtures.sh for why that matters and
+# for where the ground truth comes from.
+"$REPO_DIR/tools/make-bridge-fixtures.sh" "${FIXTURES_HOST_DIR:?}"
+
+say "pushing the fixtures"
+# BridgeInstrumentation.kt requires every one of these to be present and treats a missing one as a
+# failure rather than a skip, because a silent skip looks exactly like a pass. So the set of files
+# pushed here and the set the instrumentation names have to agree, and the fixtures are named in
+# both.
+fixtures_dir=/storage/emulated/0/Android/data/me.zhanghai.android.files/files
+adb shell "mkdir -p $fixtures_dir"
+for fixture in \
+    "$LIBARCHIVE_RS_PATH/libarchive/tests/data/legacy/arc/store.arc" \
+    "$LIBARCHIVE_RS_PATH/libarchive/tests/data/legacy/ice/license_lha.ice" \
+    "$FIXTURES_HOST_DIR/license.txt" \
+    "$FIXTURES_HOST_DIR/plain.tar" \
+    "$FIXTURES_HOST_DIR/plain.tar.gz" \
+    "$FIXTURES_HOST_DIR/plain.tar.xz" \
+    "$FIXTURES_HOST_DIR/plain.tar.bz2" \
+    "$FIXTURES_HOST_DIR/plain.7z"
+do
+    [[ -f $fixture ]] || { echo "MISSING: $fixture" >&2; exit 1; }
+    adb push -q "$fixture" "$fixtures_dir/" >/dev/null
+done
+# A ZIP made by the host's own zip(1). The instrumentation round-trips a ZIP through this library's
+# writer and reader, which proves the two agree with each other; this one is a ZIP made by something
+# else, which is the only kind of agreement worth anything.
+if command -v zip >/dev/null && command -v unzip >/dev/null; then
+    work=$(mktemp -d "${TMPDIR:-/home/user/tmp}/bridge-foreign-XXXXXX")
+    cp "$FIXTURES_HOST_DIR/license.txt" "$work/"
+    (cd "$work" && zip -q "$FIXTURES_HOST_DIR/foreign.zip" license.txt)
+    adb push -q "$FIXTURES_HOST_DIR/foreign.zip" "$fixtures_dir/" >/dev/null
+    rm -rf "$work"
+    echo "  foreign.zip $(unzip -l "$FIXTURES_HOST_DIR/foreign.zip" | tail -1)"
+else
+    echo "  zip/unzip not on PATH, so no foreign.zip; the instrumentation skips that one"
+fi
+echo "  pushed to $fixtures_dir"
 
 say "running the instrumentation"
 adb logcat -c
@@ -132,10 +179,14 @@ say "logcat -d -s $REPORT_TAG"
 adb logcat -d -v brief -s "$REPORT_TAG" || true
 
 say "verdict"
-# `I/BridgeProof( 1234): PASS` in brief format, so the third colon-separated field is the payload.
-# The instrumentation logs exactly `PASS` on success and `FAIL: ...` otherwise, and logcat is
-# filtered to its tag, so this is its verdict rather than a framework message.
-verdict=$(adb logcat -d -v brief -s "$REPORT_TAG" | grep -v '^---' | tail -1 | cut -d: -f3-)
+# `I/BridgeProof( 1234): PASS` in brief format: the tag is everything up to the first colon and the
+# payload is everything after it. There is exactly ONE colon in that line, so `cut -d: -f3-` - which
+# is what this script used to do - is the empty string, and the script exited 1 on every run
+# whether the instrumentation had passed or not. That is the whole of a false negative: it looks
+# like a broken bridge and it is a broken one-liner. The instrumentation logs exactly `PASS` on
+# success and `FAIL: ...` otherwise, and logcat is filtered to its tag, so this is its verdict
+# rather than a framework message.
+verdict=$(adb logcat -d -v brief -s "$REPORT_TAG" | grep -v '^---' | tail -1 | sed 's/^[^:]*: //')
 echo "$verdict"
 if [[ $verdict != PASS ]]; then
     exit 1
