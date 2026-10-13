@@ -151,7 +151,10 @@ fn ensure_no_password(options: &WriteOptions) -> Result<()> {
 
 impl<W: Write + Seek> ZipWriter<W> {
     /// Creates a ZIP writer over `sink`. Nothing is written until the first entry.
-    pub fn create<W2: Write + Seek + 'static>(sink: W2, options: &WriteOptions) -> Result<Box<dyn EntryWriter<W2>>> {
+    pub fn create<W2: Write + Seek + 'static>(
+        sink: W2,
+        options: &WriteOptions,
+    ) -> Result<Box<dyn EntryWriter<W2>>> {
         Ok(Box::new(ZipWriter::new(sink, options)?))
     }
 
@@ -321,7 +324,12 @@ impl<W: Write + Seek> ZipWriter<W> {
         if self.output.is_empty() {
             return Ok(());
         }
-        let ZipWriter { sink, position, output, .. } = self;
+        let ZipWriter {
+            sink,
+            position,
+            output,
+            ..
+        } = self;
         emit(sink, position, output)?;
         output.clear();
         Ok(())
@@ -351,7 +359,9 @@ impl<W: Write + Seek> ZipWriter<W> {
             directory.extend_from_slice(&0u16.to_le_bytes()); // comment
             directory.extend_from_slice(&0u16.to_le_bytes()); // disk number start
             directory.extend_from_slice(&0u16.to_le_bytes()); // internal attributes
-            directory.extend_from_slice(&external_attributes(record.mode, record.is_directory).to_le_bytes());
+            directory.extend_from_slice(
+                &external_attributes(record.mode, record.is_directory).to_le_bytes(),
+            );
             directory.extend_from_slice(&(record.local_header_offset as u32).to_le_bytes());
             directory.extend_from_slice(&record.name);
         }
@@ -383,7 +393,12 @@ fn write_local_header<W: Write + Seek>(
 ) -> Result<()> {
     // Destructured so the scratch buffer and the sink are disjoint borrows. Holding a field
     // borrow across `writer.emit` does not compile, because a method call borrows all of `self`.
-    let ZipWriter { header, sink, position, .. } = writer;
+    let ZipWriter {
+        header,
+        sink,
+        position,
+        ..
+    } = writer;
     let buffer = header;
     buffer.clear();
     buffer.extend_from_slice(LOCAL_FILE_HEADER);
@@ -540,7 +555,9 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
         ensure_no_password(options)?;
         let mut name = normalise_name(&entry.name);
         if name.is_empty() {
-            return Err(Error::malformed("An entry with an empty name cannot be written"));
+            return Err(Error::malformed(
+                "An entry with an empty name cannot be written",
+            ));
         }
         let is_directory = entry.kind == EntryKind::Directory;
         if is_directory {
@@ -587,12 +604,24 @@ impl<W: Write + Seek> EntryWriter<W> for ZipWriter<W> {
             self,
             &LocalHeader {
                 name: name.as_bytes(),
-                version_needed: if method == 0 { VERSION_NEEDED_STORE } else { VERSION_NEEDED_DEFLATE },
+                version_needed: if method == 0 {
+                    VERSION_NEEDED_STORE
+                } else {
+                    VERSION_NEEDED_DEFLATE
+                },
                 flags,
                 method,
                 crc32: 0,
-                compressed_size: if declare_in_header { entry.size.unwrap_or(0) } else { 0 },
-                uncompressed_size: if declare_in_header { entry.size.unwrap_or(0) } else { 0 },
+                compressed_size: if declare_in_header {
+                    entry.size.unwrap_or(0)
+                } else {
+                    0
+                },
+                uncompressed_size: if declare_in_header {
+                    entry.size.unwrap_or(0)
+                } else {
+                    0
+                },
                 last_modified: entry.last_modified,
             },
         )?;
@@ -665,7 +694,11 @@ fn dos_time_from(time: Option<std::time::SystemTime>) -> (u16, u16) {
 /// Days since the Unix epoch to a proleptic Gregorian date. The inverse of the reader's.
 fn civil_from_days(days: i64) -> (i64, u16, u16) {
     let shifted = days + 719_468;
-    let era = if shifted >= 0 { shifted } else { shifted - 146_096 } / 146_097;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
     let day_of_era = shifted - era * 146_097;
     let year_of_era =
         (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
@@ -673,7 +706,11 @@ fn civil_from_days(days: i64) -> (i64, u16, u16) {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let month_prime = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
-    let month = if month_prime < 10 { month_prime + 3 } else { month_prime - 9 };
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    };
     let year = if month <= 2 { year + 1 } else { year };
     (year, month as u16, day as u16)
 }
@@ -696,7 +733,9 @@ mod tests {
             // descriptor. That is the path worth testing, because it is the one that used to
             // buffer whole entries.
             let entry = NewEntry::file(*name);
-            writer.write_entry(&entry, &mut &contents[..]).expect("write an entry");
+            writer
+                .write_entry(&entry, &mut &contents[..])
+                .expect("write an entry");
         }
         writer.finish_into().expect("finish").into_inner()
     }
@@ -728,7 +767,9 @@ mod tests {
         let mut writer = ArchiveWriter::create(sink, Format::Zip, &options).expect("a writer");
         let payload: Vec<u8> = (0..10_000u32).map(|value| (value % 97) as u8).collect();
         let entry = NewEntry::file("known.txt").with_size(payload.len() as u64);
-        writer.write_entry(&entry, &mut &payload[..]).expect("write an entry");
+        writer
+            .write_entry(&entry, &mut &payload[..])
+            .expect("write an entry");
         let bytes = writer.finish_into().expect("finish").into_inner();
         let mut reader = ArchiveReader::open(Cursor::new(bytes), &OpenOptions::default()).unwrap();
         let mut got = Vec::new();
@@ -772,7 +813,10 @@ mod tests {
         let sink = Cursor::new(Vec::new());
         let mut writer = ArchiveWriter::create(sink, Format::Zip, &options).expect("a writer");
         writer
-            .write_entry(&NewEntry::symlink("link", "target.txt"), &mut std::io::empty())
+            .write_entry(
+                &NewEntry::symlink("link", "target.txt"),
+                &mut std::io::empty(),
+            )
             .expect("write a symlink");
         let bytes = writer.finish_into().expect("finish").into_inner();
         let mut reader = ArchiveReader::open(Cursor::new(bytes), &OpenOptions::default()).unwrap();
@@ -800,8 +844,14 @@ mod tests {
         let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_709_181_296);
         let (time, date) = dos_time_from(Some(when));
         let back = crate::formats::zip::dos_time_to_system_time(time, date).expect("a valid date");
-        let seconds = back.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
-        assert!((seconds - 1_709_181_296).abs() <= 2, "round tripped to {seconds}");
+        let seconds = back
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!(
+            (seconds - 1_709_181_296).abs() <= 2,
+            "round tripped to {seconds}"
+        );
     }
 
     #[test]
@@ -824,7 +874,11 @@ mod tests {
             (17_000, (2016, 7, 18)),
         ] {
             let (year, month, day) = civil_from_days(days);
-            assert_eq!((year as u32, month as u32, day as u32), expected, "day {days}");
+            assert_eq!(
+                (year as u32, month as u32, day as u32),
+                expected,
+                "day {days}"
+            );
         }
     }
 
@@ -876,11 +930,13 @@ mod tests {
         let mut writer = ZipWriter::new(sink, &options).expect("a writer");
         for (index, size) in [512usize, 16 * 1024].iter().enumerate() {
             for repeat in 0..20 {
-                let payload: Vec<u8> =
-                    (0..*size).map(|value| ((value.wrapping_mul(31) + repeat) % 251) as u8).collect();
+                let payload: Vec<u8> = (0..*size)
+                    .map(|value| ((value.wrapping_mul(31) + repeat) % 251) as u8)
+                    .collect();
                 let name = format!("entry{index}.bin");
-                let mut entry =
-                    writer.begin(&NewEntry::file(&name).with_size(*size as u64), &options).unwrap();
+                let mut entry = writer
+                    .begin(&NewEntry::file(&name).with_size(*size as u64), &options)
+                    .unwrap();
                 entry.write_all(&payload).unwrap();
                 entry.finish().unwrap();
             }
@@ -889,7 +945,11 @@ mod tests {
             writer.deflaters_built, 2,
             "40 entries of two sizes should share two encoders, one per level, not one per entry"
         );
-        assert_eq!(writer.deflaters.len(), 2, "the two policy levels are cached");
+        assert_eq!(
+            writer.deflaters.len(),
+            2,
+            "the two policy levels are cached"
+        );
         assert_eq!(writer.deflaters[0].0, 1);
         assert_eq!(writer.deflaters[1].0, 6);
         assert!(writer.finish().is_ok());

@@ -70,7 +70,7 @@ impl Header {
         block[263..265].copy_from_slice(b"00"); // version
         block[265..297].copy_from_slice(&[b' '; 32]); // uname
         block[297..329].copy_from_slice(&[b' '; 32]); // gname
-        // devmajor/devminor left as "unset", which is what an empty octal field means.
+                                                      // devmajor/devminor left as "unset", which is what an empty octal field means.
     }
 
     fn uid(&self) -> u64 {
@@ -124,8 +124,18 @@ impl<W: Write + Seek + 'static> CompressedTarWriter<W> {
             )));
         }
         let encoder = StreamEncoder::new(sink, options.compression)?;
-        let tar = TarWriter::new(EncoderSink { encoder: Some(encoder), position: 0 }, options);
-        Ok(Box::new(CompressedTarWriter { tar: Some(tar), sink: None, finished: false }))
+        let tar = TarWriter::new(
+            EncoderSink {
+                encoder: Some(encoder),
+                position: 0,
+            },
+            options,
+        );
+        Ok(Box::new(CompressedTarWriter {
+            tar: Some(tar),
+            sink: None,
+            finished: false,
+        }))
     }
 }
 
@@ -186,8 +196,13 @@ impl<W: Write + Seek + 'static> EntryWriter<W> for CompressedTarWriter<W> {
         // The exception lib.rs allows: unreachable, and `into_sink` returns `W` so there is no
         // error to return. The sink is taken only by `finish`, and a caller holding this handle
         // has already been given the `Err` that says so.
-        #[allow(clippy::expect_used, reason = "unreachable: the sink is returned only after finish, whose failure is already reported")]
-        owned.sink.expect("the archive was finished before its sink was returned")
+        #[allow(
+            clippy::expect_used,
+            reason = "unreachable: the sink is returned only after finish, whose failure is already reported"
+        )]
+        owned
+            .sink
+            .expect("the archive was finished before its sink was returned")
     }
 }
 
@@ -272,7 +287,12 @@ impl<W: Write + Seek> TarWriter<W> {
     /// wrong for [`CompressedTarWriter`], which drives the TAR writer directly with a compressor
     /// as its sink. The construction lives here so both get exactly the same writer.
     fn new(sink: W, _options: &WriteOptions) -> TarWriter<W> {
-        TarWriter { sink, position: 0, block: [0; BLOCK_SIZE], padding: [0; BLOCK_SIZE] }
+        TarWriter {
+            sink,
+            position: 0,
+            block: [0; BLOCK_SIZE],
+            padding: [0; BLOCK_SIZE],
+        }
     }
 
     fn emit(&mut self, bytes: &[u8]) -> Result<()> {
@@ -285,7 +305,12 @@ impl<W: Write + Seek> TarWriter<W> {
         let remainder = (self.position % BLOCK_SIZE as u64) as usize;
         if remainder != 0 {
             let needed = BLOCK_SIZE - remainder;
-            let TarWriter { sink, position, padding, .. } = self;
+            let TarWriter {
+                sink,
+                position,
+                padding,
+                ..
+            } = self;
             emit(sink, position, &padding[..needed])?;
         }
         Ok(())
@@ -405,7 +430,9 @@ impl<W: Write + Seek> EntryWriter<W> for TarWriter<W> {
 
         let mut header = Header {
             name: name_field,
-            mode: entry.mode.unwrap_or(if is_directory { 0o755 } else { 0o644 }),
+            mode: entry
+                .mode
+                .unwrap_or(if is_directory { 0o755 } else { 0o644 }),
             size,
             mtime,
             // Filled in below, once every other field is set: the checksum covers the header
@@ -422,17 +449,32 @@ impl<W: Write + Seek> EntryWriter<W> for TarWriter<W> {
         // Copied into the writer's own scratch so the header is one write and nothing is
         // allocated per entry.
         self.block.copy_from_slice(&block);
-        let TarWriter { sink, position, block, .. } = self;
+        let TarWriter {
+            sink,
+            position,
+            block,
+            ..
+        } = self;
         emit(sink, position, block)?;
 
-        Ok(Box::new(EntrySink { writer: self, size, written: 0, closed: false }))
+        Ok(Box::new(EntrySink {
+            writer: self,
+            size,
+            written: 0,
+            closed: false,
+        }))
     }
 
     fn finish(&mut self) -> Result<()> {
         self.pad_to_block()?;
         // Two zero blocks mark the end of a TAR. One is not enough: some readers treat the first
         // zero block as padding and keep going.
-        let TarWriter { sink, position, padding, .. } = self;
+        let TarWriter {
+            sink,
+            position,
+            padding,
+            ..
+        } = self;
         emit(sink, position, padding)?;
         emit(sink, position, padding)?;
         Ok(())
@@ -448,7 +490,11 @@ fn checksum(block: &[u8; BLOCK_SIZE]) -> u32 {
     let mut sum = 0u32;
     for (index, byte) in block.iter().enumerate() {
         // The checksum field is eight bytes at offset 148 and is treated as spaces while summing.
-        let value = if (148..156).contains(&index) { b' ' } else { *byte };
+        let value = if (148..156).contains(&index) {
+            b' '
+        } else {
+            *byte
+        };
         sum += value as u32;
     }
     sum
@@ -509,11 +555,19 @@ mod tests {
         let sink = Cursor::new(Vec::new());
         let mut writer = ArchiveWriter::create(sink, Format::Tar, &options).expect("a writer");
         let entry = NewEntry::file("hello.txt").with_size(11);
-        writer.write_entry(&entry, &mut &b"hello world"[..]).expect("write an entry");
+        writer
+            .write_entry(&entry, &mut &b"hello world"[..])
+            .expect("write an entry");
         let entry = NewEntry::directory("dir").with_size(0);
-        writer.write_entry(&entry, &mut std::io::empty()).expect("write a directory");
+        writer
+            .write_entry(&entry, &mut std::io::empty())
+            .expect("write a directory");
         let bytes = writer.finish_into().expect("finish").into_inner();
-        assert_eq!(bytes.len() % BLOCK_SIZE, 0, "a TAR is a whole number of blocks");
+        assert_eq!(
+            bytes.len() % BLOCK_SIZE,
+            0,
+            "a TAR is a whole number of blocks"
+        );
         let mut reader = ArchiveReader::open(Cursor::new(bytes), &OpenOptions::default()).unwrap();
         assert_eq!(reader.len(), 2);
         let mut got = Vec::new();
@@ -548,10 +602,11 @@ mod tests {
         let sink = Cursor::new(Vec::new());
         let mut writer = ArchiveWriter::create(sink, Format::Tar, &options).expect("a writer");
         let long = "x".repeat(200);
-        let error = match writer.write_entry(&NewEntry::file(&long).with_size(0), &mut std::io::empty()) {
-            Ok(()) => panic!("a name that does not fit must be refused"),
-            Err(error) => error,
-        };
+        let error =
+            match writer.write_entry(&NewEntry::file(&long).with_size(0), &mut std::io::empty()) {
+                Ok(()) => panic!("a name that does not fit must be refused"),
+                Err(error) => error,
+            };
         assert!(error.message().contains("100 byte"), "{error}");
     }
 }

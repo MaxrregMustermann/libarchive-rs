@@ -89,7 +89,12 @@ unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
         pointer
     }
 
-    unsafe fn realloc(&self, pointer: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+    unsafe fn realloc(
+        &self,
+        pointer: *mut u8,
+        layout: std::alloc::Layout,
+        new_size: usize,
+    ) -> *mut u8 {
         let new_pointer = std::alloc::System.realloc(pointer, layout, new_size);
         if !new_pointer.is_null() {
             ALLOCATED_BYTES.fetch_add(new_size, Ordering::Relaxed);
@@ -119,7 +124,10 @@ struct CountingSink {
 
 impl CountingSink {
     fn new() -> CountingSink {
-        CountingSink { bytes: Vec::new(), writes: 0 }
+        CountingSink {
+            bytes: Vec::new(),
+            writes: 0,
+        }
     }
 
     fn writes_per_entry(&self) -> f64 {
@@ -147,7 +155,10 @@ impl Seek for CountingSink {
             io::SeekFrom::Current(delta) => self.bytes.len() as i64 + delta,
         };
         if target < 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "seeking before the start"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "seeking before the start",
+            ));
         }
         self.bytes.truncate(target as usize);
         Ok(target as u64)
@@ -171,7 +182,9 @@ fn payload(index: usize) -> Vec<u8> {
 /// cycle gives deflate a Huffman alphabet of a dozen or so symbols, against the ~250 of `payload`.
 fn payload_simple(index: usize) -> Vec<u8> {
     const CYCLE: &[u8] = b"recycled deflater ";
-    (0..ENTRY_BYTES).map(|offset| CYCLE[(index + offset) % CYCLE.len()]).collect()
+    (0..ENTRY_BYTES)
+        .map(|offset| CYCLE[(index + offset) % CYCLE.len()])
+        .collect()
 }
 
 /// Writes the archive once with `contents_for` and reports the sink and the elapsed time.
@@ -180,9 +193,8 @@ fn measure_with(
     contents_for: &dyn Fn(usize) -> Vec<u8>,
 ) -> (CountingSink, std::time::Duration) {
     let start = Instant::now();
-    let mut writer =
-        ArchiveWriter::create(CountingSink::new(), libarchive::Format::Zip, options)
-            .expect("a ZIP writer");
+    let mut writer = ArchiveWriter::create(CountingSink::new(), libarchive::Format::Zip, options)
+        .expect("a ZIP writer");
     for index in 0..ENTRIES {
         let name = format!("directory{}/entry{index}.txt", index % 32);
         let contents = contents_for(index);
@@ -244,9 +256,12 @@ fn measure_one_entry() -> (std::time::Duration, u64) {
     }
     let cpu = cpu_millis();
     let start = Instant::now();
-    let mut writer =
-        ArchiveWriter::create(CountingSink::new(), libarchive::Format::Zip, &WriteOptions::default())
-            .expect("a ZIP writer");
+    let mut writer = ArchiveWriter::create(
+        CountingSink::new(),
+        libarchive::Format::Zip,
+        &WriteOptions::default(),
+    )
+    .expect("a ZIP writer");
     writer
         .write_entry(&NewEntry::file("all.bin"), &mut &blob[..])
         .expect("write the concatenated entry");
@@ -272,7 +287,11 @@ fn cpu_millis() -> u64 {
         return 0;
     };
     let fields: Vec<&str> = after_comm.split_whitespace().collect();
-    let field = |index: usize| fields.get(index).and_then(|value| value.parse::<u64>().ok());
+    let field = |index: usize| {
+        fields
+            .get(index)
+            .and_then(|value| value.parse::<u64>().ok())
+    };
     let utime = field(11).unwrap_or(0);
     let stime = field(12).unwrap_or(0);
     (utime + stime) * 10
@@ -542,11 +561,9 @@ fn listing(criterion: &mut Criterion) {
     group.throughput(Throughput::Bytes(bytes.len() as u64));
     group.bench_function("open", |bencher| {
         bencher.iter(|| {
-            let reader = ArchiveReader::open(
-                std::io::Cursor::new(bytes.clone()),
-                &OpenOptions::default(),
-            )
-            .expect("the archive we just wrote opens");
+            let reader =
+                ArchiveReader::open(std::io::Cursor::new(bytes.clone()), &OpenOptions::default())
+                    .expect("the archive we just wrote opens");
             std::hint::black_box(reader.len())
         })
     });
@@ -560,11 +577,9 @@ fn reading_every_entry(criterion: &mut Criterion) {
     group.throughput(Throughput::Bytes(bytes.len() as u64));
     group.bench_function("all-entries-in-order", |bencher| {
         bencher.iter(|| {
-            let mut reader = ArchiveReader::open(
-                std::io::Cursor::new(bytes.clone()),
-                &OpenOptions::default(),
-            )
-            .expect("opens");
+            let mut reader =
+                ArchiveReader::open(std::io::Cursor::new(bytes.clone()), &OpenOptions::default())
+                    .expect("opens");
             let mut total = 0u64;
             for index in 0..reader.len() {
                 let mut entry = reader.open_entry(index).expect("open");
@@ -611,7 +626,10 @@ impl Seek for SharedBytes {
             io::SeekFrom::Current(delta) => self.position as i64 + delta,
         };
         if target < 0 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "before the start"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "before the start",
+            ));
         }
         self.position = target as u64;
         Ok(self.position)
@@ -659,12 +677,11 @@ fn first_byte_latency(criterion: &mut Criterion) {
         bencher.iter_custom(|iterations| {
             let mut elapsed = std::time::Duration::ZERO;
             for _ in 0..iterations {
-                let mut reader =
-                    ArchiveReader::open(
-                        SharedBytes::new(std::sync::Arc::clone(&bytes)),
-                        &OpenOptions::default(),
-                    )
-                        .expect("opens");
+                let mut reader = ArchiveReader::open(
+                    SharedBytes::new(std::sync::Arc::clone(&bytes)),
+                    &OpenOptions::default(),
+                )
+                .expect("opens");
                 let start = Instant::now();
                 let mut entry = reader.open_entry(0).expect("open");
                 let mut one = [0u8; 1];
@@ -688,9 +705,11 @@ fn first_byte_latency(criterion: &mut Criterion) {
 /// Anything in the milliseconds means an entry is being materialised somewhere, which is the exact
 /// regression this crate exists to prevent.
 fn assert_first_byte_is_cheap(bytes: &std::sync::Arc<Vec<u8>>) {
-    let mut reader =
-        ArchiveReader::open(SharedBytes::new(std::sync::Arc::clone(bytes)), &OpenOptions::default())
-            .expect("opens");
+    let mut reader = ArchiveReader::open(
+        SharedBytes::new(std::sync::Arc::clone(bytes)),
+        &OpenOptions::default(),
+    )
+    .expect("opens");
     let start = Instant::now();
     let mut entry = reader.open_entry(0).expect("open");
     let mut one = [0u8; 1];

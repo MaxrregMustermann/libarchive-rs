@@ -93,9 +93,7 @@ enum Outcome {
     /// The read succeeds and produces `bytes` from a multi-volume archive where the full entry
     /// spans multiple volumes and no VolumeProvider is available. No plaintext is available for
     /// verification because the entry is incomplete. This is not a failure but a known limitation.
-    Partial {
-        bytes: usize,
-    },
+    Partial { bytes: usize },
 }
 
 /// The measured table. One row per fixture, plus two extra rows for the encrypted ARC, which is

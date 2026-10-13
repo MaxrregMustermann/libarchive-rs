@@ -11,8 +11,8 @@ use crate::format::Format;
 use crate::reader::{EntrySource, EntryStream, OpenOptions, Shared};
 use crate::writer::{EntryWriter, WriteOptions};
 
-pub mod single;
 pub mod sevenz;
+pub mod single;
 pub mod tar;
 pub mod uc2;
 pub mod zip;
@@ -27,8 +27,12 @@ pub fn open<R: Read + Seek + Send + 'static>(
         Format::Zip => zip::ZipReader::open(source, options),
         Format::SevenZ => sevenz::SevenZReader::open(source, options),
         Format::Tar => tar::TarReader::open(source, options),
-        Format::CompressedTar(compression) => tar::CompressedTarReader::open(source, compression, options),
-        Format::SingleStream(compression) => single::SingleStreamReader::open(source, compression, options),
+        Format::CompressedTar(compression) => {
+            tar::CompressedTarReader::open(source, compression, options)
+        }
+        Format::SingleStream(compression) => {
+            single::SingleStreamReader::open(source, compression, options)
+        }
         Format::Uc2 => uc2::Uc2Reader::open(source, options),
         other => legacy::open(other, source, options),
     }
@@ -44,17 +48,21 @@ pub fn create<W: Write + Seek + 'static>(
         Format::Zip => crate::writer::zip::ZipWriter::<W>::create(sink, options),
         Format::SevenZ => crate::writer::sevenz::SevenZWriter::<W>::create(sink, options),
         Format::Tar => crate::writer::tar::TarWriter::<W>::create(sink, options),
-        Format::CompressedTar(compression) => {
-            crate::writer::tar::CompressedTarWriter::create(sink, &WriteOptions {
+        Format::CompressedTar(compression) => crate::writer::tar::CompressedTarWriter::create(
+            sink,
+            &WriteOptions {
                 compression,
                 ..options.clone()
-            })
-        }
+            },
+        ),
         Format::SingleStream(compression) => {
-            crate::writer::single::SingleStreamWriter::<W>::create(sink, &WriteOptions {
-                compression,
-                ..options.clone()
-            })
+            crate::writer::single::SingleStreamWriter::<W>::create(
+                sink,
+                &WriteOptions {
+                    compression,
+                    ..options.clone()
+                },
+            )
         }
         other => Err(Error::unsupported(format!("{other} cannot be created"))),
     }
@@ -135,23 +143,29 @@ pub mod legacy {
             Format::Ha => unarc_rs::unified::ArchiveFormat::Ha,
             Format::Hyp => unarc_rs::unified::ArchiveFormat::Hyp,
             Format::Ice => unarc_rs::unified::ArchiveFormat::Ice,
-            _ => return Err(Error::unsupported(format!("{format} is not supported by this build"))),
+            _ => {
+                return Err(Error::unsupported(format!(
+                    "{format} is not supported by this build"
+                )))
+            }
         };
 
         // Listing phase: use a temporary backend to collect entry metadata.
         // We use next_entry() + skip() here because it's the cheap way to walk the archive
         // and collect names/sizes. This backend is discarded after listing.
-        let mut listing_backend = unarc_rs::unified::UnifiedArchive::open_with_format(
-            shared.clone(),
-            format_archive,
-        )?;
+        let mut listing_backend =
+            unarc_rs::unified::UnifiedArchive::open_with_format(shared.clone(), format_archive)?;
 
         let mut entries: Vec<crate::entry::Entry> = Vec::new();
 
         loop {
             match listing_backend.next_entry() {
                 Ok(Some(entry)) => {
-                    let name = entry.name().replace('\\', "/").trim_start_matches('/').to_owned();
+                    let name = entry
+                        .name()
+                        .replace('\\', "/")
+                        .trim_start_matches('/')
+                        .to_owned();
                     let size = entry.original_size();
                     let compressed_size = entry.compressed_size();
                     let _crc = entry.crc();
@@ -303,7 +317,8 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
         cursor: &std::cell::Cell<usize>,
         target: usize,
     ) -> Result<Option<&'a mut unarc_rs::unified::UnifiedArchive<Shared<R>>>> {
-        let backend = match Self::open_for_reading(reading_backend, source, format_archive, cursor)? {
+        let backend = match Self::open_for_reading(reading_backend, source, format_archive, cursor)?
+        {
             Some(backend) => backend,
             None => return Ok(None),
         };
@@ -324,7 +339,9 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
                     break;
                 }
                 Err(e) => {
-                    return Err(Error::malformed(format!("failed to advance to entry {target}: {e}")));
+                    return Err(Error::malformed(format!(
+                        "failed to advance to entry {target}: {e}"
+                    )));
                 }
             }
         }
@@ -357,7 +374,9 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
                 }
                 Ok(None) => break,
                 Err(e) => {
-                    return Err(Error::malformed(format!("failed to walk to entry {target}: {e}")));
+                    return Err(Error::malformed(format!(
+                        "failed to walk to entry {target}: {e}"
+                    )));
                 }
             }
         }
@@ -366,7 +385,9 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
         self.cursor.set(walked);
         match self.reading_backend.as_mut() {
             Some(backend) => Ok(backend),
-            None => Err(Error::malformed("the long-tail reading backend could not be reopened")),
+            None => Err(Error::malformed(
+                "the long-tail reading backend could not be reopened",
+            )),
         }
     }
 
@@ -397,7 +418,11 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
             } = self;
             match Self::advance_to(reading_backend, source, *format_archive, cursor, index)? {
                 Some(backend) => backend,
-                None => return Err(Error::malformed("the long-tail reading backend is not open")),
+                None => {
+                    return Err(Error::malformed(
+                        "the long-tail reading backend is not open",
+                    ))
+                }
             }
         };
 
@@ -411,7 +436,9 @@ impl<R: Read + Seek + Send + 'static> LegacyCursor<R> {
                 )));
             }
             Err(e) => {
-                return Err(Error::malformed(format!("failed to read entry {index}: {e}")));
+                return Err(Error::malformed(format!(
+                    "failed to read entry {index}: {e}"
+                )));
             }
         };
 
@@ -519,18 +546,23 @@ mod tests {
     /// and in reverse order, using the hyp/stored.hyp fixture which has 3 entries.
     #[test]
     fn legacy_cursor_sequential_and_reverse_extraction() {
-        use std::fs;
-        use std::io::Cursor;
         use crate::format::Format;
         use crate::reader::{ArchiveReader, OpenOptions};
+        use std::fs;
+        use std::io::Cursor;
 
         // Use hyp/stored.hyp which has 3 entries: A (3 bytes), B (14 bytes), C (4 bytes)
         let bytes = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/hyp/stored.hyp")
-        ).expect("fixture missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/hyp/stored.hyp"),
+        )
+        .expect("fixture missing");
 
-        let mut reader = ArchiveReader::open_as(Cursor::new(bytes.clone()), Format::Hyp, &OpenOptions::default())
-            .expect("failed to open hyp/stored.hyp");
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(bytes.clone()),
+            Format::Hyp,
+            &OpenOptions::default(),
+        )
+        .expect("failed to open hyp/stored.hyp");
 
         let entries = reader.entries();
         assert_eq!(entries.len(), 3, "hyp/stored.hyp should have 3 entries");
@@ -541,37 +573,58 @@ mod tests {
         // Sequential extraction: 0, 1, 2
         let mut sequential_data = Vec::new();
         for i in 0..3 {
-            let mut stream = reader.open_entry(i).expect(&format!("failed to open entry {i} sequentially"));
+            let mut stream = reader
+                .open_entry(i)
+                .expect(&format!("failed to open entry {i} sequentially"));
             let mut buf = Vec::new();
-            stream.read_to_end(&mut buf).expect(&format!("failed to read entry {i} sequentially"));
+            stream
+                .read_to_end(&mut buf)
+                .expect(&format!("failed to read entry {i} sequentially"));
             sequential_data.push(buf);
         }
 
         // Verify sequential data matches plaintext
         let plaintext_a = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-a.txt")
-        ).expect("plaintext missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-a.txt"),
+        )
+        .expect("plaintext missing");
         let plaintext_b = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-b.txt")
-        ).expect("plaintext missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-b.txt"),
+        )
+        .expect("plaintext missing");
         let plaintext_c = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-c.txt")
-        ).expect("plaintext missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/hyp-c.txt"),
+        )
+        .expect("plaintext missing");
 
-        assert_eq!(sequential_data[0], plaintext_a, "entry A sequential mismatch");
-        assert_eq!(sequential_data[1], plaintext_b, "entry B sequential mismatch");
-        assert_eq!(sequential_data[2], plaintext_c, "entry C sequential mismatch");
+        assert_eq!(
+            sequential_data[0], plaintext_a,
+            "entry A sequential mismatch"
+        );
+        assert_eq!(
+            sequential_data[1], plaintext_b,
+            "entry B sequential mismatch"
+        );
+        assert_eq!(
+            sequential_data[2], plaintext_c,
+            "entry C sequential mismatch"
+        );
 
         // Reverse-order extraction: 2, 1, 0
         // This tests that out-of-order reads re-open and walk forward correctly
-        let mut reader2 = ArchiveReader::open_as(Cursor::new(bytes), Format::Hyp, &OpenOptions::default())
-            .expect("failed to open hyp/stored.hyp for reverse test");
+        let mut reader2 =
+            ArchiveReader::open_as(Cursor::new(bytes), Format::Hyp, &OpenOptions::default())
+                .expect("failed to open hyp/stored.hyp for reverse test");
 
         let mut reverse_data = Vec::new();
         for i in (0..3).rev() {
-            let mut stream = reader2.open_entry(i).expect(&format!("failed to open entry {i} in reverse"));
+            let mut stream = reader2
+                .open_entry(i)
+                .expect(&format!("failed to open entry {i} in reverse"));
             let mut buf = Vec::new();
-            stream.read_to_end(&mut buf).expect(&format!("failed to read entry {i} in reverse"));
+            stream
+                .read_to_end(&mut buf)
+                .expect(&format!("failed to read entry {i} in reverse"));
             reverse_data.push(buf);
         }
         reverse_data.reverse(); // Put back in order 0, 1, 2 for comparison
@@ -581,7 +634,10 @@ mod tests {
         assert_eq!(reverse_data[2], plaintext_c, "entry C reverse mismatch");
 
         // Both orders produce identical results
-        assert_eq!(sequential_data, reverse_data, "sequential and reverse extraction must match");
+        assert_eq!(
+            sequential_data, reverse_data,
+            "sequential and reverse extraction must match"
+        );
     }
 
     /// Test that the cursor's forward-only behavior is O(n) for sequential reads.
@@ -596,18 +652,19 @@ mod tests {
     /// via next_entry() + read(), while out-of-order reads re-open and walk forward.
     #[test]
     fn legacy_cursor_forward_only_behavior() {
-        use std::fs;
-        use std::io::Cursor;
         use crate::format::Format;
         use crate::reader::{ArchiveReader, OpenOptions};
+        use std::fs;
+        use std::io::Cursor;
 
         // arc/cpm.arc has 2 entries: DDTZ.COM (9984 bytes), READ.COM (128 bytes)
-        let bytes = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/arc/cpm.arc")
-        ).expect("fixture missing");
+        let bytes =
+            fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/arc/cpm.arc"))
+                .expect("fixture missing");
 
-        let mut reader = ArchiveReader::open_as(Cursor::new(bytes), Format::Arc, &OpenOptions::default())
-            .expect("failed to open arc/cpm.arc");
+        let mut reader =
+            ArchiveReader::open_as(Cursor::new(bytes), Format::Arc, &OpenOptions::default())
+                .expect("failed to open arc/cpm.arc");
 
         let entries = reader.entries();
         assert_eq!(entries.len(), 2, "arc/cpm.arc should have 2 entries");
@@ -615,20 +672,26 @@ mod tests {
         // Read first entry
         let mut stream0 = reader.open_entry(0).expect("failed to open entry 0");
         let mut buf0 = Vec::new();
-        stream0.read_to_end(&mut buf0).expect("failed to read entry 0");
+        stream0
+            .read_to_end(&mut buf0)
+            .expect("failed to read entry 0");
 
         // Read second entry - should be O(1) as cursor is already at entry 1's header
         let mut stream1 = reader.open_entry(1).expect("failed to open entry 1");
         let mut buf1 = Vec::new();
-        stream1.read_to_end(&mut buf1).expect("failed to read entry 1");
+        stream1
+            .read_to_end(&mut buf1)
+            .expect("failed to read entry 1");
 
         // Verify against plaintext
         let plaintext_ddtz = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/DDTZ.COM")
-        ).expect("plaintext missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/DDTZ.COM"),
+        )
+        .expect("plaintext missing");
         let plaintext_read = fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/READ.COM")
-        ).expect("plaintext missing");
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/legacy/plaintext/READ.COM"),
+        )
+        .expect("plaintext missing");
 
         assert_eq!(buf0, plaintext_ddtz, "DDTZ.COM mismatch");
         assert_eq!(buf1, plaintext_read, "READ.COM mismatch");
@@ -636,7 +699,9 @@ mod tests {
         // Reading entry 0 again (out of order) should re-open and walk forward
         let mut stream0_again = reader.open_entry(0).expect("failed to open entry 0 again");
         let mut buf0_again = Vec::new();
-        stream0_again.read_to_end(&mut buf0_again).expect("failed to read entry 0 again");
+        stream0_again
+            .read_to_end(&mut buf0_again)
+            .expect("failed to read entry 0 again");
         assert_eq!(buf0_again, plaintext_ddtz, "DDTZ.COM re-read mismatch");
     }
 }

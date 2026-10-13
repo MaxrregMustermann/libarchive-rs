@@ -48,7 +48,9 @@ fn payload_cycle(index: usize, count: usize, modulus: usize) -> Vec<u8> {
 
 fn payload_simple(index: usize, count: usize) -> Vec<u8> {
     const CYCLE: &[u8] = b"recycled deflater ";
-    (0..count).map(|offset| CYCLE[(index + offset) % CYCLE.len()]).collect()
+    (0..count)
+        .map(|offset| CYCLE[(index + offset) % CYCLE.len()])
+        .collect()
 }
 
 fn payload_log(index: usize, count: usize) -> Vec<u8> {
@@ -115,7 +117,10 @@ fn write(entries: &[Entry], options: &WriteOptions) -> Vec<u8> {
             .write_entry_with(&declared, &mut &entry.contents[..], options)
             .expect("write an entry");
     }
-    writer.finish_into().expect("finish the archive").into_inner()
+    writer
+        .finish_into()
+        .expect("finish the archive")
+        .into_inner()
 }
 
 /// Runs every external tester that is installed against `path`, and requires at least two of them.
@@ -160,9 +165,8 @@ fn verify_externally(path: &Path) {
 /// Reads the archive back with this crate and checks every byte, so the external tools are not
 /// the only thing standing between a corrupt writer and a green test.
 fn read_back(bytes: &[u8], entries: &[Entry]) {
-    let mut reader =
-        ArchiveReader::open(Cursor::new(bytes.to_vec()), &OpenOptions::default())
-            .expect("our own archive opens");
+    let mut reader = ArchiveReader::open(Cursor::new(bytes.to_vec()), &OpenOptions::default())
+        .expect("our own archive opens");
     assert_eq!(reader.len(), entries.len());
     for (index, entry) in entries.iter().enumerate() {
         let mut got = Vec::new();
@@ -179,16 +183,32 @@ fn read_back(bytes: &[u8], entries: &[Entry]) {
 fn the_level_policy_chooses_by_size_and_respects_a_pinned_level() {
     let by_size = WriteOptions::default();
     assert_eq!(by_size.deflate_level_for(0), FAST_DEFLATE_LEVEL);
-    assert_eq!(by_size.deflate_level_for(DEFLATE_LEVEL_THRESHOLD - 1), FAST_DEFLATE_LEVEL);
-    assert_eq!(by_size.deflate_level_for(DEFLATE_LEVEL_THRESHOLD), BEST_DEFLATE_LEVEL);
+    assert_eq!(
+        by_size.deflate_level_for(DEFLATE_LEVEL_THRESHOLD - 1),
+        FAST_DEFLATE_LEVEL
+    );
+    assert_eq!(
+        by_size.deflate_level_for(DEFLATE_LEVEL_THRESHOLD),
+        BEST_DEFLATE_LEVEL
+    );
     assert_eq!(by_size.deflate_level_for(1 << 20), BEST_DEFLATE_LEVEL);
 
     let pinned = WriteOptions::default().with_deflate_level(9);
     assert_eq!(pinned.deflate_level_for(0), 9);
     assert_eq!(pinned.deflate_level_for(1 << 30), 9);
     // Out of the deflate range is clamped rather than passed to the codec, which would refuse it.
-    assert_eq!(WriteOptions::default().with_deflate_level(42).deflate_level_for(0), 9);
-    assert_eq!(WriteOptions::default().with_deflate_level(0).deflate_level_for(1 << 20), 1);
+    assert_eq!(
+        WriteOptions::default()
+            .with_deflate_level(42)
+            .deflate_level_for(0),
+        9
+    );
+    assert_eq!(
+        WriteOptions::default()
+            .with_deflate_level(0)
+            .deflate_level_for(1 << 20),
+        1
+    );
 }
 
 #[test]
@@ -235,7 +255,10 @@ fn write_via(entries: &[Entry], options: &WriteOptions, from_slice: bool) -> Vec
                 .expect("write an entry");
         }
     }
-    writer.finish_into().expect("finish the archive").into_inner()
+    writer
+        .finish_into()
+        .expect("finish the archive")
+        .into_inner()
 }
 
 #[test]

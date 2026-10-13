@@ -236,7 +236,10 @@ impl<W: Write + Seek> EntryWriter<W> for SevenZWriter<W> {
         // only ever taken by `finish`, and the public route through `finish_into` reports that
         // failure as an `Err` before it reaches here - a caller holding this handle has already
         // been told the write failed. See the module docs.
-        #[allow(clippy::expect_used, reason = "unreachable: the sink is returned only after finish, whose failure is already reported")]
+        #[allow(
+            clippy::expect_used,
+            reason = "unreachable: the sink is returned only after finish, whose failure is already reported"
+        )]
         writer
             .sink
             .expect("the 7Z archive was finished before its sink was returned")
