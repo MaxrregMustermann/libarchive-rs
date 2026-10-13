@@ -592,7 +592,10 @@ mod tests {
         let bytes = [0x37u8, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04];
         let mut source = Cursor::new(bytes.to_vec());
         source.seek(SeekFrom::Start(0)).unwrap();
-        assert_eq!(detect(&mut source, &Limits::default()).unwrap(), Format::SevenZ);
+        assert_eq!(
+            detect(&mut source, &Limits::default()).unwrap(),
+            Format::SevenZ
+        );
         assert_eq!(
             source.stream_position().unwrap(),
             0,
@@ -635,7 +638,10 @@ mod tests {
             data: SEVEN_Z.to_vec(),
             position: 0,
         };
-        assert_eq!(detect(&mut source, &Limits::default()).unwrap(), Format::SevenZ);
+        assert_eq!(
+            detect(&mut source, &Limits::default()).unwrap(),
+            Format::SevenZ
+        );
         assert_eq!(source.position, 0);
     }
 }

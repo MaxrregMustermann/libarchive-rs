@@ -226,7 +226,8 @@ fn listing(path: &str, runs: usize) -> Result<String, String> {
         if detected.is_empty() {
             detected = format!(
                 "{:?}",
-                detect(&mut file).map_err(|error| error.to_string())?
+                detect(&mut file, &libarchive::Limits::default())
+                    .map_err(|error| error.to_string())?
             );
         }
         let start = Instant::now();

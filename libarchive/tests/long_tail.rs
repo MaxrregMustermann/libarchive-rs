@@ -41,7 +41,7 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use libarchive::{
-    detect_header, detect_header_with_name, ArchiveReader, ErrorKind, Format, OpenOptions,
+    detect_header, detect_header_with_name, ArchiveReader, ErrorKind, Format, Limits, OpenOptions,
 };
 
 /// The chunk size extraction is measured in.

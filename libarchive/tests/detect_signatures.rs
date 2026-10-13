@@ -242,7 +242,13 @@ fn a_zip_name_does_not_reach_the_formats_only_the_name_can_reach() {
             let bytes = read_fixture(fixture);
             let mut empty = std::io::empty();
             let limits = Limits::default();
-            let named = detect_header_with_name(&bytes, Some(Path::new("mislabelled.zip")), &mut empty, 0, &limits);
+            let named = detect_header_with_name(
+                &bytes,
+                Some(Path::new("mislabelled.zip")),
+                &mut empty,
+                0,
+                &limits,
+            );
             assert_eq!(
                 named,
                 Format::Zip,
