@@ -327,46 +327,97 @@ fn read_passwords(env: &mut JNIEnv, passwords: &JObjectArray) -> Option<Vec<Stri
 #[no_mangle]
 pub extern "system" fn Java_me_zhanghai_android_files_provider_archive_archiver_RustArchive_nativeOpen(
     mut env: JNIEnv,
-    _class: JClass,
+    class: JClass,
     channel: JObject,
     passwords: JObjectArray,
 ) -> jlong {
     let handle = guarded(&mut env, |env| {
-        let mut options = libarchive::OpenOptions::default();
-        match read_passwords(env, &passwords) {
-            Some(passwords) => {
-                if let Some(password) = passwords.into_iter().next() {
-                    options = options.with_password(password);
-                }
-            }
-            None => {
-                throw(env, "The passwords could not be read");
-                return null_pointer();
-            }
-        }
-        let channel = match io::ChannelReader::new(env, &channel) {
-            Ok(channel) => channel,
-            Err(error) => {
-                throw(env, error.to_string());
-                return null_pointer();
-            }
-        };
-        match libarchive::ArchiveReader::open(channel, &options) {
-            Ok(reader) => {
-                let handle = ReadHandle {
-                    reader,
-                    next_index: 0,
-                    current: None,
-                };
-                Box::into_raw(Box::new(handle)) as jlong
-            }
-            Err(error) => {
-                throw(env, error.to_string());
-                null_pointer()
-            }
-        }
+        open_archive(env, class, channel, passwords, None)
     });
     handle.unwrap_or_else(null_pointer)
+}
+
+/// [`nativeOpen`], with the archive's file name for the two formats no signature can identify.
+///
+/// An ARC file begins with the DOS end-of-file marker `0x1A` and an ICE file with its own
+/// uncompressed length, so detection from the bytes alone calls both of them ZIP and the app gets
+/// "no end-of-central-directory record" for an archive it could read. The name is the fallback
+/// [`libarchive::ArchiveReader::open_named`] already implements; this export is how the app reaches
+/// it. `nativeOpen` above keeps its signature and calls the same body with no name, so a caller
+/// that cannot name its archive is no worse off than before.
+#[no_mangle]
+pub extern "system" fn Java_me_zhanghai_android_files_provider_archive_archiver_RustArchive_nativeOpenNamed(
+    mut env: JNIEnv,
+    class: JClass,
+    channel: JObject,
+    passwords: JObjectArray,
+    name: JObject,
+) -> jlong {
+    let handle = guarded(&mut env, |env| {
+        let name = if name.is_null() {
+            None
+        } else {
+            let name: &JString = (&name).into();
+            env.get_string(name).ok().map(String::from)
+        };
+        open_archive(env, class, channel, passwords, name)
+    });
+    handle.unwrap_or_else(null_pointer)
+}
+
+/// Opens the archive behind a read handle, with the file name the app already has for detection.
+///
+/// The name is a fallback and not an override: the library reads the signature first and consults
+/// the name only when the bytes identified nothing, so an ARC called `photo.jpg` is still refused
+/// as a file that is not an archive rather than opened as an ARC.
+fn open_archive(
+    env: &mut JNIEnv,
+    _class: JClass,
+    channel: JObject,
+    passwords: JObjectArray,
+    name: Option<String>,
+) -> jlong {
+    let mut options = libarchive::OpenOptions::default();
+    match read_passwords(env, &passwords) {
+        Some(passwords) => {
+            if let Some(password) = passwords.into_iter().next() {
+                options = options.with_password(password);
+            }
+        }
+        None => {
+            throw(env, "The passwords could not be read");
+            return null_pointer();
+        }
+    }
+    let channel = match io::ChannelReader::new(env, &channel) {
+        Ok(channel) => channel,
+        Err(error) => {
+            throw(env, error.to_string());
+            return null_pointer();
+        }
+    };
+    let opened = match name {
+        Some(name) => libarchive::ArchiveReader::open_named(
+            channel,
+            Some(std::path::Path::new(&name)),
+            &options,
+        ),
+        None => libarchive::ArchiveReader::open(channel, &options),
+    };
+    match opened {
+        Ok(reader) => {
+            let handle = ReadHandle {
+                reader,
+                next_index: 0,
+                current: None,
+            };
+            Box::into_raw(Box::new(handle)) as jlong
+        }
+        Err(error) => {
+            throw(env, error.to_string());
+            null_pointer()
+        }
+    }
 }
 
 #[no_mangle]
@@ -677,9 +728,12 @@ mod tests {
         // is millis, and the Kotlin side passes a `Long`. Sub-millisecond precision does not cross
         // this boundary, so it must not be expected to survive it.
         let now = std::time::SystemTime::now();
+        // `unwrap_or_default` rather than `expect`, because this file denies `clippy::expect_used`
+        // and the merge gate is `cargo clippy --workspace --all-targets`, which reaches this test
+        // module. `None` here would mean "292 million years from the epoch", which `now` is not.
         let round_tripped = millis_of(&now)
             .map(millis_to_system_time)
-            .expect("after the epoch");
+            .unwrap_or(std::time::UNIX_EPOCH);
         assert_eq!(
             round_tripped,
             trunc_to_millis(now),
@@ -731,9 +785,12 @@ mod tests {
 
     /// The same instant with its sub-millisecond part removed, which is what the boundary carries.
     fn trunc_to_millis(time: std::time::SystemTime) -> std::time::SystemTime {
+        // `unwrap_or_default` for the same reason as above: `duration_since` is `Err` only before
+        // 1970, and this helper is called with instants from an archive rather than from a clock,
+        // so "zero milliseconds" is the honest answer for the one input it cannot express.
         let since_epoch = time
             .duration_since(std::time::UNIX_EPOCH)
-            .expect("after the epoch");
+            .unwrap_or_default();
         std::time::UNIX_EPOCH + std::time::Duration::from_millis(since_epoch.as_millis() as u64)
     }
 }
