@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["libarchive", "jni", "vendor/sevenz-rust2"]
+members = ["libarchive", "jni", "vendor/sevenz-rust2", "vendor/unarc-rs"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,7 +39,7 @@ sha1 = "0.11"
 hmac = "0.13"
 pbkdf2 = "0.13"
 # Reused wholesale for the long tail of legacy formats. See libarchive/src/lib.rs.
-unarc-rs = { version = "0.7", default-features = false }
+unarc-rs = { path = "vendor/unarc-rs", default-features = false }
 sevenz-rust2 = { path = "vendor/sevenz-rust2", default-features = false }
 
 [profile.release]

@@ -1,0 +1,892 @@
+//! ACE archive reader
+
+use std::io::{Read, Seek, SeekFrom};
+use std::sync::Arc;
+
+use crate::date_time::DosDateTime;
+use crate::error::{ArchiveError, Result};
+use crate::unified::VolumeProvider;
+
+use super::bitstream::BitStream;
+use super::crc16::ace_crc16;
+use super::crypto::decrypt_ace_data;
+use super::header::{
+    header_flags, header_type, CompressionQuality, CompressionType, FileHeader, HostOs, MainHeader,
+    ACE_MAGIC,
+};
+use super::lz77::Lz77Decoder;
+
+/// ACE archive reader
+pub struct AceArchive<R: Read + Seek> {
+    reader: R,
+    main_header: MainHeader,
+    lz77: Lz77Decoder,
+    password: Option<String>,
+    volume_provider: Option<Arc<dyn VolumeProvider>>,
+    current_volume: u32,
+}
+
+impl<R: Read + Seek> AceArchive<R> {
+    /// Open an ACE archive
+    pub fn new(mut reader: R) -> Result<Self> {
+        let main_header = Self::find_and_parse_main_header(&mut reader)?;
+
+        Ok(Self {
+            reader,
+            main_header,
+            lz77: Lz77Decoder::new(),
+            password: None,
+            volume_provider: None,
+            current_volume: 0,
+        })
+    }
+
+    /// Set the password for encrypted entries
+    pub fn set_password<P: Into<String>>(&mut self, password: P) {
+        self.password = Some(password.into());
+    }
+
+    /// Clear the password
+    pub fn clear_password(&mut self) {
+        self.password = None;
+    }
+
+    /// Set the volume provider for multi-volume archives
+    pub fn set_volume_provider(&mut self, provider: Arc<dyn VolumeProvider>) {
+        self.volume_provider = Some(provider);
+    }
+
+    /// Check if this is a multi-volume archive
+    pub fn is_multivolume(&self) -> bool {
+        self.main_header.is_multivolume()
+    }
+
+    /// Get current volume number
+    pub fn volume_number(&self) -> u8 {
+        self.main_header.volume_number
+    }
+
+    /// Find the ACE magic and parse the main header
+    fn find_and_parse_main_header(reader: &mut R) -> Result<MainHeader> {
+        // Search for magic in first 512KB
+        const SEARCH_SIZE: usize = 524288;
+        reader.seek(SeekFrom::Start(0))?;
+
+        let mut buffer = vec![0u8; SEARCH_SIZE.min(StreamLen::stream_len(&mut *reader)? as usize)];
+        let bytes_read = reader.read(&mut buffer)?;
+
+        // Search for **ACE** magic at offset 7 from header start
+        let magic_pos = buffer[..bytes_read].windows(7).position(|w| w == ACE_MAGIC);
+
+        let header_start = match magic_pos {
+            Some(pos) if pos >= 7 => pos - 7,
+            _ => {
+                return Err(ArchiveError::invalid_header("ACE: magic not found"));
+            }
+        };
+
+        reader.seek(SeekFrom::Start(header_start as u64))?;
+        Self::parse_main_header(reader)
+    }
+
+    /// Parse the main header
+    fn parse_main_header(reader: &mut R) -> Result<MainHeader> {
+        let mut header_start = [0u8; 4];
+        reader.read_exact(&mut header_start)?;
+
+        let header_crc = u16::from_le_bytes([header_start[0], header_start[1]]);
+        let header_size = u16::from_le_bytes([header_start[2], header_start[3]]);
+
+        let mut header_data = vec![0u8; header_size as usize];
+        reader.read_exact(&mut header_data)?;
+
+        // Verify CRC
+        let calculated_crc = ace_crc16(&header_data);
+        if calculated_crc != header_crc {
+            return Err(ArchiveError::crc_mismatch(
+                "ACE main header",
+                header_crc as u32,
+                calculated_crc as u32,
+            ));
+        }
+
+        let header_type = header_data[0];
+        let header_flags = u16::from_le_bytes([header_data[1], header_data[2]]);
+
+        if header_type != header_type::MAIN {
+            return Err(ArchiveError::invalid_header("ACE: expected main header"));
+        }
+
+        // Verify magic
+        if &header_data[3..10] != ACE_MAGIC {
+            return Err(ArchiveError::invalid_header("ACE: invalid magic"));
+        }
+
+        let extract_version = header_data[10];
+        let creator_version = header_data[11];
+        let host_os = HostOs::from(header_data[12]);
+        let volume_number = header_data[13];
+
+        let datetime = DosDateTime::from(u32::from_le_bytes([
+            header_data[14],
+            header_data[15],
+            header_data[16],
+            header_data[17],
+        ]));
+
+        // Skip reserved1 (8 bytes)
+        let mut pos = 26;
+
+        // Read advert if present
+        let advert = if header_flags & header_flags::AV_STRING != 0 && pos < header_data.len() {
+            let len = header_data[pos] as usize;
+            pos += 1;
+            let s = String::from_utf8_lossy(&header_data[pos..pos + len]).to_string();
+            pos += len;
+            s
+        } else {
+            String::new()
+        };
+
+        // Read comment if present
+        let comment = if header_flags & header_flags::COMMENT != 0 && pos + 2 <= header_data.len() {
+            let len = u16::from_le_bytes([header_data[pos], header_data[pos + 1]]) as usize;
+            pos += 2;
+            if pos + len <= header_data.len() {
+                header_data[pos..pos + len].to_vec()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        Ok(MainHeader {
+            header_crc,
+            header_size,
+            header_type,
+            header_flags,
+            extract_version,
+            creator_version,
+            host_os,
+            volume_number,
+            datetime,
+            advert,
+            comment,
+        })
+    }
+
+    /// Get the next file entry
+    pub fn get_next_entry(&mut self) -> Result<Option<FileHeader>> {
+        loop {
+            let _start_pos = self.reader.stream_position()?;
+
+            let mut header_start = [0u8; 4];
+            if self.reader.read_exact(&mut header_start).is_err() {
+                return Ok(None);
+            }
+
+            let header_crc = u16::from_le_bytes([header_start[0], header_start[1]]);
+            let header_size = u16::from_le_bytes([header_start[2], header_start[3]]);
+
+            if header_size == 0 {
+                return Ok(None);
+            }
+
+            let mut header_data = vec![0u8; header_size as usize];
+            self.reader.read_exact(&mut header_data)?;
+
+            // Verify CRC
+            if ace_crc16(&header_data) != header_crc {
+                return Err(ArchiveError::crc_mismatch(
+                    "ACE file header",
+                    header_crc as u32,
+                    0,
+                ));
+            }
+
+            let header_type = header_data[0];
+            let header_flags = u16::from_le_bytes([header_data[1], header_data[2]]);
+
+            // Skip non-file headers
+            if header_type != header_type::FILE {
+                // Skip addsize if present
+                if header_flags & header_flags::ADDSIZE != 0 {
+                    let addsize = if header_flags & header_flags::MEMORY_64BIT != 0 {
+                        if header_data.len() >= 11 {
+                            u64::from_le_bytes([
+                                header_data[3],
+                                header_data[4],
+                                header_data[5],
+                                header_data[6],
+                                header_data[7],
+                                header_data[8],
+                                header_data[9],
+                                header_data[10],
+                            ])
+                        } else {
+                            0
+                        }
+                    } else if header_data.len() >= 7 {
+                        u32::from_le_bytes([
+                            header_data[3],
+                            header_data[4],
+                            header_data[5],
+                            header_data[6],
+                        ]) as u64
+                    } else {
+                        0
+                    };
+                    self.reader.seek(SeekFrom::Current(addsize as i64))?;
+                }
+                continue;
+            }
+
+            // Parse file header
+            let is_64bit = header_flags & header_flags::MEMORY_64BIT != 0;
+            let (packed_size, original_size, pos) = if is_64bit {
+                let packed = u64::from_le_bytes([
+                    header_data[3],
+                    header_data[4],
+                    header_data[5],
+                    header_data[6],
+                    header_data[7],
+                    header_data[8],
+                    header_data[9],
+                    header_data[10],
+                ]);
+                let original = u64::from_le_bytes([
+                    header_data[11],
+                    header_data[12],
+                    header_data[13],
+                    header_data[14],
+                    header_data[15],
+                    header_data[16],
+                    header_data[17],
+                    header_data[18],
+                ]);
+                (packed, original, 19)
+            } else {
+                let packed = u32::from_le_bytes([
+                    header_data[3],
+                    header_data[4],
+                    header_data[5],
+                    header_data[6],
+                ]) as u64;
+                let original = u32::from_le_bytes([
+                    header_data[7],
+                    header_data[8],
+                    header_data[9],
+                    header_data[10],
+                ]) as u64;
+                (packed, original, 11)
+            };
+
+            let datetime = DosDateTime::from(u32::from_le_bytes([
+                header_data[pos],
+                header_data[pos + 1],
+                header_data[pos + 2],
+                header_data[pos + 3],
+            ]));
+
+            let attributes = u32::from_le_bytes([
+                header_data[pos + 4],
+                header_data[pos + 5],
+                header_data[pos + 6],
+                header_data[pos + 7],
+            ]);
+
+            let crc32 = u32::from_le_bytes([
+                header_data[pos + 8],
+                header_data[pos + 9],
+                header_data[pos + 10],
+                header_data[pos + 11],
+            ]);
+
+            let compression_type = CompressionType::from(header_data[pos + 12]);
+            let compression_quality = CompressionQuality::from(header_data[pos + 13]);
+            let parameters = u16::from_le_bytes([header_data[pos + 14], header_data[pos + 15]]);
+
+            // Skip reserved1 (2 bytes)
+            let mut fpos = pos + 18;
+
+            // Read filename
+            let filename_len =
+                u16::from_le_bytes([header_data[fpos], header_data[fpos + 1]]) as usize;
+            fpos += 2;
+            let filename =
+                String::from_utf8_lossy(&header_data[fpos..fpos + filename_len]).to_string();
+            fpos += filename_len;
+
+            // Read comment if present
+            let comment = if header_flags & header_flags::COMMENT != 0
+                && fpos + 2 <= header_data.len()
+            {
+                let len = u16::from_le_bytes([header_data[fpos], header_data[fpos + 1]]) as usize;
+                fpos += 2;
+                if fpos + len <= header_data.len() {
+                    header_data[fpos..fpos + len].to_vec()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            let data_offset = self.reader.stream_position()?;
+
+            return Ok(Some(FileHeader {
+                header_crc,
+                header_size,
+                header_type,
+                header_flags,
+                packed_size,
+                original_size,
+                datetime,
+                attributes,
+                crc32,
+                compression_type,
+                compression_quality,
+                parameters,
+                filename,
+                comment,
+                data_offset,
+            }));
+        }
+    }
+
+    /// Skip a file entry
+    pub fn skip(&mut self, header: &FileHeader) -> Result<()> {
+        self.reader
+            .seek(SeekFrom::Start(header.data_offset + header.packed_size))?;
+        Ok(())
+    }
+
+    /// Read and decompress a file entry
+    pub fn read(&mut self, header: &FileHeader) -> Result<Vec<u8>> {
+        self.read_with_password(header, self.password.clone())
+    }
+
+    /// Read and decompress a file entry with a specific password
+    pub fn read_with_password(
+        &mut self,
+        header: &FileHeader,
+        password: Option<String>,
+    ) -> Result<Vec<u8>> {
+        // Check if file continues across volumes
+        if header.is_continued_to_next() {
+            return self.read_multi_volume(header, password);
+        }
+
+        // Seek to data
+        self.reader.seek(SeekFrom::Start(header.data_offset))?;
+
+        // Read compressed data
+        let compressed = crate::limits::read_exact_vec(&mut self.reader, header.packed_size)?;
+
+        // Decrypt if encrypted
+        let data = if header.is_encrypted() {
+            let pwd = password
+                .ok_or_else(|| ArchiveError::encryption_required(&header.filename, "ACE"))?;
+            decrypt_ace_data(&compressed, &pwd)
+        } else {
+            compressed
+        };
+
+        // Decompress based on type
+        let decompressed = match header.compression_type {
+            CompressionType::Stored => data,
+            CompressionType::Lz77 | CompressionType::Blocked => {
+                self.decompress_lz77(header, &data)?
+            }
+            CompressionType::Unknown(n) => {
+                return Err(ArchiveError::unsupported_method(
+                    "ACE",
+                    format!("Unknown compression type {}", n),
+                ));
+            }
+        };
+
+        // Verify size
+        if decompressed.len() != header.original_size as usize {
+            return Err(ArchiveError::decompression_failed(
+                &header.filename,
+                format!(
+                    "size mismatch: expected {}, got {}",
+                    header.original_size,
+                    decompressed.len()
+                ),
+            ));
+        }
+
+        // Verify CRC (ACE uses inverted CRC32)
+        let crc = !crc32fast::hash(&decompressed);
+        if crc != header.crc32 {
+            return Err(ArchiveError::crc_mismatch(
+                &header.filename,
+                header.crc32,
+                crc,
+            ));
+        }
+
+        if header.compression_type == CompressionType::Stored {
+            self.lz77.set_dictionary_size(header.dictionary_size());
+            self.lz77.register_data(&decompressed);
+        }
+
+        Ok(decompressed)
+    }
+
+    /// Read and decompress a multi-volume file
+    fn read_multi_volume(
+        &mut self,
+        header: &FileHeader,
+        password: Option<String>,
+    ) -> Result<Vec<u8>> {
+        let volume_provider = match &self.volume_provider {
+            Some(provider) => provider.clone(),
+            None => {
+                self.skip(header)?;
+                return Err(ArchiveError::io_error(
+                    "Multi-volume archive requires a volume provider",
+                ));
+            }
+        };
+
+        let filename = header.filename.clone();
+        // Note: expected_crc will be updated from the LAST continuation header
+        // (ACE stores the final CRC in the last volume's header)
+        let mut expected_crc = header.crc32;
+        let expected_size = header.original_size;
+        let compression_type = header.compression_type;
+        let dict_size = header.dictionary_size();
+
+        // Collect all compressed data segments
+        let mut all_compressed = Vec::new();
+
+        // Read first segment from current volume
+        self.reader.seek(SeekFrom::Start(header.data_offset))?;
+        let segment = crate::limits::read_exact_vec(&mut self.reader, header.packed_size)?;
+
+        // Decrypt if needed
+        let segment_data = if header.is_encrypted() {
+            let pwd = password
+                .clone()
+                .ok_or_else(|| ArchiveError::encryption_required(&filename, "ACE"))?;
+            decrypt_ace_data(&segment, &pwd)
+        } else {
+            segment
+        };
+        all_compressed.extend_from_slice(&segment_data);
+
+        // Read continuation segments from subsequent volumes
+        let mut continues = header.is_continued_to_next();
+        while continues {
+            self.current_volume += 1;
+
+            // Open next volume
+            let mut next_volume = match volume_provider.open_volume(self.current_volume) {
+                Some(reader) => reader,
+                None => {
+                    return Err(ArchiveError::io_error(format!(
+                        "Cannot open volume {} for multi-volume archive",
+                        self.current_volume
+                    )));
+                }
+            };
+
+            // Skip main header in next volume
+            Self::read_past_volume_main_header(&mut next_volume)?;
+
+            // Read continuation file header
+            let cont_header = Self::read_file_header_from_reader(&mut next_volume)?;
+
+            // Verify it's a continuation
+            if !cont_header.is_continued_from_prev() {
+                return Err(ArchiveError::corrupted_entry_named(
+                    "ACE",
+                    &filename,
+                    "expected continuation header",
+                ));
+            }
+
+            // Read this segment's data
+            let segment = crate::limits::read_exact_vec(&mut next_volume, cont_header.packed_size)?;
+
+            // Decrypt if needed
+            let segment_data = if cont_header.is_encrypted() {
+                let pwd = password
+                    .clone()
+                    .ok_or_else(|| ArchiveError::encryption_required(&filename, "ACE"))?;
+                decrypt_ace_data(&segment, &pwd)
+            } else {
+                segment
+            };
+
+            all_compressed.extend_from_slice(&segment_data);
+
+            // Update expected_crc from the last header (ACE stores final CRC in last volume)
+            expected_crc = cont_header.crc32;
+
+            continues = cont_header.is_continued_to_next();
+        }
+
+        // Now decompress the combined data
+        let decompressed = match compression_type {
+            CompressionType::Stored => all_compressed,
+            CompressionType::Lz77 | CompressionType::Blocked => {
+                self.lz77.reset();
+                self.lz77.set_dictionary_size(dict_size);
+                let cursor = std::io::Cursor::new(&all_compressed);
+                let mut bs = BitStream::new(cursor, all_compressed.len());
+                self.lz77.decompress(&mut bs, expected_size as usize)?
+            }
+            CompressionType::Unknown(n) => {
+                return Err(ArchiveError::unsupported_method(
+                    "ACE",
+                    format!("Unknown compression type {}", n),
+                ));
+            }
+        };
+
+        // Verify size
+        if decompressed.len() != expected_size as usize {
+            return Err(ArchiveError::decompression_failed(
+                &filename,
+                format!(
+                    "size mismatch: expected {}, got {}",
+                    expected_size,
+                    decompressed.len()
+                ),
+            ));
+        }
+
+        // Verify CRC (ACE uses inverted CRC32)
+        let crc = !crc32fast::hash(&decompressed);
+        if crc != expected_crc {
+            return Err(ArchiveError::crc_mismatch(&filename, expected_crc, crc));
+        }
+
+        if compression_type == CompressionType::Stored {
+            self.lz77.set_dictionary_size(dict_size);
+            self.lz77.register_data(&decompressed);
+        }
+
+        Ok(decompressed)
+    }
+
+    /// Skip main header in a volume and return remaining buffered data
+    /// Returns the bytes after the main header that were read ahead
+    fn read_past_volume_main_header<R2: Read>(reader: &mut R2) -> Result<Vec<u8>> {
+        // Read header start
+        let mut header_start = [0u8; 4];
+        reader.read_exact(&mut header_start)?;
+
+        let header_crc = u16::from_le_bytes([header_start[0], header_start[1]]);
+        let header_size = u16::from_le_bytes([header_start[2], header_start[3]]);
+
+        // Read header data
+        let mut header_data = vec![0u8; header_size as usize];
+        reader.read_exact(&mut header_data)?;
+
+        // Verify CRC
+        if ace_crc16(&header_data) != header_crc {
+            return Err(ArchiveError::crc_mismatch(
+                "ACE volume main header",
+                header_crc as u32,
+                0,
+            ));
+        }
+
+        // Verify it's a main header with magic
+        let header_type = header_data[0];
+        if header_type != header_type::MAIN {
+            return Err(ArchiveError::invalid_header(
+                "ACE: expected main header in volume",
+            ));
+        }
+
+        // Check for magic bytes
+        if header_data.len() < 10 || &header_data[3..10] != ACE_MAGIC {
+            return Err(ArchiveError::invalid_header(
+                "ACE: magic not found in volume",
+            ));
+        }
+
+        // Main header has been consumed, return empty buffer
+        Ok(Vec::new())
+    }
+
+    /// Read a file header from a generic reader
+    fn read_file_header_from_reader<R2: Read>(reader: &mut R2) -> Result<FileHeader> {
+        let mut header_start = [0u8; 4];
+        reader.read_exact(&mut header_start)?;
+
+        let header_crc = u16::from_le_bytes([header_start[0], header_start[1]]);
+        let header_size = u16::from_le_bytes([header_start[2], header_start[3]]);
+
+        if header_size == 0 {
+            return Err(ArchiveError::invalid_header("ACE: empty header"));
+        }
+
+        let mut header_data = vec![0u8; header_size as usize];
+        reader.read_exact(&mut header_data)?;
+
+        // Verify CRC
+        if ace_crc16(&header_data) != header_crc {
+            return Err(ArchiveError::crc_mismatch(
+                "ACE file header",
+                header_crc as u32,
+                0,
+            ));
+        }
+
+        let header_type = header_data[0];
+        let header_flags = u16::from_le_bytes([header_data[1], header_data[2]]);
+
+        if header_type != header_type::FILE {
+            return Err(ArchiveError::invalid_header("ACE: expected file header"));
+        }
+
+        // Parse file header
+        let is_64bit = header_flags & header_flags::MEMORY_64BIT != 0;
+        let (packed_size, original_size, pos) = if is_64bit {
+            let packed = u64::from_le_bytes([
+                header_data[3],
+                header_data[4],
+                header_data[5],
+                header_data[6],
+                header_data[7],
+                header_data[8],
+                header_data[9],
+                header_data[10],
+            ]);
+            let original = u64::from_le_bytes([
+                header_data[11],
+                header_data[12],
+                header_data[13],
+                header_data[14],
+                header_data[15],
+                header_data[16],
+                header_data[17],
+                header_data[18],
+            ]);
+            (packed, original, 19)
+        } else {
+            let packed = u32::from_le_bytes([
+                header_data[3],
+                header_data[4],
+                header_data[5],
+                header_data[6],
+            ]) as u64;
+            let original = u32::from_le_bytes([
+                header_data[7],
+                header_data[8],
+                header_data[9],
+                header_data[10],
+            ]) as u64;
+            (packed, original, 11)
+        };
+
+        let datetime = DosDateTime::from(u32::from_le_bytes([
+            header_data[pos],
+            header_data[pos + 1],
+            header_data[pos + 2],
+            header_data[pos + 3],
+        ]));
+
+        let attributes = u32::from_le_bytes([
+            header_data[pos + 4],
+            header_data[pos + 5],
+            header_data[pos + 6],
+            header_data[pos + 7],
+        ]);
+
+        let crc32 = u32::from_le_bytes([
+            header_data[pos + 8],
+            header_data[pos + 9],
+            header_data[pos + 10],
+            header_data[pos + 11],
+        ]);
+
+        let compression_type = CompressionType::from(header_data[pos + 12]);
+        let compression_quality = CompressionQuality::from(header_data[pos + 13]);
+        let parameters = u16::from_le_bytes([header_data[pos + 14], header_data[pos + 15]]);
+
+        let mut fpos = pos + 18;
+        let filename_len = u16::from_le_bytes([header_data[fpos], header_data[fpos + 1]]) as usize;
+        fpos += 2;
+        let filename = String::from_utf8_lossy(&header_data[fpos..fpos + filename_len]).to_string();
+
+        Ok(FileHeader {
+            header_crc,
+            header_size,
+            header_type,
+            header_flags,
+            packed_size,
+            original_size,
+            datetime,
+            attributes,
+            crc32,
+            compression_type,
+            compression_quality,
+            parameters,
+            filename,
+            comment: Vec::new(),
+            data_offset: 0,
+        })
+    }
+
+    /// Decompress LZ77 data
+    fn decompress_lz77(&mut self, header: &FileHeader, data: &[u8]) -> Result<Vec<u8>> {
+        // Trees and distance history are per-member; the dictionary survives this reset.
+        self.lz77.reset();
+
+        // Set dictionary size
+        self.lz77.set_dictionary_size(header.dictionary_size());
+
+        // Create bitstream
+        let cursor = std::io::Cursor::new(data);
+        let mut bs = BitStream::new(cursor, data.len());
+
+        // Decompress
+        self.lz77.decompress(&mut bs, header.original_size as usize)
+    }
+
+    /// Get the main header
+    pub fn main_header(&self) -> &MainHeader {
+        &self.main_header
+    }
+
+    /// Check if archive is solid
+    pub fn is_solid(&self) -> bool {
+        self.main_header.is_solid()
+    }
+
+    /// Create a password verifier for the given file entry.
+    ///
+    /// This reads the compressed data for the entry and returns a standalone
+    /// verifier that can be used from multiple threads with rayon.
+    ///
+    /// Note: For solid archives, parallel password testing is not supported
+    /// since the LZ77 decoder state must be maintained across files.
+    /// This will return an error for solid archives.
+    pub fn create_password_verifier(
+        &mut self,
+        header: &FileHeader,
+    ) -> Result<super::password_verifier::AcePasswordVerifier> {
+        if self.is_solid() {
+            return Err(ArchiveError::unsupported_method(
+                "ACE",
+                "solid archives not supported for parallel password testing",
+            ));
+        }
+
+        if !header.is_encrypted() {
+            return Err(ArchiveError::unsupported_method(
+                "ACE",
+                "entry is not encrypted",
+            ));
+        }
+
+        // Seek to and read the compressed data
+        self.reader.seek(SeekFrom::Start(header.data_offset))?;
+        let compressed = crate::limits::read_exact_vec(&mut self.reader, header.packed_size)?;
+
+        Ok(super::password_verifier::AcePasswordVerifier::new(
+            compressed,
+            header.compression_type,
+            header.crc32,
+            header.original_size,
+            header.dictionary_size(),
+            header.filename.clone(),
+        ))
+    }
+}
+
+/// Helper trait for stream length
+trait StreamLen {
+    fn stream_len(&mut self) -> Result<u64>;
+}
+
+impl<R: Read + Seek> StreamLen for R {
+    fn stream_len(&mut self) -> Result<u64> {
+        let current = self.stream_position()?;
+        let end = self.seek(SeekFrom::End(0))?;
+        self.seek(SeekFrom::Start(current))?;
+        Ok(end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn stored_volume(volume: u8, file_flags: u16, data: &[u8]) -> Vec<u8> {
+        let append_header = |output: &mut Vec<u8>, header: &[u8]| {
+            output.extend_from_slice(&ace_crc16(header).to_le_bytes());
+            output.extend_from_slice(&(header.len() as u16).to_le_bytes());
+            output.extend_from_slice(header);
+        };
+        let mut bytes = Vec::new();
+        let mut main = vec![0];
+        main.extend_from_slice(
+            &(header_flags::SOLID_MAIN | header_flags::MULTIVOLUME).to_le_bytes(),
+        );
+        main.extend_from_slice(ACE_MAGIC);
+        main.extend_from_slice(&[10, 10, 0, volume]);
+        main.extend_from_slice(&[0; 12]);
+        append_header(&mut bytes, &main);
+        let mut file = vec![1];
+        file.extend_from_slice(&file_flags.to_le_bytes());
+        file.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        file.extend_from_slice(&2u32.to_le_bytes());
+        file.extend_from_slice(&[0; 8]);
+        file.extend_from_slice(&(!crc32fast::hash(b"AB")).to_le_bytes());
+        file.extend_from_slice(&[0; 6]);
+        file.extend_from_slice(&9u16.to_le_bytes());
+        file.extend_from_slice(b"first.txt");
+        append_header(&mut bytes, &file);
+        bytes.extend_from_slice(data);
+        bytes
+    }
+
+    struct Continuation(Vec<u8>);
+
+    impl VolumeProvider for Continuation {
+        fn open_volume(&self, volume_number: u32) -> Option<Box<dyn Read + Send>> {
+            (volume_number == 1)
+                .then(|| Box::new(Cursor::new(self.0.clone())) as Box<dyn Read + Send>)
+        }
+    }
+
+    #[test]
+    fn stored_multi_volume_read_registers_the_combined_dictionary() {
+        let first = stored_volume(
+            0,
+            header_flags::ADDSIZE | header_flags::CONTINUED_NEXT,
+            b"A",
+        );
+        let continuation = stored_volume(
+            1,
+            header_flags::ADDSIZE | header_flags::CONTINUED_PREV,
+            b"B",
+        );
+        let mut archive = AceArchive::new(Cursor::new(first)).unwrap();
+        archive.set_volume_provider(Arc::new(Continuation(continuation)));
+        assert!(archive.is_solid());
+        let mut header = archive.get_next_entry().unwrap().unwrap();
+        assert_eq!(archive.read(&header).unwrap(), b"AB");
+
+        // An original single-symbol LZ77 stream copies two bytes at distance one.
+        let packed = [
+            0x3f, 0x12, 0x01, 0x82, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xfc, 0xff, 0xff, 0xff, 0x00, 0x24, 0x02, 0x00, 0x00, 0x00,
+            0x80, 0x00,
+        ];
+        header.compression_type = CompressionType::Lz77;
+        assert_eq!(archive.decompress_lz77(&header, &packed).unwrap(), b"BB");
+    }
+}

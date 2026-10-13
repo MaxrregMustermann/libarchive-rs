@@ -1,0 +1,242 @@
+//! ZIP archive reader
+//!
+//! Uses the `zip` crate for decompression.
+
+use std::io::{Read, Seek};
+
+use crate::date_time::DosDateTime;
+use crate::error::{ArchiveError, Result};
+
+/// Header information for a ZIP entry
+#[derive(Debug, Clone)]
+pub struct ZipFileHeader {
+    /// File name (may include path)
+    pub name: String,
+    /// Compressed size in bytes
+    pub compressed_size: u64,
+    /// Original (uncompressed) size in bytes
+    pub original_size: u64,
+    /// Compression method name
+    pub compression_method: String,
+    /// Modification date/time
+    pub date_time: Option<DosDateTime>,
+    /// CRC32 checksum
+    pub crc32: u32,
+    /// Whether this entry is a directory
+    pub is_directory: bool,
+    /// Whether this entry is encrypted
+    pub is_encrypted: bool,
+    /// Index of the file in the archive (for random access)
+    pub index: usize,
+}
+
+/// ZIP archive reader
+pub struct ZipArchive<T: Read + Seek> {
+    archive: zip::ZipArchive<T>,
+    current_index: usize,
+    password: Option<Vec<u8>>,
+}
+
+impl<T: Read + Seek> ZipArchive<T> {
+    pub(crate) fn entry_metadata(
+        &mut self,
+        header: &ZipFileHeader,
+        options: &crate::ArchiveOptions,
+    ) -> Result<crate::unified::EntryMetadata> {
+        use crate::unified::{ArchiveEntryKind, EntryMetadata};
+        let file = self
+            .archive
+            .by_index_raw(header.index)
+            .map_err(|e| ArchiveError::external_library("zip", e.to_string()))?;
+        let kind = file
+            .unix_mode()
+            .and_then(ArchiveEntryKind::from_unix_mode)
+            .unwrap_or(if header.is_directory {
+                ArchiveEntryKind::Directory
+            } else {
+                ArchiveEntryKind::File
+            });
+        drop(file);
+        let limit = options
+            .max_entry_size()
+            .unwrap_or(u64::MAX)
+            .min(options.max_total_size().unwrap_or(u64::MAX))
+            .min(64 * 1024);
+        let link_target = if kind == ArchiveEntryKind::SymbolicLink && header.original_size <= limit
+        {
+            self.read_with_password(header, options.password().map(str::as_bytes))
+                .ok()
+                .and_then(|data| String::from_utf8(data).ok())
+        } else {
+            None
+        };
+        Ok(EntryMetadata { kind, link_target })
+    }
+
+    /// Create a new ZIP archive reader
+    pub fn new(reader: T) -> Result<Self> {
+        let archive = zip::ZipArchive::new(reader)
+            .map_err(|e| ArchiveError::external_library("zip", e.to_string()))?;
+
+        Ok(Self {
+            archive,
+            current_index: 0,
+            password: None,
+        })
+    }
+
+    /// Set the password for encrypted entries
+    pub fn set_password<P: AsRef<[u8]>>(&mut self, password: P) {
+        self.password = Some(password.as_ref().to_vec());
+    }
+
+    /// Clear the password
+    pub fn clear_password(&mut self) {
+        self.password = None;
+    }
+
+    /// Get the next entry in the archive
+    pub fn get_next_entry(&mut self) -> Result<Option<ZipFileHeader>> {
+        if self.current_index >= self.archive.len() {
+            return Ok(None);
+        }
+
+        let index = self.current_index;
+        self.current_index += 1;
+
+        let file = self
+            .archive
+            .by_index_raw(index)
+            .map_err(|e| ArchiveError::external_library("zip", e.to_string()))?;
+
+        let name = file.name().to_string();
+        let compressed_size = file.compressed_size();
+        let original_size = file.size();
+        let compression_method = format!("{:?}", file.compression());
+        let crc32 = file.crc32();
+        let is_directory = file.is_dir();
+        let is_encrypted = file.encrypted();
+
+        // Convert last_modified to DosDateTime
+        let date_time = file.last_modified().map(|dt| {
+            // zip crate uses its own DateTime type
+            // DOS date format: bits 0-4: day, 5-8: month, 9-15: year-1980
+            // DOS time format: bits 0-4: second/2, 5-10: minute, 11-15: hour
+            let year = (dt.year() as u32).saturating_sub(1980) & 0x7F;
+            let month = dt.month() as u32;
+            let day = dt.day() as u32;
+            let hour = dt.hour() as u32;
+            let minute = dt.minute() as u32;
+            let second = dt.second() as u32;
+
+            let dos_date = (year << 9) | (month << 5) | day;
+            let dos_time = (hour << 11) | (minute << 5) | (second / 2);
+
+            DosDateTime::new((dos_date << 16) | dos_time)
+        });
+
+        Ok(Some(ZipFileHeader {
+            name,
+            compressed_size,
+            original_size,
+            compression_method,
+            date_time,
+            crc32,
+            is_directory,
+            is_encrypted,
+            index,
+        }))
+    }
+
+    /// Skip the current entry without reading its data
+    pub fn skip(&mut self, _header: &ZipFileHeader) -> Result<()> {
+        // Nothing to do - we already advanced in get_next_entry
+        Ok(())
+    }
+
+    /// Read and decompress an entry's data
+    pub fn read(&mut self, header: &ZipFileHeader) -> Result<Vec<u8>> {
+        let password = self.password.clone();
+        self.read_with_password(header, password.as_deref())
+    }
+
+    /// Read and decompress an entry's data with a specific password
+    pub fn read_with_password(
+        &mut self,
+        header: &ZipFileHeader,
+        password: Option<&[u8]>,
+    ) -> Result<Vec<u8>> {
+        if header.is_directory {
+            return Ok(Vec::new());
+        }
+
+        let mut data = Vec::with_capacity(crate::limits::capacity_hint(header.original_size));
+        // Never produce more than the size recorded in the central directory. Reading one byte
+        // past it lets the zip reader hit EOF, which is where it verifies the CRC.
+        let read_limit = header.original_size.saturating_add(1);
+
+        if header.is_encrypted {
+            // Use decryption
+            let password =
+                password.ok_or_else(|| ArchiveError::encryption_required(&header.name, "ZIP"))?;
+
+            let file = self
+                .archive
+                .by_index_decrypt(header.index, password)
+                .map_err(|e| {
+                    // Check if it's a password error
+                    let msg = e.to_string();
+                    if msg.contains("password") || msg.contains("decrypt") {
+                        ArchiveError::invalid_password(&header.name, "ZIP")
+                    } else {
+                        ArchiveError::external_library("zip", msg)
+                    }
+                })?;
+
+            file.take(read_limit).read_to_end(&mut data)?;
+        } else {
+            let file = self
+                .archive
+                .by_index(header.index)
+                .map_err(|e| ArchiveError::external_library("zip", e.to_string()))?;
+
+            file.take(read_limit).read_to_end(&mut data)?;
+        }
+
+        if data.len() as u64 > header.original_size {
+            return Err(ArchiveError::corrupted_entry_named(
+                "ZIP",
+                &header.name,
+                "entry is larger than its recorded size",
+            ));
+        }
+
+        Ok(data)
+    }
+
+    /// Create a password verifier for the given encrypted entry.
+    ///
+    /// # Arguments
+    /// * `header` - The encrypted file header
+    /// * `archive_data` - The complete archive data (needed since we can't re-read from the internal reader)
+    pub fn create_password_verifier(
+        &self,
+        header: &ZipFileHeader,
+        archive_data: Vec<u8>,
+    ) -> Result<super::password_verifier::ZipPasswordVerifier> {
+        if !header.is_encrypted {
+            return Err(ArchiveError::unsupported_method(
+                "ZIP",
+                "entry is not encrypted",
+            ));
+        }
+
+        Ok(super::password_verifier::ZipPasswordVerifier::new(
+            archive_data,
+            header.index,
+            header.crc32,
+            header.original_size,
+            header.name.clone(),
+        ))
+    }
+}
