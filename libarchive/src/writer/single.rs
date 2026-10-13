@@ -97,9 +97,13 @@ impl<W: Write + 'static> StreamEncoder<W> {
                     .map(StreamEncoder::Xz)
                     .map_err(Error::io)
             }
-            Compression::Zstd => zstd::stream::write::Encoder::new(sink, 3)
-                .map(StreamEncoder::Zstd)
-                .map_err(Error::io),
+            Compression::Zstd => {
+                // Ask for a checksum explicitly: without one a Zstd frame cannot be told apart
+                // from a damaged one, so `decode` would hand back wrong bytes without an error.
+                let mut encoder = zstd::stream::write::Encoder::new(sink, 3).map_err(Error::io)?;
+                encoder.include_checksum(true).map_err(Error::io)?;
+                Ok(StreamEncoder::Zstd(encoder))
+            }
             Compression::Lz4 => Ok(StreamEncoder::Lz4(lz4_flex::frame::FrameEncoder::new(sink))),
             Compression::Brotli => Ok(StreamEncoder::Brotli(brotli::CompressorWriter::new(
                 sink, 4096, 5, 22,
@@ -130,7 +134,10 @@ impl<W: Write + 'static> StreamEncoder<W> {
             // With `std`, `lzma_rust2::Error` is `std::io::Error`, so there is nothing to map.
             StreamEncoder::Xz(encoder) => encoder.finish().map_err(Error::io),
             StreamEncoder::Zstd(encoder) => encoder.finish().map_err(Error::io),
-            StreamEncoder::Lz4(encoder) => encoder.finish().map_err(std::io::Error::from).map_err(Error::io),
+            StreamEncoder::Lz4(encoder) => encoder
+                .finish()
+                .map_err(std::io::Error::from)
+                .map_err(Error::io),
             // `into_inner` finishes the brotli stream on the way out, swallowing a final-flush
             // error: by then every content byte has already gone through `write`, which is where
             // a broken sink reports itself.
@@ -227,7 +234,11 @@ impl<W: Write + Seek + 'static> EntryWriter<W> for SingleStreamWriter<W> {
             return Err(Error::malformed("the stream writer is closed"));
         }
         self.entries += 1;
-        Ok(Box::new(SingleEntrySink { writer: self, written: 0, closed: false }))
+        Ok(Box::new(SingleEntrySink {
+            writer: self,
+            written: 0,
+            closed: false,
+        }))
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -266,8 +277,13 @@ impl<W: Write + Seek + 'static> EntryWriter<W> for SingleStreamWriter<W> {
         // The exception lib.rs allows: unreachable, and `into_sink` returns `W` so there is no
         // error to return. The sink is taken only by `finish`, and a caller holding this handle
         // has already been given the `Err` that says so.
-        #[allow(clippy::expect_used, reason = "unreachable: the sink is returned only after finish, whose failure is already reported")]
-        owned.sink.expect("the stream was finished before its sink was returned")
+        #[allow(
+            clippy::expect_used,
+            reason = "unreachable: the sink is returned only after finish, whose failure is already reported"
+        )]
+        owned
+            .sink
+            .expect("the stream was finished before its sink was returned")
     }
 }
 
@@ -281,7 +297,9 @@ struct SingleEntrySink<'a, W: Write + Seek + 'static> {
 impl<W: Write + Seek + 'static> Write for SingleEntrySink<'_, W> {
     fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
         if self.closed {
-            return Err(std::io::Error::other("this entry has already been finished"));
+            return Err(std::io::Error::other(
+                "this entry has already been finished",
+            ));
         }
         match self.writer.encoder.as_mut() {
             Some(encoder) => {
@@ -329,7 +347,9 @@ mod tests {
     use std::io::{Cursor, Read};
 
     fn payload() -> Vec<u8> {
-        (0..100_000u32).map(|value| ((value / 13) % 256) as u8).collect()
+        (0..100_000u32)
+            .map(|value| ((value / 13) % 256) as u8)
+            .collect()
     }
 
     /// Writes `payload` as `method` and reads it back, both through this crate.
@@ -398,8 +418,9 @@ mod tests {
     fn an_xz_stream_written_here_carries_the_magic_the_reader_detects() {
         let options = WriteOptions::default().with_compression(Compression::Xz);
         let sink = Cursor::new(Vec::new());
-        let mut writer = ArchiveWriter::create(sink, Format::SingleStream(Compression::Xz), &options)
-            .expect("an xz writer");
+        let mut writer =
+            ArchiveWriter::create(sink, Format::SingleStream(Compression::Xz), &options)
+                .expect("an xz writer");
         writer
             .write_entry_from_slice(&NewEntry::file("a"), b"hello")
             .expect("write");
@@ -429,7 +450,11 @@ mod tests {
                 Ok(_) => panic!("{method} has no encoder and must not create a writer"),
                 Err(error) => error,
             };
-            assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented, "{method}: {error}");
+            assert_eq!(
+                error.kind(),
+                crate::error::ErrorKind::Unimplemented,
+                "{method}: {error}"
+            );
         }
     }
 
@@ -457,11 +482,13 @@ mod tests {
     fn a_directory_is_refused_rather_than_flattened_into_bytes() {
         let options = WriteOptions::default().with_compression(Compression::Xz);
         let sink = Cursor::new(Vec::new());
-        let mut writer = ArchiveWriter::create(sink, Format::SingleStream(Compression::Xz), &options)
-            .expect("a writer");
-        let error = match writer
-            .write_entry(&NewEntry::directory("dir").with_size(0), &mut std::io::empty())
-        {
+        let mut writer =
+            ArchiveWriter::create(sink, Format::SingleStream(Compression::Xz), &options)
+                .expect("a writer");
+        let error = match writer.write_entry(
+            &NewEntry::directory("dir").with_size(0),
+            &mut std::io::empty(),
+        ) {
             Ok(()) => panic!("a directory has no bytes and must be refused"),
             Err(error) => error,
         };
@@ -509,7 +536,10 @@ mod tests {
                 .expect("open")
                 .read_to_end(&mut got)
                 .expect("read");
-            assert!(got.is_empty(), "{method} wrote an empty stream with trailing bytes");
+            assert!(
+                got.is_empty(),
+                "{method} wrote an empty stream with trailing bytes"
+            );
         }
     }
 

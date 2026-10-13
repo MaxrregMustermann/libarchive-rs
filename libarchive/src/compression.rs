@@ -37,7 +37,9 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
         // for a file, and the wrong one here: it is exactly the `BufReader` whose 8 KiB refill
         // made the previous implementation read 54.6 MB instead of 411 KB. A single 128 KiB
         // refill costs the same in syscalls and eight times less in discarded bytes.
-        Compression::Deflate64 => Ok(Box::new(deflate64::Deflate64Decoder::new(BigBufReader::new(input)))),
+        Compression::Deflate64 => Ok(Box::new(deflate64::Deflate64Decoder::new(
+            BigBufReader::new(input),
+        ))),
         Compression::Bzip2 => Ok(Box::new(bzip2::read::BzDecoder::new(input))),
         // LZMA is its own container: the properties byte and the dictionary size are a header
         // before the compressed data, so the decoder is constructed over the whole bounded entry
@@ -68,9 +70,9 @@ pub fn decode(method: Compression, input: Box<dyn Read + Send>) -> Result<Box<dy
         ))),
         // PPMd's 7Z variant is driven by the 7Z coder chain, which needs the model properties as
         // well as the data.
-        Compression::Ppmd | Compression::Unknown(_) => {
-            Err(Error::unimplemented(format!("{method} cannot be decoded by this build")))
-        }
+        Compression::Ppmd | Compression::Unknown(_) => Err(Error::unimplemented(format!(
+            "{method} cannot be decoded by this build"
+        ))),
         // Unix `compress` is LZW with block padding, decoded streaming by `crate::zlzw` so that
         // a large `.Z` costs the dictionary rather than the file.
         Compression::Z => Ok(Box::new(crate::zlzw::ZDecoder::new(input))),
@@ -109,10 +111,14 @@ pub fn encode(
             sink,
             bzip2::Compression::new(level.clamp(1, 9)),
         ))),
-        Compression::Zstd => Box::new(Encoder::new(zstd::stream::write::Encoder::new(
-            sink,
-            level.clamp(1, 19) as i32,
-        )?)),
+        // Without a checksum flag a Zstd frame cannot be told apart from a damaged one, and the
+        // reference implementation writes none by default. Ask for one explicitly so files written
+        // through this crate let `decode` reject corruption instead of handing back wrong bytes.
+        Compression::Zstd => {
+            let mut encoder = zstd::stream::write::Encoder::new(sink, level.clamp(1, 19) as i32)?;
+            encoder.include_checksum(true)?;
+            Box::new(Encoder::new(encoder))
+        }
         other => {
             return Err(Error::unimplemented(format!(
                 "{other} cannot be encoded by this build"
@@ -150,16 +156,18 @@ impl<E: Finishable> Write for Encoder<E> {
         // has no way to say "you already closed this" other than an error. `io::Error::other`
         // carries it as an ordinary write failure, which is what keeps the no-panic promise: a
         // writer used after being finished gets an `Err`, not an abort across the JNI boundary.
-        let inner = self.inner.as_mut().ok_or_else(|| {
-            std::io::Error::other("write called after the encoder was finished")
-        })?;
+        let inner = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("write called after the encoder was finished"))?;
         inner.write(buffer)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        let inner = self.inner.as_mut().ok_or_else(|| {
-            std::io::Error::other("flush called after the encoder was finished")
-        })?;
+        let inner = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("flush called after the encoder was finished"))?;
         inner.flush()
     }
 }
@@ -168,9 +176,10 @@ impl<E: Finishable> Encoded for Encoder<E> {
     fn finish(mut self: Box<Self>) -> Result<()> {
         // `take` rather than a borrow, so the encoder is left empty and a second `finish` finds
         // nothing here and says so, rather than finishing a codec twice.
-        let inner = self.inner.take().ok_or_else(|| {
-            Error::malformed("the encoder was already finished")
-        })?;
+        let inner = self
+            .inner
+            .take()
+            .ok_or_else(|| Error::malformed("the encoder was already finished"))?;
         inner.finish_into()
     }
 }
@@ -238,7 +247,12 @@ struct BigBufReader {
 
 impl BigBufReader {
     fn new(inner: Box<dyn Read + Send>) -> BigBufReader {
-        BigBufReader { inner, buffer: vec![0; BIG_BUFFER], start: 0, end: 0 }
+        BigBufReader {
+            inner,
+            buffer: vec![0; BIG_BUFFER],
+            start: 0,
+            end: 0,
+        }
     }
 }
 
@@ -312,7 +326,10 @@ mod tests {
 
     impl SharedCell {
         fn take(&self) -> Vec<u8> {
-            self.0.lock().map(|mut inner| std::mem::take(&mut *inner)).unwrap_or_default()
+            self.0
+                .lock()
+                .map(|mut inner| std::mem::take(&mut *inner))
+                .unwrap_or_default()
         }
     }
 
@@ -333,14 +350,25 @@ mod tests {
 
     fn payload() -> Vec<u8> {
         // Compressible rather than random, so a codec that silently does nothing is caught.
-        (0..200_000u32).map(|value| ((value / 97) % 256) as u8).collect()
+        (0..200_000u32)
+            .map(|value| ((value / 97) % 256) as u8)
+            .collect()
     }
 
     #[test]
     fn every_encodable_method_round_trips_its_own_output() {
         let bytes = payload();
-        for method in [Compression::None, Compression::Deflate, Compression::Bzip2, Compression::Zstd] {
-            assert_eq!(round_trip(method, 6, &bytes), bytes, "{method} did not round trip");
+        for method in [
+            Compression::None,
+            Compression::Deflate,
+            Compression::Bzip2,
+            Compression::Zstd,
+        ] {
+            assert_eq!(
+                round_trip(method, 6, &bytes),
+                bytes,
+                "{method} did not round trip"
+            );
         }
     }
 
@@ -363,10 +391,13 @@ mod tests {
         // entry, of which one byte is read, must not cost 32 MiB of reads: a decoder that
         // materialised the entry first would have pulled every compressed byte, and one that
         // wrapped its input in an 8 KiB `BufReader` would have pulled at least that much.
-        let bytes: Vec<u8> = (0..32 * 1024 * 1024u32).map(|value| ((value / 7) % 256) as u8).collect();
+        let bytes: Vec<u8> = (0..32 * 1024 * 1024u32)
+            .map(|value| ((value / 7) % 256) as u8)
+            .collect();
         let sink = SharedCell::default();
         {
-            let mut encoder = encode(Compression::Deflate, Box::new(sink.clone()), 1).expect("encoder");
+            let mut encoder =
+                encode(Compression::Deflate, Box::new(sink.clone()), 1).expect("encoder");
             encoder.write_all(&bytes).expect("write");
             encoder.finish().expect("finish");
         }
@@ -394,10 +425,7 @@ mod tests {
     }
 
     impl<R: Read> CountingReader<R> {
-        fn new(
-            inner: R,
-            seen: std::sync::Arc<std::sync::Mutex<usize>>,
-        ) -> CountingReader<R> {
+        fn new(inner: R, seen: std::sync::Arc<std::sync::Mutex<usize>>) -> CountingReader<R> {
             CountingReader { inner, seen }
         }
     }
@@ -432,7 +460,10 @@ mod tests {
             assert!(can_decode(method), "{method} should be decodable");
         }
         for method in [Compression::Unknown(9999), Compression::Ppmd] {
-            assert!(!can_decode(method), "{method} should not claim to be decodable");
+            assert!(
+                !can_decode(method),
+                "{method} should not claim to be decodable"
+            );
         }
     }
 
@@ -441,16 +472,18 @@ mod tests {
         let bytes = vec![0u8; 16];
         for method in [Compression::Lzma2, Compression::Ppmd] {
             let error = match decode(method, Box::new(Cursor::new(bytes.clone()))) {
-            Ok(_) => panic!("{method} should have no raw decoder"),
-            Err(error) => error,
-        };
+                Ok(_) => panic!("{method} should have no raw decoder"),
+                Err(error) => error,
+            };
             assert_eq!(error.kind(), crate::error::ErrorKind::Unimplemented);
         }
     }
 
     #[test]
     fn the_big_buffer_reader_serves_large_reads_without_throwing_bytes_away() {
-        let bytes: Vec<u8> = (0..BIG_BUFFER * 2).map(|value| (value % 256) as u8).collect();
+        let bytes: Vec<u8> = (0..BIG_BUFFER * 2)
+            .map(|value| (value % 256) as u8)
+            .collect();
         let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let mut out = Vec::new();
         BigBufReader::new(Box::new(CountingReader::new(
