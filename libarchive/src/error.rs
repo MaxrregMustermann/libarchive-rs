@@ -74,6 +74,18 @@ impl Error {
             // An unexpected end of file is the single most common way an archive turns out to be
             // malformed, and it reads much better if it is called that.
             std::io::ErrorKind::UnexpectedEof => ErrorKind::Malformed,
+            // `InvalidData` and `InvalidInput` are how the third-party codecs report "the bytes
+            // are wrong" across the `Read` boundary, because `io::Error` has no richer kind.
+            // Turning them back into `Malformed` here is what lets a caller of
+            // [`ArchiveReader::open_entry`] tell a corrupt entry from a failing disk without
+            // matching on a message. The flate2 family uses `InvalidInput` for a corrupt deflate
+            // stream and `InvalidData` for a CRC mismatch; a ZIP entry that fails either reads as
+            // `Malformed`, on the same footing.
+            //
+            // [`ArchiveReader::open_entry`]: crate::reader::ArchiveReader::open_entry
+            std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput => {
+                ErrorKind::Malformed
+            }
             _ => ErrorKind::Io,
         };
         Error {
@@ -199,6 +211,30 @@ mod tests {
         ));
         assert_eq!(error.kind(), ErrorKind::Malformed);
         assert!(error.kind().is_worth_retrying());
+    }
+
+    #[test]
+    fn invalid_data_across_a_read_boundary_reads_as_malformed() {
+        // This is how a per-format decoder reports a CRC mismatch or any other "the bytes are
+        // wrong" failure from inside a `Read`, where the only type available is `io::Error`.
+        let error = Error::io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "the CRC did not match",
+        ));
+        assert_eq!(error.kind(), ErrorKind::Malformed);
+        assert!(error.message().contains("CRC"));
+    }
+
+    #[test]
+    fn invalid_input_from_a_codec_reads_as_malformed() {
+        // `flate2` reports a corrupt deflate stream as `InvalidInput`, and a decoder failing on
+        // bad bytes has to read as `Malformed`, not as a caller bug.
+        let error = Error::io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "corrupt deflate stream",
+        ));
+        assert_eq!(error.kind(), ErrorKind::Malformed);
+        assert!(error.message().contains("deflate"));
     }
 
     #[test]

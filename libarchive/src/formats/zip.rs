@@ -555,7 +555,9 @@ fn parse_central_directory(bytes: &[u8], limits: &Limits) -> Result<Vec<CentralR
             || local_header_offset == 0xFFFF_FFFF
         {
             let payload = zip64_payload(extra).ok_or_else(|| {
-                Error::malformed("a central record uses the ZIP64 sentinel but carries no 0x0001 extra field")
+                Error::malformed(
+                    "a central record uses the ZIP64 sentinel but carries no 0x0001 extra field",
+                )
             })?;
             let mut cursor = 0usize;
             if uncompressed_size == 0xFFFF_FFFF {
@@ -657,6 +659,11 @@ pub mod entry_reader {
     use super::*;
 
     /// Decodes one entry, streaming, and checks the CRC when the entry ends.
+    ///
+    /// The CRC is fed every byte as it streams past, so verifying the entry costs one 32-bit
+    /// running sum and never a second buffer of the entry. The central directory's CRC is the
+    /// whole-file integrity field the format already carries; without this check a flipped byte
+    /// inside an entry's data reads back as the right number of wrong bytes and reports success.
     pub struct EntryDecoder {
         inner: Box<dyn Read + Send>,
         /// What is left of the entry, when the archive said.
@@ -664,7 +671,8 @@ pub mod entry_reader {
         produced: u64,
         expected_crc: u32,
         expected_size: Option<u64>,
-        checksums: bool,
+        /// The CRC-32 of everything produced so far, updated on every read.
+        hasher: crc32fast::Hasher,
         checked: bool,
     }
 
@@ -732,9 +740,49 @@ pub mod entry_reader {
                 produced: 0,
                 expected_crc,
                 expected_size,
-                checksums: true,
+                hasher: crc32fast::Hasher::new(),
                 checked: false,
             })
+        }
+
+        /// Ends the entry: refuses a short entry, then compares the CRC.
+        ///
+        /// Called exactly once, when the codec reports end-of-stream or the recorded size is
+        /// reached. A short entry and a CRC mismatch are both `InvalidData`, which the crate
+        /// reports as [`ErrorKind::Malformed`](crate::error::ErrorKind::Malformed), but the
+        /// messages differ so a caller can tell "damaged" from "truncated".
+        fn finish(&mut self) -> io::Result<usize> {
+            self.checked = true;
+            if let Some(expected) = self.expected_size {
+                if self.produced < expected {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "the ZIP entry is truncated: {} bytes were read but the archive says {}",
+                            self.produced, expected
+                        ),
+                    ));
+                }
+            }
+            // A zero in the CRC field is how the format says "no CRC recorded": the only
+            // non-empty entries that carry one are WinZip AES's AE-2, which replaces the CRC with
+            // an HMAC (verified by the AES layer as the entry's bytes stream past) and writes
+            // zeroes in both headers on purpose. A truly empty entry also has CRC zero, and there
+            // is nothing to compare then. So the sentinel is skipped rather than treated as a
+            // guarantee that every entry's checksum is zero.
+            if self.expected_crc != 0 {
+                let actual = self.hasher.clone().finalize();
+                if actual != self.expected_crc {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "ZIP entry CRC is {actual:#010x} but the central directory says {expected:#010x}",
+                            expected = self.expected_crc
+                        ),
+                    ));
+                }
+            }
+            Ok(0)
         }
     }
 
@@ -753,16 +801,21 @@ pub mod entry_reader {
                 .remaining
                 .map_or(output.len(), |left| (left as usize).min(output.len()));
             if limit == 0 {
-                self.checked = true;
-                return Ok(0);
+                return self.finish();
             }
             let read = self.inner.read(&mut output[..limit])?;
+            if read == 0 {
+                // The codec stopped early, either where the entry really ends or because the file
+                // is truncated. `finish` decides which and checks the CRC.
+                return self.finish();
+            }
+            // The CRC is taken over the bytes *produced*, not the bytes read from the file, so it
+            // checks the decompressed contents on the same footing for a stored and a deflated
+            // entry.
+            self.hasher.update(&output[..read]);
             self.produced += read as u64;
             if let Some(left) = self.remaining.as_mut() {
                 *left -= read as u64;
-            }
-            if read == 0 {
-                self.checked = true;
             }
             Ok(read)
         }
