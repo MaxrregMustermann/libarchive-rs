@@ -68,6 +68,8 @@ pub struct SingleStreamReader<R: Read + Seek + Send + 'static> {
     compression: Compression,
     entries: Vec<Entry>,
     limits: Limits,
+    /// The CRC-32 the footer promises, checked as the entry's bytes stream past.
+    expected: Option<u32>,
 }
 
 impl<R: Read + Seek + Send + 'static> SingleStreamReader<R> {
@@ -97,6 +99,14 @@ impl<R: Read + Seek + Send + 'static> SingleStreamReader<R> {
         if let Some(size) = size {
             options.limits.check_entry_size(Some(size))?;
         }
+        // gzip alone records the whole file's CRC-32 and length in its footer. The codec checks
+        // them only when the stream is read to the very end, but an entry reader that has been
+        // handed a declared size stops at that size and never touches the footer — which is how a
+        // flipped byte inside the data could stream back as the right length of wrong bytes with
+        // no error. The reader checks the footer itself over the bytes as they stream past, on
+        // the same footing as the ZIP reader checks its central directory, so a gzip whose data
+        // no longer matches its footer is refused once the entry is read to its end.
+        let expected = recorded_crc(compression, &tail);
         let entry = Entry {
             name: normalise_name(SINGLE_ENTRY_NAME),
             kind: EntryKind::File,
@@ -113,7 +123,22 @@ impl<R: Read + Seek + Send + 'static> SingleStreamReader<R> {
             compression,
             entries: vec![entry],
             limits: options.limits.clone(),
+            expected,
         }))
+    }
+}
+
+/// The whole-file CRC a stream's footer records, so the reader can check it.
+///
+/// gzip is the one single-stream format here that records a CRC over the whole output; bzip2, xz,
+/// zstd, lz4 and brotli check their own integrity inside the decoder as the bytes stream past, so
+/// they have a checked `None` here rather than a second lazy promise.
+fn recorded_crc(compression: Compression, tail: &[u8]) -> Option<u32> {
+    match compression {
+        // The last eight bytes are CRC-32 followed by ISIZE. A NUL CRC is not a real one for any
+        // non-trivial contents, so a damaged footer refuses rather than silently passing.
+        Compression::Gzip => u32_at(tail, tail.len().checked_sub(8)?).filter(|crc| *crc != 0),
+        _ => None,
     }
 }
 
@@ -138,6 +163,9 @@ impl<R: Read + Seek + Send + 'static> EntrySource<R> for SingleStreamReader<R> {
             inner: decoded,
             expected: entry.size,
             produced: 0,
+            expected_crc: self.expected,
+            hasher: crc32fast::Hasher::new(),
+            checked: false,
         })))
     }
 
@@ -167,11 +195,87 @@ pub struct SingleEntry {
     inner: Box<dyn Read + Send>,
     expected: Option<u64>,
     produced: u64,
+    /// The CRC-32 the footer promises, when the stream records one. Only gzip does.
+    expected_crc: Option<u32>,
+    /// The CRC of everything produced so far, updated on every read.
+    hasher: crc32fast::Hasher,
+    checked: bool,
+}
+
+impl SingleEntry {
+    /// Ends the entry: refuses a short stream, then compares the footer's CRC.
+    ///
+    /// Called exactly once, when the codec reports end-of-stream. Without it a gzip whose data
+    /// byte was flipped reads back as the right number of wrong bytes with no error, because the
+    /// codec only checks its footer if the stream is drained to the very end. Reported as
+    /// [`ErrorKind::Malformed`](crate::error::ErrorKind::Malformed) with a message naming the
+    /// promised and the actual CRC.
+    fn finish(&mut self) -> std::io::Result<usize> {
+        self.checked = true;
+        if let Some(expected) = self.expected {
+            if self.produced < expected {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "the gzip stream is truncated: {} bytes were read but the footer says {}",
+                        self.produced, expected
+                    ),
+                ));
+            }
+        }
+        if let Some(expected) = self.expected_crc {
+            let actual = self.hasher.clone().finalize();
+            if actual != expected {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "gzip stream CRC is {actual:#010x} but the footer says {expected:#010x}"
+                    ),
+                ));
+            }
+        }
+        Ok(0)
+    }
+
+    /// Ends the entry at the declared size, before the codec reports end-of-stream.
+    ///
+    /// gzip's footer records the *last* member's size and CRC, so a stream that decodes more than
+    /// the declared size is a concatenation of members whose footer describes only its last one,
+    /// and comparing it against the whole output would refuse a healthy file. A single member is
+    /// told apart from many by draining the codec to its end and counting the extra bytes: a
+    /// single member has already produced everything its footer describes, so nothing follows,
+    /// while further members add data.
+    ///
+    /// The drain is not optional bookkeeping. A damaged member is only refused when the codec
+    /// reaches that member's footer, and the footer can sit arbitrarily far past the declared
+    /// size — a flipped byte can make the stream decode *longer* than it promised, so stopping
+    /// after one extra byte would miss it. Draining to the end is what lets the codec verify every
+    /// member's footer, and its error is the one propagated here.
+    fn finish_at_declared_size(&mut self) -> std::io::Result<usize> {
+        let mut extra: u64 = 0;
+        let mut scratch = [0u8; 8192];
+        loop {
+            match self.inner.read(&mut scratch) {
+                Ok(0) => break,
+                Ok(read) => extra += read as u64,
+                Err(error) => return Err(error),
+            }
+        }
+        if extra == 0 {
+            // Exactly one member, and the codec has just consumed and checked its footer.
+            return self.finish();
+        }
+        // A concatenation of members: the footer describes only the last, so the whole-output CRC
+        // is not the footer's to compare, but the codec checked each member's own footer in the
+        // drain above. A multi-member stream still stops at the declared size, as it always has.
+        self.checked = true;
+        Ok(0)
+    }
 }
 
 impl Read for SingleEntry {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        if output.is_empty() {
+        if output.is_empty() || self.checked {
             return Ok(0);
         }
         // A format that records its size is never allowed to produce more than it says. Trailing
@@ -181,13 +285,19 @@ impl Read for SingleEntry {
             Some(expected) => {
                 let left = expected.saturating_sub(self.produced);
                 if left == 0 {
-                    return Ok(0);
+                    return self.finish_at_declared_size();
                 }
                 output.len().min(left as usize)
             }
             None => output.len(),
         };
         let read = self.inner.read(&mut output[..wanted])?;
+        if read == 0 {
+            return self.finish();
+        }
+        // The CRC is over the bytes produced, not the bytes read from the file, so a stored byte
+        // and a decompressed byte are checked on the same footing.
+        self.hasher.update(&output[..read]);
         self.produced += read as u64;
         Ok(read)
     }
@@ -321,7 +431,7 @@ mod tests {
 
     /// Compresses `payload` with `method` and returns the bytes.
     fn compress(method: Compression, payload: &[u8]) -> Vec<u8> {
-        let mut sink = SharedCell::default();
+        let sink = SharedCell::default();
         {
             let mut encoder = compression::encode(method, Box::new(sink.clone()), 6)
                 .expect("this method has an encoder");
@@ -390,7 +500,7 @@ mod tests {
         // XZ is the one container here rather than a raw codec, and it is the format Android
         // itself uses, so it has to work in its own right and not only inside a TAR.
         let bytes = payload();
-        let mut sink = SharedCell::default();
+        let sink = SharedCell::default();
         {
             let mut encoder =
                 lzma_rust2::XzWriter::new(Box::new(sink.clone()), lzma_rust2::XzOptions::default())
@@ -429,7 +539,10 @@ mod tests {
         // Wrap it as gzip: deflate data with a gzip header and footer.
         let mut gzip = vec![0x1F, 0x8B, 0x08, 0, 0, 0, 0, 0, 0, 0xFF];
         gzip.extend_from_slice(&compressed);
-        gzip.extend_from_slice(&0u32.to_le_bytes()); // CRC, not verified by the reader.
+        // A zero CRC is the format's "not recorded" sentinel, which this test leans on to check
+        // the size alone. `a_gzip_whose_data_no_longer_matches_its_footer_is_refused` exercises a
+        // real one.
+        gzip.extend_from_slice(&0u32.to_le_bytes());
         gzip.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
 
         let reader = ArchiveReader::open_as(
@@ -489,5 +602,67 @@ mod tests {
         assert_eq!(recorded_size(Compression::Gzip, &[0, 0, 0, 0]), None);
         assert_eq!(recorded_size(Compression::Gzip, &[0x10, 0, 0, 0]), Some(16));
         assert_eq!(recorded_size(Compression::Bzip2, &[0x10, 0, 0, 0]), None);
+    }
+
+    /// Wraps raw deflate bytes as a gzip member with the real CRC and ISIZE, so a test can damage
+    /// the data while leaving the footer saying what it first promised.
+    fn gzip(payload: &[u8]) -> Vec<u8> {
+        let deflated = compress(Compression::Deflate, payload);
+        let mut stream = vec![0x1F, 0x8B, 0x08, 0, 0, 0, 0, 0, 0, 0xFF];
+        stream.extend_from_slice(&deflated);
+        stream.extend_from_slice(&crc32fast::hash(payload).to_le_bytes());
+        stream.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        stream
+    }
+
+    /// Reads the single entry, mapping the stream's `io::Error` through this crate's error type so
+    /// the kind is `ErrorKind::Malformed` and not a bare `io::ErrorKind`.
+    fn read_single(bytes: Vec<u8>, method: Compression) -> Result<Vec<u8>, crate::error::Error> {
+        let mut reader = ArchiveReader::open_as(
+            Cursor::new(bytes),
+            crate::format::Format::SingleStream(method),
+            &OpenOptions::default(),
+        )?;
+        let mut stream = reader.open_entry(0)?;
+        let mut got = Vec::new();
+        stream
+            .read_to_end(&mut got)
+            .map_err(crate::error::Error::io)?;
+        Ok(got)
+    }
+
+    /// A `.gz` whose data no longer matches its footer is refused, not read as wrong bytes.
+    ///
+    /// This is the single-stream half of the ZIP hole: the reader used to stop at the declared
+    /// size and never drain the member, so the codec's own footer check could not run. The footer
+    /// is now checked over the bytes as they stream past.
+    #[test]
+    fn a_gzip_whose_data_no_longer_matches_its_footer_is_refused() {
+        let plain: Vec<u8> = b"the quick brown fox 0123456789\n".repeat(64);
+        let good = gzip(&plain);
+        assert_eq!(
+            read_single(good.clone(), Compression::Gzip).expect("the intact stream reads"),
+            plain
+        );
+
+        // The deflate data is everything between the 10-byte header and the 8-byte footer.
+        let start = 10;
+        let end = good.len() - 8;
+        assert!(end > start + 8, "the fixture should hold real deflate data");
+        for offset in start..end {
+            let mut bad = good.clone();
+            bad[offset] ^= 0xFF;
+            match read_single(bad, Compression::Gzip) {
+                Err(error) => assert_eq!(
+                    error.kind(),
+                    crate::error::ErrorKind::Malformed,
+                    "a flipped byte at {offset} must read as Malformed, got {error}"
+                ),
+                Ok(got) => assert_eq!(
+                    got, plain,
+                    "flipping gzip byte {offset} changed the entry's contents with no error"
+                ),
+            }
+        }
     }
 }
