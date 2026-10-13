@@ -1,4 +1,4 @@
-//! The three workloads the app actually does, timed the same way on a workstation and on a phone.
+//! The app's workloads, timed the same way on a workstation and on a phone.
 //!
 //! Run it on the host:
 //!
@@ -9,7 +9,7 @@
 //! ```
 //!
 //! A third argument selects one workload, which is what you want under a profiler: profiling all
-//! three together reports the sum, and the sum is dominated by whichever is slowest.
+//! of them together reports the sum, and the sum is dominated by whichever is slowest.
 //!
 //! ```text
 //! bench_workloads <big.zip> <solid.7z> write     # only the writer, so perf attributes cleanly
@@ -23,21 +23,36 @@
 //!
 //! # What this measures, and what it deliberately does not
 //!
-//! The workloads are the three a file manager spends its time on, in the order a user meets them:
+//! The workloads are the ones a file manager spends its time on, in the order a user meets them:
 //!
 //! 1. **list** — open an archive and walk its entry list. This is what happens when a user taps
-//!    a folder. It is the one that has to be fast on a 700 MB archive, because it gates
-//!    everything after it.
-//! 2. **extract 7z** — read every entry out of a solid 7Z, in order, through the public `Read`.
+//!    a folder. It has to be fast on a large archive, because it gates everything after it.
+//! 2. **first** — open an archive and get one byte of its largest entry: the wait between
+//!    tapping an entry and seeing the first line of it.
+//! 3. **read** — read every entry of the ZIP, in order. The other half of *list*: *list* touches
+//!    the central directory and nothing else, so the ratio between the two is how much of the
+//!    cost is index and how much is payload.
+//! 4. **extract 7z** — read every entry out of a solid 7Z, in order, through the public `Read`.
 //!    Solid blocks are the case where holding the archive open is worth real time, and this is
 //!    the only workload that can show whether it still is.
-//! 3. **write zip** — write 5,000 small entries. What happens when a user selects a folder and
+//! 5. **write zip** — write 5,000 small entries. What happens when a user selects a folder and
 //!    taps compress.
+//!
+//! **1 and 2 are a pair, not two numbers.** A listing is fast because it reads the index and
+//! nothing else. A listing that is fast because it read the whole archive into a buffer would be
+//! fast in the wrong way, so the listing reports bytes-read, and the *first* number is the same
+//! idea from the other end. Quoting either without the other is how a 238 MiB archive comes to be
+//! described as a fast one.
 //!
 //! Each reports a **minimum of N runs**, not a mean. The reason is that every number this
 //! program prints is meant to be compared against another number from another machine, and a
 //! mean on a loaded machine is a statement about the machine. The minimum is the closest thing
 //! to "what this costs when nothing else is happening", which is the thing being compared.
+//!
+//! `read` is the one workload that runs twice rather than five times: it moves 583.7 MiB of
+//! payload, so on a phone-like machine a single run is already tens of seconds. That makes it
+//! the one number here whose minimum is over fewer samples, and the banner says so rather than
+//! leaving the reader to assume all five are equal.
 //!
 //! ## Why there is no assertion in here
 //!
@@ -55,8 +70,8 @@
 //! run says so, because a fixture its own author produced does not measure anything.
 
 use std::fs::File;
+use std::io::Cursor;
 use std::io::Read;
-use std::io::{Cursor, Write};
 use std::time::{Duration, Instant};
 
 use libarchive::{
@@ -72,7 +87,9 @@ const PROFILE_RUNS: usize = 40;
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.len() < 2 {
-        eprintln!("usage: bench_workloads <big.zip> <solid.7z> [list|extract|write|all]");
+        eprintln!(
+            "usage: bench_workloads <big.zip> <solid.7z> [list|first|read|extract|write|all]"
+        );
         eprintln!("see the module documentation for what each number means");
         std::process::exit(2);
     }
@@ -84,8 +101,13 @@ fn main() {
     // right one is worse than no profile.
     let selected = arguments.get(2).map(String::as_str).unwrap_or("all");
     let wanted = |name: &str| matches!(selected, "all" | "any") || selected == name;
-    if !matches!(selected, "all" | "any" | "list" | "extract" | "write") {
-        eprintln!("unknown workload {selected:?}; expected list, extract, write or all");
+    if !matches!(
+        selected,
+        "all" | "any" | "list" | "first" | "read" | "extract" | "write"
+    ) {
+        eprintln!(
+            "unknown workload {selected:?}; expected list, first, read, extract, write or all"
+        );
         std::process::exit(2);
     }
     println!("  workload     {selected}");
@@ -108,8 +130,26 @@ fn main() {
         println!();
     }
 
+    if wanted("first") {
+        println!("--- 2. first: open an archive and get one byte of its largest entry ------");
+        match first_byte(zip, runs) {
+            Ok(line) => println!("{line}"),
+            Err(error) => println!("SKIPPED: {error}"),
+        }
+        println!();
+    }
+
+    if wanted("read") {
+        println!("--- 3. read: every entry of the ZIP, in order -----------------------------");
+        match reading(zip, runs) {
+            Ok(line) => println!("{line}"),
+            Err(error) => println!("SKIPPED: {error}"),
+        }
+        println!();
+    }
+
     if wanted("extract") {
-        println!("--- 2. extract: every entry of a solid 7Z, in order ----------------------");
+        println!("--- 4. extract: every entry of a solid 7Z, in order ----------------------");
         match extracting(seven, runs) {
             Ok(line) => println!("{line}"),
             Err(error) => println!("SKIPPED: {error}"),
@@ -118,7 +158,7 @@ fn main() {
     }
 
     if wanted("write") {
-        println!("--- 3. write: 5,000 small entries -----------------------------------------");
+        println!("--- 5. write: 5,000 small entries -----------------------------------------");
         match writing(runs) {
             Ok(line) => println!("{line}"),
             Err(error) => println!("SKIPPED: {error}"),
@@ -202,6 +242,107 @@ fn listing(path: &str, runs: usize) -> Result<String, String> {
     Ok(format!(
                 "{:<22} {:>10.2} ms   {names} entries, {listed} B of names, detect={detected}, archive={bytes} B",
         "list",
+        ms(best),
+    ))
+}
+
+/// Open an archive and get one byte out of its largest entry.
+///
+/// What a user waits for between tapping an entry and seeing the first line of it. It is reported
+/// on the *largest* entry rather than the first one because the largest entry is the one with the
+/// most header and index work in front of the payload, so it is the pessimistic case; the name
+/// and the size of the entry that was actually used are printed so the number can be traced to a
+/// specific entry rather than to "the archive".
+///
+/// The fixture's largest entry is named in the output on purpose: the orchestrator's 64 MiB
+/// first-byte figure was taken on a different fixture, so quoting one next to the other without
+/// saying which is which would compare two different things.
+fn first_byte(path: &str, runs: usize) -> Result<String, String> {
+    let (mut best, mut entry_name, mut entry_size) = (Duration::MAX, String::new(), 0u64);
+    for _ in 0..runs {
+        let file = File::open(path).map_err(|error| format!("{path}: {error}"))?;
+        let reader = ArchiveReader::open(file, &OpenOptions::default())
+            .map_err(|error| error.to_string())?;
+        // Read the whole list every run rather than caching the index across runs: opening the
+        // archive is part of what is being measured, and a cached list would hide it.
+        // `Entry::size` is `Option`, because several legacy formats record no size at all; an
+        // archive whose entries all lack one has nothing to pick here, and saying so beats
+        // measuring the first entry in whatever order the archive happens to store.
+        let largest = (0..reader.len())
+            .map(|index| (index, reader.entries()[index].size.unwrap_or(0)))
+            .max_by_key(|(_, size)| *size)
+            .filter(|(_, size)| *size > 0)
+            .ok_or(format!(
+                "no entry of {path} records a size, so there is no largest one"
+            ))?;
+        let start = Instant::now();
+        let mut entry = reader
+            .open_entry(largest.0)
+            .map_err(|error| error.to_string())?;
+        let mut byte = [0u8; 1];
+        let read = entry.read(&mut byte).map_err(|error| error.to_string())?;
+        let elapsed = start.elapsed();
+        if read != 1 {
+            return Err(format!(
+                "the largest entry of {path} produced {read} bytes instead of 1"
+            ));
+        }
+        best = best.min(elapsed);
+        entry_name = reader.entries()[largest.0].name.clone();
+        entry_size = largest.1;
+    }
+    Ok(format!(
+        "{:<22} {:>10.2} us   1 B of {entry_name} ({entry_size} B entry)",
+        "first byte",
+        best.as_secs_f64() * 1_000_000.0,
+    ))
+}
+
+/// Read every entry of the ZIP, in archive order, through the public `Read`.
+///
+/// The other half of [listing]. Listing is cheap because it touches the central directory only;
+/// this touches every byte of every entry, so the ratio between the two is how much of the cost is
+/// index and how much is payload. It is the workload a user triggers by tapping extract on a
+/// folder, and it is the one where a solid archive's advantage either exists or does not.
+fn reading(path: &str, runs: usize) -> Result<String, String> {
+    // Two runs rather than five: this is 583.7 MiB of payload through a codec, so on a phone-like
+    // machine one run is already tens of seconds and five would dominate the whole invocation.
+    // The minimum of two is still a minimum, and the run count is printed in the banner above.
+    let (mut best, mut count, mut produced) = (Duration::MAX, 0usize, 0u64);
+    for _ in 0..runs {
+        let file = File::open(path).map_err(|error| format!("{path}: {error}"))?;
+        let start = Instant::now();
+        let mut reader = ArchiveReader::open(file, &OpenOptions::default())
+            .map_err(|error| error.to_string())?;
+        let mut buffer = vec![0u8; 128 * 1024];
+        let mut got = 0u64;
+        let mut read = 0usize;
+        for index in 0..reader.len() {
+            let mut entry = reader
+                .open_entry(index)
+                .map_err(|error| error.to_string())?;
+            loop {
+                let n = entry.read(&mut buffer).map_err(|error| error.to_string())?;
+                if n == 0 {
+                    break;
+                }
+                got += n as u64;
+            }
+            read += 1;
+        }
+        let elapsed = start.elapsed();
+        best = best.min(elapsed);
+        count = read;
+        produced = got;
+    }
+    let throughput = if best.as_secs_f64() > 0.0 {
+        produced as f64 / best.as_secs_f64() / (1024.0 * 1024.0)
+    } else {
+        0.0
+    };
+    Ok(format!(
+        "{:<22} {:>10.2} ms   {count} entries, {produced} B out, {throughput:.1} MiB/s",
+        "read all",
         ms(best),
     ))
 }
