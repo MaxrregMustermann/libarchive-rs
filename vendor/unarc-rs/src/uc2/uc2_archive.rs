@@ -277,11 +277,6 @@ impl<T: Read + Seek> Uc2Archive<T> {
         let offset = entry.location.offset as u64;
         let original_size = entry.original_size as usize;
 
-        eprintln!(
-            "📁 read(): compressed_len={}, offset={}, original_size={}",
-            compressed_len, offset, original_size
-        );
-
         self.reader.seek(SeekFrom::Start(offset))?;
         let compressed = crate::limits::read_exact_vec(&mut self.reader, compressed_len as u64)?;
 
