@@ -1620,7 +1620,10 @@ impl<T: Read + Seek> UnifiedArchive<T> {
                     Ok(Some(ArchiveEntry {
                         name: header.name.clone(),
                         compressed_size: 0, // SQ doesn't track compressed size
-                        original_size: 0,   // SQ doesn't track original size in header
+                        // The SQ format records no size in its header, but an SQ archive holds
+                        // exactly one file and get_next_entry decompresses it, so the true size
+                        // is known here rather than discoverable only after extraction.
+                        original_size: archive.entry_size(),
                         compression_method: "Squeezed".to_string(),
                         modified_time: None,
                         crc: header.checksum as u64,
