@@ -51,5 +51,21 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# The profile the JNI cdylib is actually built with, and the reason it exists.
+#
+# `panic = "abort"` above is right for the library: there is no boundary to unwind into, and abort
+# is smaller and faster. It is wrong for the cdylib, because a Rust panic that reaches an
+# `extern "system"` boundary on Android does not become a Java exception — it takes the process
+# down. Under abort, `guarded` in jni/src/lib.rs never gets to run: the abort happens first. That
+# was measured rather than assumed — see `cargo run --profile release-unwind --example panic_guard`,
+# which reports SIGABRT under this profile and "caught" under the one below.
+#
+# Measured cost of unwinding, x86 cdylib: 5599456 -> 6091732 bytes, +492276, +8.8%. The APK is
+# 46 MB, so this is 8.8% of one library in it. What it buys is that a malformed archive costs the
+# user an error message rather than every unsaved thing they had open.
+[profile.release-unwind]
+inherits = "release"
+panic = "unwind"
+
 [profile.bench]
 inherits = "release"

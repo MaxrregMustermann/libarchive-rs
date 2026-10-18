@@ -111,8 +111,14 @@ fn null_pointer() -> jlong {
 /// The lints at the top of this crate deny the ways a panic is written explicitly. This is the
 /// defence for the ones that arrive by any other route — an index miscalculated on corrupt input, an
 /// integer overflow in a debug build — so a corrupt archive costs one exception and not one process.
-/// In a `panic = "abort"` build the abort happens before this can run; there the lints are the only
-/// defence, which is why both exist.
+///
+/// **This is only true in the profile the cdylib is built with.** It is built with
+/// `release-unwind` (`panic = "unwind"`), because under `panic = "abort"` the abort happens before
+/// this can run and the guard is dead code. That was measured, not assumed: `cargo run --profile
+/// release --example panic_guard` dies with SIGABRT, and the same example under
+/// `--profile release-unwind` reports the panic caught. If you change which profile
+/// `app/build.gradle` builds this crate with, this function silently stops working and nothing
+/// will fail until a panic reaches the boundary on a device.
 fn guarded<T>(env: &mut JNIEnv, body: impl FnOnce(&mut JNIEnv) -> T) -> Option<T> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(env))) {
         Ok(value) => Some(value),
