@@ -30,6 +30,9 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+# The app repository. It is a separate checkout with its own trunk, so an agent working on the app
+# needs a worktree of *this* repo rather than of the library; `repo_of` decides which.
+APP_REPO = Path(os.environ.get("COLLECTIVE_APP_REPO", "/home/user/TheFileManager"))
 # The mail store lives outside the repository so that every agent's git worktree shares one copy.
 # A directory committed into the repo would be checked out separately into each worktree, and six
 # agents would then be reading six different inboxes.
@@ -166,6 +169,7 @@ def cmd_agent_add(args: argparse.Namespace) -> None:
         "team": args.team,
         "model": args.model,
         "role": args.role,
+        "repo": args.repo,
         "branch": f"agent/{args.name}",
         "worktree": str(WORKTREES / args.name),
         "joined": now(),
@@ -184,6 +188,17 @@ def cmd_agent_set_model(args: argparse.Namespace) -> None:
     agent["model"] = args.model
     save_registry(registry)
     print(f"{args.name} now runs {args.model}")
+
+
+def cmd_agent_set_repo(args: argparse.Namespace) -> None:
+    registry = load_registry()
+    agent = registry.get("agents", {}).get(args.name)
+    if agent is None:
+        die(f"no such agent: {args.name}")
+    agent["repo"] = args.repo
+    save_registry(registry)
+    _, trunk = repo_of(agent)
+    print(f"{args.name} works in the {args.repo} repository, branched from {trunk}")
 
 
 # ----------------------------------------------------------------------- mail
@@ -345,6 +360,42 @@ def cmd_job_show(args: argparse.Namespace) -> None:
 # -------------------------------------------------------------------- running
 
 
+def repo_of(agent: dict) -> tuple[Path, str]:
+    """Which repository an agent works in, and what its trunk branch is called.
+
+    There are two repositories in this project and they disagree about what their trunk is
+    called: the library's is `main` and the app's is `master`. Half the collective edits the
+    library and half edits the app, and an agent dispatched into the wrong one either works in a
+    checkout that is not theirs or - worse - commits app work into the library.
+    """
+    if agent.get("repo") == "app":
+        return APP_REPO, "master"
+    return REPO, "main"
+
+
+def worktree_holding(repo: Path, branch: str) -> Path | None:
+    """The worktree that already has `branch` checked out, if there is one.
+
+    An agent's branch is often created by hand or by an earlier wave, in a worktree whose path the
+    registry never learned. `git worktree add -B` refuses in that case, so the dispatcher has to ask
+    git rather than guess.
+    """
+    listing = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    ).stdout
+    current = None
+    for line in listing.splitlines():
+        if line.startswith("worktree "):
+            current = line.split(" ", 1)[1]
+        elif line.startswith("branch ") and current:
+            if line.split("refs/heads/", 1)[1] == branch:
+                return Path(current)
+    return None
+
+
 def ensure_worktree(agent: str, registry: dict) -> Path:
     """Gives an agent its own git worktree with the mail directory linked in.
 
@@ -353,13 +404,28 @@ def ensure_worktree(agent: str, registry: dict) -> Path:
     collective's shared state with a relative path, which survives being run
     from anywhere.
     """
-    path = WORKTREES / agent
+    record = registry["agents"][agent]
+    repo, trunk = repo_of(record)
+    # Reusing an existing worktree is not tidiness, it is the only safe option: `worktree add -B`
+    # resets the branch to the trunk, so pointing a dispatched agent at a fresh path for a branch
+    # that already has a worktree would either fail or throw away commits and uncommitted work.
+    path = next(
+        (
+            candidate
+            for candidate in (
+                Path(record.get("worktree") or ""),
+                worktree_holding(repo, record["branch"]),
+            )
+            if candidate.is_dir()
+        ),
+        None,
+    ) or (WORKTREES / agent)
+    record["worktree"] = str(path)
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        branch = registry["agents"][agent]["branch"]
         subprocess.run(
-            ["git", "worktree", "add", "-B", branch, str(path), "main"],
-            cwd=REPO,
+            ["git", "worktree", "add", "-B", record["branch"], str(path), trunk],
+            cwd=repo,
             check=True,
         )
     link = path / "coord"
@@ -382,7 +448,9 @@ def cmd_run(args: argparse.Namespace) -> None:
     run_id = f"R-{registry['_counters']['run']:04d}"
     save_registry(registry)
     log = COORD / "runs" / f"{run_id}-{args.agent}.log"
-    briefing = (COORD / "BRIEFING.md").read_text()
+    briefing = Path(args.briefing).read_text() if args.briefing else (
+        COORD / "BRIEFING.md"
+    ).read_text()
     job = ""
     if args.job:
         data = registry.get("jobs", {}).get(args.job)
@@ -401,8 +469,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         "run",
         "--model",
         agent["model"],
-        "--dir",
-        str(worktree),
+        # No --dir: opencode v2 dropped the flag, and passing it fails the whole run before the
+        # agent reads anything. The worktree is the process's working directory below, which is the
+        # same thing and cannot get out of step with it.
         "--agent",
         args.opencode_agent,
         prompt,
@@ -703,11 +772,21 @@ def main() -> None:
     agent_add.add_argument("--team", required=True)
     agent_add.add_argument("--model", required=True)
     agent_add.add_argument("--role", default="member")
+    agent_add.add_argument(
+        "--repo",
+        choices=("lib", "app"),
+        default="lib",
+        help="which repository this agent works in (lib defaults to libarchive-rs)",
+    )
     agent_add.set_defaults(func=cmd_agent_add)
     agent_model = agent.add_parser("set-model")
     agent_model.add_argument("name")
     agent_model.add_argument("--model", required=True)
     agent_model.set_defaults(func=cmd_agent_set_model)
+    agent_repo = agent.add_parser("set-repo")
+    agent_repo.add_argument("name")
+    agent_repo.add_argument("--repo", required=True, choices=("lib", "app"))
+    agent_repo.set_defaults(func=cmd_agent_set_repo)
     agent_address = agent.add_parser("address")
     agent_address.add_argument("agent")
     agent_address.set_defaults(func=cmd_mail_address)
@@ -758,6 +837,11 @@ def main() -> None:
     run.add_argument("--prompt-file", default=None)
     run.add_argument("--job", default=None)
     run.add_argument("--note", default="")
+    run.add_argument(
+        "--briefing",
+        default=None,
+        help="briefing file to prepend; the wave's own briefing, when the standing one is stale",
+    )
     run.add_argument("--opencode-agent", default="build")
     run.set_defaults(func=cmd_run)
 
