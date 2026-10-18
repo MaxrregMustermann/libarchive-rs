@@ -190,6 +190,51 @@ matching their vendored plaintext; ARC, ARJ, Ha, Hyp, LZH and SQ reach the right
 fail on this crate's listing loop. Being detectable is necessary and not sufficient, and the table
 above says which is which.
 
+## JNI panic behaviour
+
+The `jni` crate's `guarded` function at `jni/src/lib.rs:117` wraps the JNI boundary in
+`std::panic::catch_unwind` to convert a Rust panic into a thrown `IOException`.  However,
+the root `Cargo.toml` sets `panic = "abort"` under `[profile.release]`, which is the profile
+the app links.  Under `abort`, a panic aborts the process rather than unwinding, so
+`catch_unwind` never gets a chance to run — the guard is dead code in the build that ships.
+
+This matters because a panic crossing the JNI boundary on Android does not become a Java
+exception; it aborts the process.  The difference is an error message versus the user's app
+disappearing.  The clippy deny-lints (`clippy::unwrap_used`, `clippy::expect_used`,
+`clippy::panic`) cover the panics somebody wrote and not the ones an arithmetic overflow or
+index-out-of-bounds produces on input nobody imagined, which is why the guard exists at all.
+
+**As of `a816714` the guard is live.**  The cdylib is built with `release-unwind`, a profile
+that inherits `release` unchanged and only sets `panic = "unwind"`.  `panic = "abort"` stays
+in `[profile.release]` because it is right for the library itself: there is no boundary to
+unwind into, and aborting is smaller and faster.  It is only wrong for the cdylib, and only
+because of what is on the other side of the boundary.
+
+Measured, on the same shape as the real guard, around an index-out-of-bounds that the
+lints cannot catch:
+
+    cargo run --profile release        --example panic_guard
+      -> Aborted, exit 134 (SIGABRT), no output at all
+    cargo run --profile release-unwind --example panic_guard
+      -> "panic was caught by the guard", reaches the end of main, exit 0
+
+Cost of unwinding, x86 cdylib built both ways: 5599456 -> 6091732 bytes, +492276, +8.8%.
+
+**This cannot be checked with `cargo test`, and that is why it is an example.**  Cargo
+forces `-C panic=unwind` on test, bench and build-script targets whatever the profile says,
+so a test asserting this behaviour passes under both profiles and means nothing.  That is not
+a theoretical caution: a test asserting exactly this was written, passed, and was wrong.
+
+`app/build.gradle` passes `--profile release-unwind` and refuses to configure unless the
+workspace manifest has `[profile.release-unwind]` setting `panic = "unwind"`, because cargo
+accepts `--profile` with a name that does not exist and falls back to defaults, which would
+reset the panic strategy silently with every test still green.
+
+So the defences, in order of how much they can be relied on: the guard, then the lints, then
+the hostile-input sweep.  If the profile ever goes back to `abort`, the first of those three
+stops existing and nothing at build time will notice — which is what the build-file check is
+for.
+
 ## Limits (default)
 
 - Max entry size: 4 GiB
